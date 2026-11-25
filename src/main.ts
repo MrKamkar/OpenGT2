@@ -1,3 +1,6 @@
+import './ui/styles.css';
+import { AppStateMachine } from './app/appState';
+import { mountFileLoaderScreen, type FileMetaReadable } from './ui/fileLoaderScreen';
 import { createHealthWorker } from './workers/createHealthWorker';
 import type { HealthPingMessage, HealthPongMessage } from './workers/health.worker';
 
@@ -7,6 +10,23 @@ export function initApp(): void {
     return;
   }
   root.dataset['engine'] = 'opengt2';
+
+  const stateMachine = new AppStateMachine();
+
+  mountFileLoaderScreen({
+    container: root,
+    stateMachine,
+    onFileSelected(file: FileMetaReadable): void {
+      stateMachine.dispatch({
+        type: 'FILE_SELECTED',
+        file: { name: file.name, size: file.size },
+      });
+      stateMachine.dispatch({ type: 'LOAD_SUCCEEDED' });
+    },
+    onReset(): void {
+      stateMachine.dispatch({ type: 'RESET' });
+    },
+  });
 
   if (typeof Worker === 'undefined') {
     return;
