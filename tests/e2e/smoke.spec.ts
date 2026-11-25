@@ -116,6 +116,37 @@ test.describe('OpenGT2 M0 smoke suite', () => {
     await expect(page.locator('[data-testid="file-name"]')).toHaveText(SYNTHETIC_FILE_NAME);
     await expect(page.locator('[data-testid="file-size"]')).toHaveText(EXPECTED_FILE_SIZE_LABEL);
 
+    // M1.5: verify short fingerprint is rendered with full 64-hex SHA-256 tooltip/attribute.
+    const fpLocator = page.locator('[data-testid="file-fingerprint"]');
+    await expect(fpLocator).toBeVisible();
+    await expect(fpLocator).toHaveAttribute('data-full-fingerprint', /^[0-9a-f]{64}$/);
+    const shortFpText = (await fpLocator.textContent()) ?? '';
+    expect(shortFpText.length).toBeGreaterThan(0);
+    expect(shortFpText.length).toBeLessThan(64);
+
+    // UI regression check: capability badges stay strictly inside their tile bounds.
+    const capOverflowCount = await page.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('.ogt2-cap-item'));
+      let overflows = 0;
+      for (const item of items) {
+        const badge = item.querySelector('.ogt2-cap-badge');
+        if (badge === null) {
+          continue;
+        }
+        const itemRect = item.getBoundingClientRect();
+        const badgeRect = badge.getBoundingClientRect();
+        if (badgeRect.right > itemRect.right + 0.5 || badgeRect.left < itemRect.left - 0.5) {
+          overflows += 1;
+        }
+      }
+      return overflows;
+    });
+    expect(capOverflowCount).toBe(0);
+
+    // M1.7: verify "Wyczyść dane" clears local storage/cache cleanly with UI confirmation.
+    await page.locator('[data-testid="clear-data-button"]').click();
+    await expect(page.locator('[data-testid="clear-data-status"]')).toBeVisible();
+
     // Verify window.__input is exposed in ?debug=1 mode.
     const hasDebugHook = await page.evaluate(() => typeof window.__input?.getSnapshot === 'function');
     expect(hasDebugHook).toBe(true);

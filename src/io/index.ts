@@ -47,3 +47,19 @@ export {
   type ReopenStoredFileResult,
   type ShowOpenFilePickerFn,
 } from './fileHandleStore';
+export {
+  DEFAULT_IDB_CACHE_DB_NAME,
+  DEFAULT_IDB_CACHE_MAX_BYTES,
+  DEFAULT_IDB_CACHE_STORE_NAME,
+  DEFAULT_IDB_CACHE_VERSION,
+  IdbCache,
+  buildCacheKey,
+  createIndexedDbCacheBackend,
+  createMemoryIdbCacheBackend,
+  type IdbCacheBackend,
+  type IdbCacheEntryMeta,
+  type IdbCacheOptions,
+  type IdbCacheRecord,
+  type IdbCacheStats,
+  type IndexedDbCacheBackendOptions,
+} from './IdbCache';

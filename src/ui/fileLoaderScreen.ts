@@ -26,6 +26,7 @@ export interface RememberedFileInfo {
 
 export interface FileLoaderScreenHandle {
   setRememberedFile(info: RememberedFileInfo | null): void;
+  setClearDataStatus(message: string | null): void;
   dispose(): void;
 }
 
@@ -44,6 +45,10 @@ export interface FileLoaderScreenOptions {
    * Optional callback invoked when the user clicks to reopen a previously remembered FileSystemFileHandle.
    */
   readonly onReopenRememberedFile?: () => Promise<void>;
+  /**
+   * Optional callback invoked when the user clicks "Wyczyść dane" to purge local cache and saved file handle.
+   */
+  readonly onClearData?: () => Promise<void>;
 }
 
 interface CapabilityRow {
@@ -226,7 +231,33 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
   const capabilitiesSection = createCapabilitiesSection(capabilities);
 
-  card.append(header, dropzone, statusPanel, capabilitiesSection, legalFooter);
+  const storageSection = document.createElement('section');
+  storageSection.className = 'ogt2-storage';
+  storageSection.dataset['testid'] = 'local-storage-panel';
+
+  const storageRow = document.createElement('div');
+  storageRow.className = 'ogt2-storage-row';
+
+  const storageHint = document.createElement('p');
+  storageHint.className = 'ogt2-storage-hint';
+  storageHint.textContent = 'Lokalna pamięć podręczna i zapamiętany uchwyt pliku (IndexedDB).';
+
+  const clearDataButton = document.createElement('button');
+  clearDataButton.type = 'button';
+  clearDataButton.className = 'ogt2-button ogt2-button-subtle';
+  clearDataButton.dataset['testid'] = 'clear-data-button';
+  clearDataButton.textContent = 'Wyczyść dane';
+
+  const clearDataStatus = document.createElement('p');
+  clearDataStatus.className = 'ogt2-storage-status';
+  clearDataStatus.dataset['testid'] = 'clear-data-status';
+  clearDataStatus.setAttribute('aria-live', 'polite');
+  clearDataStatus.hidden = true;
+
+  storageRow.append(storageHint, clearDataButton);
+  storageSection.append(storageRow, clearDataStatus);
+
+  card.append(header, dropzone, statusPanel, capabilitiesSection, storageSection, legalFooter);
   overlay.append(card);
   container.append(overlay);
 
@@ -272,6 +303,35 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
       });
   };
 
+  const setClearDataStatus = (message: string | null): void => {
+    if (message === null || message.length === 0) {
+      clearDataStatus.hidden = true;
+      clearDataStatus.textContent = '';
+      return;
+    }
+    clearDataStatus.hidden = false;
+    clearDataStatus.textContent = message;
+  };
+
+  const onClearDataButtonClick = (): void => {
+    if (options.onClearData === undefined) {
+      setClearDataStatus('Wyczyszczono lokalne dane.');
+      return;
+    }
+    clearDataButton.disabled = true;
+    void options
+      .onClearData()
+      .then(() => {
+        setClearDataStatus('Wyczyszczono lokalną pamięć podręczną i zapamiętany uchwyt pliku.');
+      })
+      .catch(() => {
+        setClearDataStatus('Nie udało się wyczyścić wszystkich lokalnych danych.');
+      })
+      .finally(() => {
+        clearDataButton.disabled = false;
+      });
+  };
+
   const onFileInputChange = (): void => {
     const file = fileInput.files?.[0];
     handleSelectedFile(file);
@@ -313,6 +373,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
   selectButton.addEventListener('click', onSelectButtonClick);
   reopenButton.addEventListener('click', onReopenButtonClick);
+  clearDataButton.addEventListener('click', onClearDataButtonClick);
   fileInput.addEventListener('change', onFileInputChange);
   dropzone.addEventListener('dragenter', onDragEnter);
   dropzone.addEventListener('dragover', onDragOver);
@@ -465,10 +526,12 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
   return {
     setRememberedFile,
+    setClearDataStatus,
     dispose(): void {
       unsubscribe();
       selectButton.removeEventListener('click', onSelectButtonClick);
       reopenButton.removeEventListener('click', onReopenButtonClick);
+      clearDataButton.removeEventListener('click', onClearDataButtonClick);
       fileInput.removeEventListener('change', onFileInputChange);
       dropzone.removeEventListener('dragenter', onDragEnter);
       dropzone.removeEventListener('dragover', onDragOver);

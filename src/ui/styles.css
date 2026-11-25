@@ -62,7 +62,7 @@ body {
 }
 
 .ogt2-card {
-  width: min(560px, 100%);
+  width: min(620px, 100%);
   background: var(--ogt2-surface);
   border: 1px solid var(--ogt2-border);
   border-radius: 14px;
@@ -277,15 +277,17 @@ body {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 8px;
 }
 
 .ogt2-cap-item {
+  min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px 8px;
   padding: 8px 10px;
   border: 1px solid var(--ogt2-border);
   border-radius: 8px;
@@ -294,10 +296,15 @@ body {
 }
 
 .ogt2-cap-name {
+  min-width: 0;
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 
 .ogt2-cap-badge {
+  flex-shrink: 0;
+  margin-left: auto;
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
@@ -313,6 +320,42 @@ body {
 
 .ogt2-cap-badge.is-error {
   color: var(--ogt2-error);
+}
+
+.ogt2-storage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ogt2-storage-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ogt2-storage-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ogt2-muted);
+}
+
+.ogt2-button-subtle {
+  margin-top: 0;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+}
+
+.ogt2-storage-status {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ogt2-ok);
+}
+
+.ogt2-storage-status[hidden] {
+  display: none;
 }
 
 .ogt2-legal {

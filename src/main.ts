@@ -13,7 +13,9 @@ import {
 import { GlContext, WebGL2UnavailableError } from './renderer/GlContext';
 import {
   BlobByteSource,
+  DEFAULT_IDB_CACHE_VERSION,
   FileHandleStore,
+  IdbCache,
   fingerprint,
   pickVolFileWithHandle,
 } from './io';
@@ -142,6 +144,9 @@ export function initApp(): void {
   const fileHandleStore = new FileHandleStore({
     isSupported: () => capabilities.showOpenFilePicker,
   });
+  const idbCache = new IdbCache({
+    version: DEFAULT_IDB_CACHE_VERSION,
+  });
 
   const screen = mountFileLoaderScreen({
     container: root,
@@ -151,6 +156,10 @@ export function initApp(): void {
     onReset(): void {
       selectionGeneration += 1;
       stateMachine.dispatch({ type: 'RESET' });
+    },
+    async onClearData(): Promise<void> {
+      await Promise.all([idbCache.clear(), fileHandleStore.clearHandle()]);
+      screen.setRememberedFile(null);
     },
     async onPickFileWithHandle(): Promise<boolean> {
       try {
