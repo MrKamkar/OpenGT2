@@ -36,3 +36,16 @@ Chronological log of binary format investigations, reverse-engineering findings,
 - **Pewność:** N/A (zadania infrastrukturalne zamykające M0, brak parsowania formatów binarnych GT2).
 - **Konsekwencje dla kodu:** Domknięto cały Milestone M0; `InputManager` jest gotowy do użycia w M7–M10, a workflow CI automatycznie uruchomi `smoke-test` po każdym wdrożeniu na GitHub Pages.
 - **Otwarte pytania:** Potwierdzić pierwsze uruchomienie post-deploy joba `smoke-test` bezpośrednio na GitHub Actions po wypchnięciu gałęzi `main`.
+
+
+## 2026-11-25 — M1.1–M1.4 — Warstwa I/O (ByteSource, LRU 2048 B) oraz RPC i pula workerów
+- **Pytanie:** Jak zbudować bezkopiową, strumieniową warstwę dostępu do plików > 2 GiB (bez wczytywania całości do RAM) oraz typowany, testowalny w Node protokół RPC i priorytetową pulę workerów bez `SharedArrayBuffer` i bibliotek zewnętrznych?
+- **Metoda:** Implementacja `src/io/` (`ByteSource.ts`, `BlobByteSource.ts`, `BufferByteSource.ts`, `CachedByteSource.ts`, `index.ts`) i `src/workers/` (`rpc.ts`, `WorkerPool.ts`, `index.ts`) w ścisłym TypeScript oraz 28 nowych testów jednostkowych Vitest (`tests/unit/byteSource.test.ts`, `cachedByteSource.test.ts`, `rpc.test.ts`, `workerPool.test.ts`).
+- **Wynik:**
+  - `ByteSource` zachowuje dokładny kontrakt §4.2 (`size`, `read(start, end)`, `slice(start, end)`) z walidacją zakresów (`RangeError`), offsetami `number` (bez `bigint`) i bezkopiowym `slice()`. `BlobByteSource` korzysta wyłącznie z `Blob.slice` + `await arrayBuffer()` na strukturalnym interfejsie `BlobLike` (bez zależności od `window`/DOM). Test akceptacyjny potwierdza odczyt 16 B z offsetu > 2 GiB na wirtualnym `ByteSource` bez alokacji 2 GiB RAM.
+  - `CachedByteSource` utrzymuje LRU okien (domyślnie `64 × 256 KiB`, wyrównanie `CD_SECTOR_SIZE = 2048 B`, przycinanie ostatniego okna do `size`), deduplikuje współbieżne odczyty tego samego okna i udostępnia metryki (`hits`, `misses`, `evictions`, `sourceReads`, `bytesReadFromSource`, `cachedWindows`).
+  - `src/workers/rpc.ts` implementuje typowany protokół `rpc:request` / `rpc:cancel` / `rpc:response` (`ok: true | false`) na minimalnym interfejsie `RpcEndpoint` / `RpcMessageTransport` (zweryfikowana kompilacyjnie zgodność z DOM `Worker`), z propagacją oryginalnego `name` i `message` błędu z workera, anulowaniem przez `AbortSignal` (przed wysłaniem i w locie) oraz transferem `Transferable` w obu kierunkach (`withTransfer`).
+  - `src/workers/WorkerPool.ts` wylicza rozmiar puli wzorem `Math.min(4, Math.max(1, (hardwareConcurrency || 2) - 1))`, szereguje zadania w binarnej kolejce priorytetowej (FIFO przy równych priorytetach), obsługuje anulowanie zadań w kolejce i samonaprawę puli po krytycznym błędzie workera.
+- **Pewność:** N/A (infrastruktura I/O i workerów M1; format `GT2.VOL` nie był parsowany; wyrównanie 2048 B odpowiada rozmiarowi sektora CD PS1 z ROADMAP M1.2).
+- **Konsekwencje dla kodu:** Kontrakty `ByteSource`, `CachedByteSource`, `RpcClient`/`bindRpcServer` i `WorkerPool` są gotowe jako baza dla M1.5–M1.7 (fingerprint, uchwyt pliku, `IdbCache`) oraz M2 (`VolReader` i dekodery w workerach).
+- **Otwarte pytania:** Brak na tym etapie; w kolejnej sesji wdrożyć M1.5–M1.7 (`fingerprint`, pamiętanie `FileSystemFileHandle` w IndexedDB, `IdbCache`).
