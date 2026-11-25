@@ -23,3 +23,16 @@ Chronological log of binary format investigations, reverse-engineering findings,
 - **Pewność:** N/A (zadania infrastrukturalne M0, brak parsowania formatów binarnych GT2).
 - **Konsekwencje dla kodu:** Kontrakt `AppState` i `BrowserCapabilities` stanowi bazę dla M0.11–M0.12 oraz M1 (`BlobByteSource`). `npm test` weryfikuje również finalny bundle `dist/` niezależnie od kolejności kroków w CI.
 - **Otwarte pytania:** W M0.12 zweryfikować w prawdziwej przeglądarce (Playwright / GitHub Pages) zachowanie wyboru dużego pliku oraz brak błędów konsoli podczas detekcji `Worker` modułowego.
+
+## 2026-11-25 — M0.11–M0.12 — Rdzeń wejścia (InputManager) i smoke test Playwright
+- **Pytanie:** Jak zbudować deterministyczny, niezależny od DOM rdzeń wejścia (§1.6) oraz wiarygodny test e2e Playwright (lokalnie i post-deploy na GitHub Pages z prefiksem ścieżki)?
+- **Metoda:** Implementacja `src/core/input/` (`types.ts`, `config.ts`, `InputManager.ts`, `domInputBridge.ts`, `debugHook.ts`) z testami jednostkowymi Vitest w Node (`tests/unit/inputManager.test.ts`), instalacja `@playwright/test`, `playwright.config.ts`, `tests/e2e/smoke.spec.ts` oraz post-deploy job `smoke-test` w `.github/workflows/ci.yml`.
+- **Wynik:**
+  - `InputManager` obsługuje konteksty `menu`/`viewer`/`freecam`/`race`, jednoczesne WSAD + strzałki po `KeyboardEvent.code`, ignorowanie `repeat`, znoszenie przeciwstawnych kierunków, wygładzanie osi analogowych z ograniczeniem kąta skrętu zależnym od prędkości, zakaz `Ctrl`/`Alt`/`Meta` w zdarzeniach i bindingach, wykrywanie konfliktów w ramach kontekstu oraz `preventDefault()` wyłącznie przy fokusie na canvasie.
+  - Hak `window.__input` jest udostępniany wyłącznie dla `?debug=1` i nie istnieje w trybie produkcyjnym.
+  - Dodano `<link rel="icon" href="data:," />` w `index.html`, eliminując domyślne żądanie `/favicon.ico` (404) w Chromium bez dodawania zasobów zewnętrznych.
+  - W Playwright zastosowano `waitUntil: 'load'` zamiast `networkidle` (uniknięcie zawieszania na natychmiastowo przerywanym `Worker(blobUrl)` w detekcji możliwości) oraz budowanie URL przez `new URL(normalized)` zachowujące podkatalog GitHub Pages.
+  - Zweryfikowano lokalnie pełną bramkę (`tsc`, `eslint`, 38/38 Vitest, `vite build`) oraz 2/2 testy Playwright e2e przeciwko `vite preview` (brak 404 i błędów konsoli, start workera modułowego, wybór syntetycznego pliku 1.50 MB, reakcja `window.__input` na `W`, `ArrowUp`, `Space`).
+- **Pewność:** N/A (zadania infrastrukturalne zamykające M0, brak parsowania formatów binarnych GT2).
+- **Konsekwencje dla kodu:** Domknięto cały Milestone M0; `InputManager` jest gotowy do użycia w M7–M10, a workflow CI automatycznie uruchomi `smoke-test` po każdym wdrożeniu na GitHub Pages.
+- **Otwarte pytania:** Potwierdzić pierwsze uruchomienie post-deploy joba `smoke-test` bezpośrednio na GitHub Actions po wypchnięciu gałęzi `main`.
