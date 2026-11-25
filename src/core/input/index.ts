@@ -12,6 +12,7 @@ export {
 export { InputManager, computeMaxSteeringForSpeed, type InputManagerOptions } from './InputManager';
 export {
   attachDomInputBridge,
+  isEditableElement,
   type CanvasFocusTarget,
   type DocumentInputTarget,
   type DomInputBridgeHandle,

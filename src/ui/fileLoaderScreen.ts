@@ -25,6 +25,10 @@ export interface RememberedFileInfo {
 }
 
 export interface FileLoaderScreenHandle {
+  /** Container (inside the card, below the status panel) hosting the GT2.VOL explorer (M2.8). */
+  readonly archiveContainer: HTMLElement;
+  /** Widens the card for the explorer layout. */
+  setWide(wide: boolean): void;
   setRememberedFile(info: RememberedFileInfo | null): void;
   setClearDataStatus(message: string | null): void;
   dispose(): void;
@@ -257,7 +261,19 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   storageRow.append(storageHint, clearDataButton);
   storageSection.append(storageRow, clearDataStatus);
 
-  card.append(header, dropzone, statusPanel, capabilitiesSection, storageSection, legalFooter);
+  const archiveContainer = document.createElement('div');
+  archiveContainer.className = 'ogt2-archive-slot';
+  archiveContainer.dataset['testid'] = 'archive-slot';
+
+  card.append(
+    header,
+    dropzone,
+    statusPanel,
+    archiveContainer,
+    capabilitiesSection,
+    storageSection,
+    legalFooter,
+  );
   overlay.append(card);
   container.append(overlay);
 
@@ -525,6 +541,10 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   const unsubscribe = stateMachine.subscribe(renderState);
 
   return {
+    archiveContainer,
+    setWide(wide: boolean): void {
+      card.classList.toggle('is-wide', wide);
+    },
     setRememberedFile,
     setClearDataStatus,
     dispose(): void {

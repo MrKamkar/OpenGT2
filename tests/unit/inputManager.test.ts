@@ -8,6 +8,7 @@ import {
   computeMaxSteeringForSpeed,
   installInputDebugHook,
   isDebugMode,
+  isEditableElement,
   validateBindings,
   type CanvasFocusTarget,
   type DocumentInputTarget,
@@ -413,5 +414,106 @@ describe('InputManager (M0.11)', () => {
 
     cleanupDebug();
     expect('__input' in debugWindow).toBe(false);
+  });
+
+  it('identifies editable elements and skips game keydown handling while typing in search inputs', () => {
+    expect(isEditableElement({ tagName: 'INPUT', type: 'search' })).toBe(true);
+    expect(isEditableElement({ tagName: 'INPUT', type: 'text' })).toBe(true);
+    expect(isEditableElement({ tagName: 'INPUT' })).toBe(true);
+    expect(isEditableElement({ tagName: 'TEXTAREA' })).toBe(true);
+    expect(isEditableElement({ tagName: 'SELECT' })).toBe(true);
+    expect(isEditableElement({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+
+    expect(isEditableElement({ tagName: 'INPUT', type: 'button' })).toBe(false);
+    expect(isEditableElement({ tagName: 'INPUT', type: 'file' })).toBe(false);
+    expect(isEditableElement({ tagName: 'BUTTON' })).toBe(false);
+    expect(isEditableElement({ tagName: 'CANVAS' })).toBe(false);
+    expect(isEditableElement(null)).toBe(false);
+
+    const windowListeners = new Map<string, Set<(...args: never[]) => void>>();
+    const docListeners = new Map<string, Set<() => void>>();
+    const canvasListeners = new Map<string, Set<() => void>>();
+
+    const canvas: CanvasFocusTarget = {
+      focus(): void {
+        fakeDoc.activeElement = canvas;
+      },
+      addEventListener(type, listener): void {
+        const set = canvasListeners.get(type) ?? new Set<() => void>();
+        set.add(listener);
+        canvasListeners.set(type, set);
+      },
+      removeEventListener(type, listener): void {
+        canvasListeners.get(type)?.delete(listener);
+      },
+    };
+
+    const fakeDoc: {
+      activeElement: unknown;
+      visibilityState: DocumentVisibilityState;
+    } & DocumentInputTarget = {
+      activeElement: null,
+      visibilityState: 'visible',
+      addEventListener(type, listener): void {
+        const set = docListeners.get(type) ?? new Set<() => void>();
+        set.add(listener);
+        docListeners.set(type, set);
+      },
+      removeEventListener(type, listener): void {
+        docListeners.get(type)?.delete(listener);
+      },
+    };
+
+    const fakeWin: WindowInputTarget = {
+      addEventListener(type: string, listener: (...args: never[]) => void): void {
+        const set = windowListeners.get(type) ?? new Set<(...args: never[]) => void>();
+        set.add(listener);
+        windowListeners.set(type, set);
+      },
+      removeEventListener(type: string, listener: (...args: never[]) => void): void {
+        windowListeners.get(type)?.delete(listener);
+      },
+    };
+
+    const emitKey = (type: 'keydown' | 'keyup', code: string): boolean => {
+      let prevented = false;
+      const evt: PreventableKeyEvent = {
+        ...keyEvent(type, code),
+        preventDefault(): void {
+          prevented = true;
+        },
+      };
+      for (const listener of windowListeners.get(type) ?? []) {
+        (listener as (e: PreventableKeyEvent) => void)(evt);
+      }
+      return prevented;
+    };
+
+    const input = new InputManager({ initialContext: 'race' });
+    const bridge = attachDomInputBridge({
+      inputManager: input,
+      canvas,
+      targetWindow: fakeWin,
+      targetDocument: fakeDoc,
+    });
+
+    // Hold KeyW while canvas is focused, then move focus to search input.
+    expect(emitKey('keydown', 'KeyW')).toBe(false);
+    expect(input.isActionActive('throttle')).toBe(true);
+
+    fakeDoc.activeElement = { tagName: 'INPUT', type: 'search' };
+    // Keydown for ArrowUp / Space / KeyA inside search input must not preventDefault or trigger actions.
+    expect(emitKey('keydown', 'ArrowUp')).toBe(false);
+    expect(emitKey('keydown', 'Space')).toBe(false);
+    expect(emitKey('keydown', 'KeyA')).toBe(false);
+    expect(input.isActionActive('handbrake')).toBe(false);
+    expect(input.isActionActive('steerLeft')).toBe(false);
+
+    // Keyup still releases keys pressed prior to focusing the input.
+    emitKey('keyup', 'KeyW');
+    expect(input.isActionActive('throttle')).toBe(false);
+    expect(input.getPressedCodes()).toEqual([]);
+
+    bridge.dispose();
   });
 });

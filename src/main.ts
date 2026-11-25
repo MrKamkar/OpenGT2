@@ -20,7 +20,11 @@ import {
   pickVolFileWithHandle,
 } from './io';
 import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
+import { type ArchivePanelHandle, mountArchivePanel } from './ui/explorer/explorerView';
+import { describeVolOpenError, loadAllVolEntries } from './app/volArchiveSession';
 import { createHealthWorker } from './workers/createHealthWorker';
+import { createVolReaderWorker } from './workers/createVolReaderWorker';
+import { VolReaderRpcClient } from './workers/volReaderProtocol';
 import type { HealthPingMessage, HealthPongMessage } from './workers/health.worker';
 
 const MAX_INPUT_DT_SECONDS = 0.1;
@@ -98,6 +102,66 @@ export function initApp(): void {
   }
 
   let selectionGeneration = 0;
+  let volSession: VolReaderRpcClient | null = null;
+  let archivePanel: ArchivePanelHandle | null = null;
+
+  const closeVolSession = (): void => {
+    if (volSession !== null) {
+      volSession.dispose(true);
+      volSession = null;
+    }
+  };
+
+  /**
+   * Opens the selected archive in a fresh `VolReader` worker (M2.8). The `File` object is
+   * posted to the worker as a Blob reference; its contents are only range-read there.
+   */
+  const openVolArchive = (file: File, generation: number): void => {
+    closeVolSession();
+    const panel = archivePanel;
+    if (panel === null) {
+      return;
+    }
+    panel.showLoading(file.name);
+
+    if (typeof Worker === 'undefined') {
+      panel.showError('Ta przeglądarka nie obsługuje Web Workerów — eksplorator archiwum jest niedostępny.');
+      return;
+    }
+
+    let client: VolReaderRpcClient;
+    try {
+      client = new VolReaderRpcClient(createVolReaderWorker());
+    } catch (error: unknown) {
+      panel.showError(describeVolOpenError(error));
+      return;
+    }
+    volSession = client;
+
+    const isCurrent = (): boolean => generation === selectionGeneration && volSession === client;
+
+    void client
+      .open(file, { lastModified: file.lastModified })
+      .then(async (info) => {
+        const entries = await loadAllVolEntries((dir) => client.list(dir));
+        return { info, entries };
+      })
+      .then(({ info, entries }) => {
+        if (!isCurrent()) {
+          return;
+        }
+        panel.showArchive(info, entries, {
+          stat: (path, signal) => client.stat(path, { signal }),
+        });
+      })
+      .catch((error: unknown) => {
+        if (!isCurrent()) {
+          return;
+        }
+        closeVolSession();
+        panel.showError(describeVolOpenError(error));
+      });
+  };
 
   const openFile = (file: File): void => {
     selectionGeneration += 1;
@@ -108,6 +172,8 @@ export function initApp(): void {
       type: 'FILE_SELECTED',
       file: meta,
     });
+
+    openVolArchive(file, activeGeneration);
 
     const source = new BlobByteSource(file);
     void fingerprint(source, { lastModified: file.lastModified })
@@ -155,6 +221,8 @@ export function initApp(): void {
     onFileSelected: openFile,
     onReset(): void {
       selectionGeneration += 1;
+      closeVolSession();
+      archivePanel?.clear();
       stateMachine.dispatch({ type: 'RESET' });
     },
     async onClearData(): Promise<void> {
@@ -218,6 +286,13 @@ export function initApp(): void {
       } catch {
         screen.setRememberedFile(null);
       }
+    },
+  });
+
+  archivePanel = mountArchivePanel({
+    container: screen.archiveContainer,
+    onVisibilityChange(_visible: boolean, state): void {
+      screen.setWide(state === 'ready');
     },
   });
 
