@@ -34,6 +34,15 @@ describe('AppStateMachine (M0.5)', () => {
 
     const ready = transitionAppState(loading, { type: 'LOAD_SUCCEEDED' });
     expect(ready).toEqual({ kind: 'Ready', file: SAMPLE_FILE });
+
+    const readyWithFp = transitionAppState(loading, {
+      type: 'LOAD_SUCCEEDED',
+      fingerprint: 'a'.repeat(64),
+    });
+    expect(readyWithFp).toEqual({
+      kind: 'Ready',
+      file: { ...SAMPLE_FILE, fingerprint: 'a'.repeat(64) },
+    });
   });
 
   it('transitions along error path NoFile -> Loading -> Error and allows recovery', () => {

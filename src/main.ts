@@ -11,7 +11,8 @@ import {
   installInputDebugHook,
 } from './core/input';
 import { GlContext, WebGL2UnavailableError } from './renderer/GlContext';
-import { mountFileLoaderScreen, type FileMetaReadable } from './ui/fileLoaderScreen';
+import { BlobByteSource, fingerprint } from './io';
+import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
 import { createHealthWorker } from './workers/createHealthWorker';
 import type { HealthPingMessage, HealthPongMessage } from './workers/health.worker';
 
@@ -89,18 +90,57 @@ export function initApp(): void {
     }
   }
 
+  let selectionGeneration = 0;
+
+  const openFile = (file: File): void => {
+    selectionGeneration += 1;
+    const activeGeneration = selectionGeneration;
+
+    const meta = extractFileMeta(file);
+    stateMachine.dispatch({
+      type: 'FILE_SELECTED',
+      file: meta,
+    });
+
+    const source = new BlobByteSource(file);
+    void fingerprint(source, { lastModified: file.lastModified })
+      .then((fileFingerprint) => {
+        if (activeGeneration !== selectionGeneration) {
+          return;
+        }
+        if (stateMachine.getState().kind !== 'Loading') {
+          return;
+        }
+        stateMachine.dispatch({
+          type: 'LOAD_SUCCEEDED',
+          fingerprint: fileFingerprint,
+        });
+      })
+      .catch((error: unknown) => {
+        if (activeGeneration !== selectionGeneration) {
+          return;
+        }
+        if (stateMachine.getState().kind !== 'Loading') {
+          return;
+        }
+        const message =
+          error instanceof Error
+            ? `Nie udało się obliczyć odcisku pliku: ${error.message}`
+            : 'Nie udało się obliczyć odcisku pliku.';
+        stateMachine.dispatch({
+          type: 'LOAD_FAILED',
+          message,
+        });
+      });
+  };
+
   mountFileLoaderScreen({
     container: root,
     stateMachine,
     capabilities,
-    onFileSelected(file: FileMetaReadable): void {
-      stateMachine.dispatch({
-        type: 'FILE_SELECTED',
-        file: { name: file.name, size: file.size },
-      });
-      stateMachine.dispatch({ type: 'LOAD_SUCCEEDED' });
-    },
+    onFileSelected: openFile,
     onReset(): void {
+      selectionGeneration += 1;
       stateMachine.dispatch({ type: 'RESET' });
     },
   });

@@ -1,5 +1,6 @@
 import type { AppState, AppStateMachine, SelectedFileMeta } from '../app/appState';
 import type { BrowserCapabilities } from '../app/capabilities';
+import { formatShortFingerprint } from '../io/fingerprint';
 import { formatSizeMB } from './formatSize';
 
 export interface FileMetaReadable {
@@ -26,7 +27,7 @@ export interface FileLoaderScreenOptions {
   readonly container: HTMLElement;
   readonly stateMachine: AppStateMachine;
   readonly capabilities: BrowserCapabilities;
-  readonly onFileSelected: (file: FileMetaReadable) => void;
+  readonly onFileSelected: (file: File) => void;
   readonly onReset: () => void;
 }
 
@@ -189,7 +190,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     if (file === undefined) {
       return;
     }
-    onFileSelected(extractFileMeta(file));
+    onFileSelected(file);
   };
 
   const onSelectButtonClick = (): void => {
@@ -296,6 +297,17 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
         sizeValue.textContent = formatSizeMB(state.file.size);
 
         metaList.append(nameTerm, nameValue, sizeTerm, sizeValue);
+
+        if (state.file.fingerprint !== undefined) {
+          const fpTerm = document.createElement('dt');
+          fpTerm.textContent = 'Odcisk pliku';
+          const fpValue = document.createElement('dd');
+          fpValue.dataset['testid'] = 'file-fingerprint';
+          fpValue.dataset['fullFingerprint'] = state.file.fingerprint;
+          fpValue.title = state.file.fingerprint;
+          fpValue.textContent = formatShortFingerprint(state.file.fingerprint);
+          metaList.append(fpTerm, fpValue);
+        }
 
         const actions = document.createElement('div');
         actions.className = 'ogt2-actions';

@@ -1,6 +1,7 @@
 export interface SelectedFileMeta {
   readonly name: string;
   readonly size: number;
+  readonly fingerprint?: string;
 }
 
 export interface NoFileAppState {
@@ -29,7 +30,7 @@ export type AppStateKind = AppState['kind'];
 
 export type AppEvent =
   | { readonly type: 'FILE_SELECTED'; readonly file: SelectedFileMeta }
-  | { readonly type: 'LOAD_SUCCEEDED' }
+  | { readonly type: 'LOAD_SUCCEEDED'; readonly fingerprint?: string }
   | { readonly type: 'LOAD_FAILED'; readonly message: string }
   | { readonly type: 'FAIL'; readonly message: string; readonly file?: SelectedFileMeta }
   | { readonly type: 'RESET' };
@@ -76,8 +77,13 @@ export function transitionAppState(state: AppState, event: AppEvent): AppState {
 
     case 'Loading': {
       switch (event.type) {
-        case 'LOAD_SUCCEEDED':
-          return { kind: 'Ready', file: state.file };
+        case 'LOAD_SUCCEEDED': {
+          const file: SelectedFileMeta =
+            event.fingerprint !== undefined
+              ? { ...state.file, fingerprint: event.fingerprint }
+              : state.file;
+          return { kind: 'Ready', file };
+        }
         case 'LOAD_FAILED':
           return createErrorState(event.message, state.file);
         case 'FAIL':
