@@ -82,3 +82,25 @@ Chronological log of binary format investigations, reverse-engineering findings,
   2. Jak w prawdziwym `GT2.VOL` kodowane są pliki 0-bajtowe w tablicy offsetów (czy faktycznie `next.address === prev.address && prev.tail === 0`)?
   3. Czy wszystkie adresy plików w kolejności TOC są niemalejące i nienakładające się (0 ostrzeżeń w `warnings`)?
   4. Czy w prawdziwym `GT2.VOL` występują niezerowe wartości `unk_0x0C` (**E0**) lub nieznane bity flag TOC `0x02..0x7E` (**E0**)?
+
+## 2026-11-25 — M2.7, M2.6, M2.10 — Dekompresja gzip, VolReader w Workerze i weryfikacja na prawdziwym `GT2.VOL`
+- **Pytanie:** Jak dostarczyć strumieniową dekompresję `gzip` (natywną + fallback `fflate`), warstwę `VolReader` w Web Workerze z bezpiecznym transferem buforów oraz zweryfikować wszystkie założenia E0/E1/E2 na prawdziwym `local_assets/GT2.VOL` bez wczytywania archiwum do RAM i bez umieszczania danych gry w repozytorium?
+- **Metoda:**
+  - M2.7: implementacja `src/formats/gzip/gunzip.ts` (`isGzipMagic`, `gunzip` na `DecompressionStream('gzip')` i `fflate` z jawną weryfikacją CRC-32 + ISIZE ze stopki RFC 1952) oraz testy obu ścieżek i uszkodzonych strumieni w `tests/unit/gzip.test.ts`.
+  - M2.6: implementacja `src/formats/vol/VolReader.ts` (cache TOC i indeksu katalogów, leniwe wykrywanie `isGzip` przez 2-bajtowy odczyt `1F 8B`, integracja z `CachedByteSource` i `fingerprint`) oraz protokołu RPC (`src/workers/volReaderProtocol.ts`, `volReader.worker.ts`, `createVolReaderWorker.ts`) z kopiowaniem do dedykowanego bufora przed `withTransfer`, zweryfikowanym przez `structuredClone(..., { transfer })` w `tests/unit/volReader.test.ts`.
+  - M2.10: strumieniowy test `tests/unit/volRealArchive.test.ts` na `NodeFileByteSource` (`fs/promises` `FileHandle.read`, pomijany przez `describe.skipIf` przy braku pliku w CI) przeciwko `local_assets/GT2.VOL`.
+- **Wynik (statystyki zagregowane z prawdziwego `GT2.VOL`):**
+  - Rozmiar archiwum: `488 241 152 B` (~465.62 MiB), `files = 11581`, `totalEntries = 11620`, `warnings = []` (0 ostrzeżeń spójności).
+  - **Odpowiedź na pytanie 1:** `21/21` zwykłych katalogów ma `offsetIndex !== 0` (`0/21` ma `0`), a `21/21` wpisów `..` ma `offsetIndex === 0`. Część zwykłych katalogów ma `offsetIndex >= files` (np. do `11604` przy `files = 11581`), co potwierdza, że nie jest to indeks do tablicy offsetów, lecz prawdopodobnie indeks w przestrzeni TOC (dokładne znaczenie wskaźnika: **E1**).
+  - **Odkrycie tablicy offsetów:** `offsets[files - 1]` (`offsets[11580]`) nie jest wskazywane przez żaden wpis TOC i zawiera jawny wpis końcowy EOF (`address = 488241152`, `tail = 0`), więc pliki zajmują `offsets[2 .. files - 2]` (`11578` plików; `11578 + 21 + 21 = 11620`). Wirtualny `offsets[files] = source.size` w `offsets.ts`/`sizes.ts` pozostaje bezpiecznikiem dla innych wydań GT2.
+  - **Odpowiedź na pytanie 2:** Wszystkie `6/6` plików 0-bajtowych spełniają `next.address === address && tail === 0`.
+  - **Odpowiedź na pytanie 3:** Wszystkie `11 578` plików ma adresy niemalejące, nienakładające się i mieszczące się w rozmiarze archiwum (`0` ostrzeżeń w `VolInfo.warnings`).
+  - **Odpowiedź na pytanie 4:** `header.unk_0x0C = 0x00000000` oraz `0/11620` wpisów TOC ma zapalone bity `0x02..0x7E` (`0x00`) — pola pozostają jako **E0**.
+  - **Weryfikacja gzip (M2.10):**
+    - `5 114 / 5 114` (100%) plików `.gz` posiada magic `1F 8B` i rozpakowuje się bezbłędnie (CRC-32 + ISIZE OK) na obu backendach (`native` i `fflate`).
+    - `91` plików bez rozszerzenia `.gz` zaczyna się od `1F 8B 08`: `84/91` to samodzielne strumienie gzip (100% PASS na obu backendach), natomiast `7/91` to wieloczęściowe kontenery kolejnych członów gzip rozdzielonych zerowym paddingiem do granicy `4 B` (`5` plików) lub sektora `2048 B` (`2` pliki) — pierwszy człon w każdym z tych `7` plików ma poprawny strumień i CRC-32, a ścisły `gunzip()` celowo zgłasza `Trailing junk`.
+- **Pewność:** **E3** dla formatu `GT2.VOL` (nagłówek, tablica offsetów z jawnym EOF w `offsets[files - 1]`, granice TOC, rekordy 32 B, drzewo „first encounter”, wyliczanie rozmiarów, kodowanie plików 0 B, monotoniczność, standardowy gzip na `.gz` i samodzielnych plikach `1F 8B`); **E1** dla znaczenia `offsetIndex >= files` w katalogach i wewnętrznego układu 7 kontenerów wieloczłonowych; **E0** dla `unk_0x0C` oraz bitów flag `0x02..0x7E`.
+- **Konsekwencje dla kodu:** `VolReader`, worker RPC i `gunzip` są zweryfikowane przeciwko prawdziwemu archiwum i gotowe do podpięcia pod UI Eksploratora (M2.8–M2.9). Przekazywanie kopii z własnym `ArrayBuffer` przed `withTransfer` chroni okna `CachedByteSource` przed odłączeniem (`detach`).
+- **Otwarte pytania:**
+  1. W M2.8–M2.9: podpiąć `VolReaderRpcClient` i `gunzip` do UI Eksploratora (drzewo katalogów, pobieranie surowego i rozpakowanego pliku).
+  2. W M3/M4: zbadać dokładną strukturę 7 wieloczęściowych kontenerów bez `.gz` (zaczynających się od `1F 8B 08`) oraz weryfikować, na co dokładnie wskazuje `offsetIndex` w zwykłych katalogach.
