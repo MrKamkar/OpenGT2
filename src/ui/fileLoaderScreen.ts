@@ -1,4 +1,5 @@
 import type { AppState, AppStateMachine, SelectedFileMeta } from '../app/appState';
+import type { BrowserCapabilities } from '../app/capabilities';
 import { formatSizeMB } from './formatSize';
 
 export interface FileMetaReadable {
@@ -24,12 +25,84 @@ export interface FileLoaderScreenHandle {
 export interface FileLoaderScreenOptions {
   readonly container: HTMLElement;
   readonly stateMachine: AppStateMachine;
+  readonly capabilities: BrowserCapabilities;
   readonly onFileSelected: (file: FileMetaReadable) => void;
   readonly onReset: () => void;
 }
 
+interface CapabilityRow {
+  readonly key: string;
+  readonly label: string;
+  readonly supported: boolean;
+  readonly required: boolean;
+}
+
+function createCapabilitiesSection(capabilities: BrowserCapabilities): HTMLElement {
+  const section = document.createElement('section');
+  section.className = 'ogt2-capabilities';
+  section.dataset['testid'] = 'capabilities-panel';
+
+  const heading = document.createElement('h2');
+  heading.className = 'ogt2-cap-title';
+  heading.textContent = 'Możliwości przeglądarki';
+
+  const list = document.createElement('ul');
+  list.className = 'ogt2-cap-list';
+
+  const rows: readonly CapabilityRow[] = [
+    { key: 'webgl2', label: 'WebGL2', supported: capabilities.webgl2, required: true },
+    {
+      key: 'gzip',
+      label: "DecompressionStream('gzip')",
+      supported: capabilities.gzipDecompressionStream,
+      required: false,
+    },
+    {
+      key: 'module-worker',
+      label: 'Worker (module)',
+      supported: capabilities.moduleWorker,
+      required: false,
+    },
+    {
+      key: 'file-picker',
+      label: 'showOpenFilePicker',
+      supported: capabilities.showOpenFilePicker,
+      required: false,
+    },
+  ];
+
+  for (const row of rows) {
+    const item = document.createElement('li');
+    item.className = 'ogt2-cap-item';
+    item.dataset['capability'] = row.key;
+    item.dataset['supported'] = String(row.supported);
+
+    const name = document.createElement('span');
+    name.className = 'ogt2-cap-name';
+    name.textContent = row.label;
+
+    const status = document.createElement('span');
+    if (row.supported) {
+      status.className = 'ogt2-cap-badge is-ok';
+      status.textContent = 'Dostępne';
+    } else if (row.required) {
+      status.className = 'ogt2-cap-badge is-error';
+      status.textContent = 'Brak (wymagane)';
+    } else {
+      status.className = 'ogt2-cap-badge is-warn';
+      status.textContent = 'Brak (fallback)';
+    }
+
+    item.append(name, status);
+    list.append(item);
+  }
+
+  section.append(heading, list);
+  return section;
+}
+
 export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoaderScreenHandle {
-  const { container, stateMachine, onFileSelected, onReset } = options;
+  const { container, stateMachine, capabilities, onFileSelected, onReset } = options;
 
   const overlay = document.createElement('main');
   overlay.className = 'ogt2-overlay';
@@ -106,7 +179,9 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
   legalFooter.append(privacyNote, disclaimer);
 
-  card.append(header, dropzone, statusPanel, legalFooter);
+  const capabilitiesSection = createCapabilitiesSection(capabilities);
+
+  card.append(header, dropzone, statusPanel, capabilitiesSection, legalFooter);
   overlay.append(card);
   container.append(overlay);
 
@@ -259,18 +334,20 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
           statusPanel.append(fileInfo);
         }
 
-        const actions = document.createElement('div');
-        actions.className = 'ogt2-actions';
+        if (capabilities.webgl2) {
+          const actions = document.createElement('div');
+          actions.className = 'ogt2-actions';
 
-        const retryButton = document.createElement('button');
-        retryButton.type = 'button';
-        retryButton.className = 'ogt2-button';
-        retryButton.dataset['testid'] = 'reset-file-button';
-        retryButton.textContent = 'Wróć do wyboru pliku';
-        retryButton.addEventListener('click', onReset);
+          const retryButton = document.createElement('button');
+          retryButton.type = 'button';
+          retryButton.className = 'ogt2-button';
+          retryButton.dataset['testid'] = 'reset-file-button';
+          retryButton.textContent = 'Wróć do wyboru pliku';
+          retryButton.addEventListener('click', onReset);
 
-        actions.append(retryButton);
-        statusPanel.append(actions);
+          actions.append(retryButton);
+          statusPanel.append(actions);
+        }
         break;
       }
     }

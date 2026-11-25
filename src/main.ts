@@ -1,5 +1,10 @@
 import './ui/styles.css';
 import { AppStateMachine } from './app/appState';
+import {
+  WEBGL2_UNSUPPORTED_MESSAGE,
+  detectCapabilities,
+  getBlockingCapabilityError,
+} from './app/capabilities';
 import { GlContext, WebGL2UnavailableError } from './renderer/GlContext';
 import { mountFileLoaderScreen, type FileMetaReadable } from './ui/fileLoaderScreen';
 import { createHealthWorker } from './workers/createHealthWorker';
@@ -12,6 +17,12 @@ export function initApp(): void {
   }
   root.dataset['engine'] = 'opengt2';
 
+  const capabilities = detectCapabilities();
+  root.dataset['capWebgl2'] = String(capabilities.webgl2);
+  root.dataset['capGzip'] = String(capabilities.gzipDecompressionStream);
+  root.dataset['capModuleWorker'] = String(capabilities.moduleWorker);
+  root.dataset['capFilePicker'] = String(capabilities.showOpenFilePicker);
+
   const canvas = document.createElement('canvas');
   canvas.className = 'ogt2-canvas';
   canvas.tabIndex = 0;
@@ -19,32 +30,42 @@ export function initApp(): void {
   root.append(canvas);
 
   const stateMachine = new AppStateMachine();
+  const blockingError = getBlockingCapabilityError(capabilities);
 
-  try {
-    new GlContext(canvas, {
-      onContextLost(): void {
-        root.dataset['webgl2'] = 'lost';
-      },
-      onContextRestored(): void {
-        root.dataset['webgl2'] = 'ready';
-      },
-    });
-    root.dataset['webgl2'] = 'ready';
-  } catch (error: unknown) {
+  if (blockingError !== null) {
     root.dataset['webgl2'] = 'unavailable';
-    if (error instanceof WebGL2UnavailableError) {
-      stateMachine.dispatch({
-        type: 'FAIL',
-        message: error.message,
+    stateMachine.dispatch({
+      type: 'FAIL',
+      message: blockingError,
+    });
+  } else {
+    try {
+      new GlContext(canvas, {
+        onContextLost(): void {
+          root.dataset['webgl2'] = 'lost';
+        },
+        onContextRestored(): void {
+          root.dataset['webgl2'] = 'ready';
+        },
       });
-    } else {
-      throw error;
+      root.dataset['webgl2'] = 'ready';
+    } catch (error: unknown) {
+      root.dataset['webgl2'] = 'unavailable';
+      if (error instanceof WebGL2UnavailableError) {
+        stateMachine.dispatch({
+          type: 'FAIL',
+          message: WEBGL2_UNSUPPORTED_MESSAGE,
+        });
+      } else {
+        throw error;
+      }
     }
   }
 
   mountFileLoaderScreen({
     container: root,
     stateMachine,
+    capabilities,
     onFileSelected(file: FileMetaReadable): void {
       stateMachine.dispatch({
         type: 'FILE_SELECTED',
