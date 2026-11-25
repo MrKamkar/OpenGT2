@@ -37,3 +37,14 @@ export {
   type WorkerPoolStats,
   type WorkerPoolTaskOptions,
 } from './WorkerPool';
+export { createVolReaderWorker } from './createVolReaderWorker';
+export {
+  type BindVolReaderRpcOptions,
+  bindVolReaderRpcServer,
+  toOwnedTransferUint8Array,
+  type VolReaderListParams,
+  type VolReaderOpenParams,
+  type VolReaderPathParams,
+  VolReaderRpcClient,
+  type VolReaderRpcSchema,
+} from './volReaderProtocol';

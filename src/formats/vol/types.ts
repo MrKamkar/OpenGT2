@@ -43,10 +43,14 @@ export type VolErrorCode =
   | 'TruncatedOffsetTable'
   | 'InvalidOffsetCount'
   | 'InvalidTocBounds'
-  | 'TruncatedToc';
+  | 'TruncatedToc'
+  | 'ArchiveNotOpen'
+  | 'EntryNotFound'
+  | 'NotAFile'
+  | 'NotADirectory';
 
 /**
- * Typed error raised on structural GT2.VOL header, offset table, or TOC boundary failures.
+ * Typed error raised on structural GT2.VOL header, offset table, TOC, or reader failures.
  */
 export class VolError extends Error {
   static readonly BadMagic = 'BadMagic' as const;
@@ -56,6 +60,10 @@ export class VolError extends Error {
   static readonly InvalidOffsetCount = 'InvalidOffsetCount' as const;
   static readonly InvalidTocBounds = 'InvalidTocBounds' as const;
   static readonly TruncatedToc = 'TruncatedToc' as const;
+  static readonly ArchiveNotOpen = 'ArchiveNotOpen' as const;
+  static readonly EntryNotFound = 'EntryNotFound' as const;
+  static readonly NotAFile = 'NotAFile' as const;
+  static readonly NotADirectory = 'NotADirectory' as const;
 
   readonly code: VolErrorCode;
 

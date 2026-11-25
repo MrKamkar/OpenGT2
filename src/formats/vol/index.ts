@@ -3,6 +3,7 @@ export { parseVolOffsets, splitOffset, type SplitOffset } from './offsets';
 export { resolveVolSizes, type VolEntriesResult } from './sizes';
 export { computeTocBounds, parseVolToc, type RawTocEntry, type VolTocBounds } from './toc';
 export { buildVolTree, type ResolvedTocEntry } from './tree';
+export { VolReader, type VolReaderOpenOptions } from './VolReader';
 export {
   VOL_FLAG_DIRECTORY,
   VOL_FLAG_LAST_ENTRY,
