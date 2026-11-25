@@ -46,6 +46,8 @@ export {
   type VolReaderListParams,
   type VolReaderOpenParams,
   type VolReaderPathParams,
+  type VolReaderRangeParams,
+  type VolReaderRangeResult,
   VolReaderRpcClient,
   type VolReaderRpcSchema,
 } from './volReaderProtocol';

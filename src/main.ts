@@ -153,8 +153,12 @@ export function initApp(): void {
         panel.showArchive(info, entries, {
           stat: (path, signal) => client.stat(path, { signal }),
           readRaw: (path, signal) => client.read(path, signal !== undefined ? { signal } : undefined),
+          readRange: (path, start, end, signal) =>
+            client.readRange(path, start, end, signal !== undefined ? { signal } : undefined),
           readDecompressed: (path, signal) =>
             client.readDecompressed(path, signal !== undefined ? { signal } : undefined),
+          readDecompressedRange: (path, start, end, signal) =>
+            client.readDecompressedRange(path, start, end, signal !== undefined ? { signal } : undefined),
         });
       })
       .catch((error: unknown) => {

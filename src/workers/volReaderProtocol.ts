@@ -1,6 +1,7 @@
 import { gunzip } from '../formats/gzip';
 import {
   type VolEntry,
+  VolError,
   type VolInfo,
   VolReader,
   type VolReaderOpenOptions,
@@ -35,6 +36,18 @@ export interface VolReaderPathParams {
   readonly path: string;
 }
 
+export interface VolReaderRangeParams {
+  readonly path: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface VolReaderRangeResult {
+  readonly totalSize: number;
+  readonly offset: number;
+  readonly bytes: Uint8Array;
+}
+
 export interface VolReaderRpcSchema {
   open: {
     readonly params: VolReaderOpenParams;
@@ -52,9 +65,17 @@ export interface VolReaderRpcSchema {
     readonly params: VolReaderPathParams;
     readonly result: Uint8Array;
   };
+  readRange: {
+    readonly params: VolReaderRangeParams;
+    readonly result: VolReaderRangeResult;
+  };
   readDecompressed: {
     readonly params: VolReaderPathParams;
     readonly result: Uint8Array;
+  };
+  readDecompressedRange: {
+    readonly params: VolReaderRangeParams;
+    readonly result: VolReaderRangeResult;
   };
   close: {
     readonly params: Record<string, never>;
@@ -104,6 +125,22 @@ export function toTransferableDecompressedUint8Array(bytes: Uint8Array): {
   return toOwnedTransferUint8Array(bytes);
 }
 
+function normalizeEntryPath(path: string): string {
+  return path.replace(/^\/+|\/+$/g, '');
+}
+
+function clampRange(
+  start: number,
+  end: number,
+  totalSize: number,
+): { readonly offset: number; readonly end: number } {
+  const safeStart = Number.isFinite(start) ? Math.trunc(start) : 0;
+  const safeEnd = Number.isFinite(end) ? Math.trunc(end) : safeStart;
+  const offset = Math.min(Math.max(0, safeStart), totalSize);
+  const clampedEnd = Math.min(Math.max(offset, safeEnd), totalSize);
+  return { offset, end: clampedEnd };
+}
+
 /**
  * Binds `VolReader` operations onto a worker-side `RpcMessageTransport`.
  */
@@ -113,9 +150,22 @@ export function bindVolReaderRpcServer(
   options: BindVolReaderRpcOptions = {},
 ): RpcServerHandle {
   const createSource = options.createSource ?? ((blob: BlobLike) => new BlobByteSource(blob));
+  let decompressedCache: { readonly path: string; readonly bytes: Uint8Array } | null = null;
 
-  return bindRpcServer<VolReaderRpcSchema>(transport, {
+  const getDecompressed = async (rawPath: string): Promise<Uint8Array> => {
+    const normalized = normalizeEntryPath(rawPath);
+    if (decompressedCache !== null && decompressedCache.path === normalized) {
+      return decompressedCache.bytes;
+    }
+    const raw = await reader.read(normalized);
+    const unpacked = await gunzip(raw);
+    decompressedCache = { path: normalized, bytes: unpacked };
+    return unpacked;
+  };
+
+  const server = bindRpcServer<VolReaderRpcSchema>(transport, {
     open: (params) => {
+      decompressedCache = null;
       const source = createSource(params.blob);
       const openOptions: VolReaderOpenOptions = {
         ...(params.lastModified !== undefined ? { lastModified: params.lastModified } : {}),
@@ -130,16 +180,58 @@ export function bindVolReaderRpcServer(
       const owned = toOwnedTransferUint8Array(data);
       return withTransfer(owned.bytes, [owned.buffer]);
     },
+    readRange: async (params) => {
+      const normalized = normalizeEntryPath(params.path);
+      const entry = await reader.stat(normalized);
+      if (entry === undefined) {
+        throw new VolError(VolError.EntryNotFound, `File not found in VOL: "${normalized}"`);
+      }
+      if (entry.kind !== 'file') {
+        throw new VolError(VolError.NotAFile, `Cannot read directory entry as file: "${normalized}"`);
+      }
+      const { offset, end } = clampRange(params.start, params.end, entry.size);
+      const slice = await reader.readRange(normalized, offset, end);
+      const owned = toOwnedTransferUint8Array(slice);
+      return withTransfer(
+        {
+          totalSize: entry.size,
+          offset,
+          bytes: owned.bytes,
+        },
+        [owned.buffer],
+      );
+    },
     readDecompressed: async (params) => {
-      const raw = await reader.read(params.path);
-      const decompressed = await gunzip(raw);
-      const owned = toTransferableDecompressedUint8Array(decompressed);
+      const unpacked = await getDecompressed(params.path);
+      // Always copy so the 1-slot decompressedCache buffer is never detached on transfer.
+      const owned = toOwnedTransferUint8Array(unpacked);
       return withTransfer(owned.bytes, [owned.buffer]);
     },
+    readDecompressedRange: async (params) => {
+      const unpacked = await getDecompressed(params.path);
+      const { offset, end } = clampRange(params.start, params.end, unpacked.byteLength);
+      const owned = toOwnedTransferUint8Array(unpacked.subarray(offset, end));
+      return withTransfer(
+        {
+          totalSize: unpacked.byteLength,
+          offset,
+          bytes: owned.bytes,
+        },
+        [owned.buffer],
+      );
+    },
     close: () => {
+      decompressedCache = null;
       reader.close();
     },
   });
+
+  return {
+    dispose(): void {
+      decompressedCache = null;
+      server.dispose();
+    },
+  };
 }
 
 /**
@@ -178,8 +270,26 @@ export class VolReaderRpcClient {
     return this.rpc.call('read', { path }, rpcOptions);
   }
 
+  readRange(
+    path: string,
+    start: number,
+    end: number,
+    rpcOptions?: RpcCallOptions,
+  ): Promise<VolReaderRangeResult> {
+    return this.rpc.call('readRange', { path, start, end }, rpcOptions);
+  }
+
   readDecompressed(path: string, rpcOptions?: RpcCallOptions): Promise<Uint8Array> {
     return this.rpc.call('readDecompressed', { path }, rpcOptions);
+  }
+
+  readDecompressedRange(
+    path: string,
+    start: number,
+    end: number,
+    rpcOptions?: RpcCallOptions,
+  ): Promise<VolReaderRangeResult> {
+    return this.rpc.call('readDecompressedRange', { path, start, end }, rpcOptions);
   }
 
   close(rpcOptions?: RpcCallOptions): Promise<void> {

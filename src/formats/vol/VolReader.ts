@@ -177,6 +177,48 @@ export class VolReader {
   }
 
   /**
+   * Reads a byte range `[start, end)` relative to the start of a file entry via `CachedByteSource`.
+   */
+  async readRange(path: string, start: number, end: number): Promise<Uint8Array> {
+    const source = this.requireOpen();
+    const normalized = normalizeVolPath(path);
+    const entry = this.entriesByPath.get(normalized);
+
+    if (entry === undefined) {
+      throw new VolError(VolError.EntryNotFound, `File not found in VOL: "${normalized}"`);
+    }
+    if (entry.kind !== 'file') {
+      throw new VolError(VolError.NotAFile, `Cannot read directory entry as file: "${normalized}"`);
+    }
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      start > end ||
+      end > entry.size
+    ) {
+      throw new RangeError(
+        `Invalid readRange [${String(start)}, ${String(end)}) for "${normalized}" (size ${String(entry.size)})`,
+      );
+    }
+
+    if (start === end) {
+      if (entry.size === 0) {
+        entry.isGzip = false;
+        this.gzipChecked.add(entry.path);
+      }
+      return new Uint8Array(0);
+    }
+
+    const data = await source.read(entry.address + start, entry.address + end);
+    if (start === 0 && end >= 2 && !this.gzipChecked.has(entry.path)) {
+      entry.isGzip = isGzipMagic(data);
+      this.gzipChecked.add(entry.path);
+    }
+    return data;
+  }
+
+  /**
    * Reads the raw bytes of a file entry at `path` via `CachedByteSource` and caches `isGzip`.
    */
   async read(path: string): Promise<Uint8Array> {

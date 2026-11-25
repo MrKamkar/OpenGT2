@@ -178,6 +178,8 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   dropHint.textContent = 'lub wybierz plik z dysku — zawartość nie jest ładowana w całości do RAM.';
 
   const fileInput = document.createElement('input');
+  fileInput.id = 'ogt2-vol-file-input';
+  fileInput.name = 'volFile';
   fileInput.type = 'file';
   fileInput.className = 'ogt2-file-input';
   fileInput.dataset['testid'] = 'file-input';

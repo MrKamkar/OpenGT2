@@ -269,15 +269,16 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
       return new Uint8Array(await readFile(filePath as string));
     };
 
-    // 1. Select packed.dat.gz: hex placeholder, raw download, and decompressed download.
+    // 1. Select packed.dat.gz: hex viewer opens, raw download, and decompressed download.
     await page.locator('[data-testid="explorer-row"][data-path="cars/packed.dat.gz"]').click();
     await expect(page.locator('[data-testid="details-name"]')).toHaveText('packed.dat.gz');
 
     await page.locator('[data-testid="action-hex-preview"]').click();
-    await expect(page.locator('[data-testid="hex-placeholder"]')).toBeVisible();
-    await expect(page.locator('[data-testid="hex-placeholder-hash"]')).toHaveText(
+    await expect(page.locator('[data-testid="hex-viewer"]')).toBeVisible();
+    await expect(page.locator('[data-testid="hex-current-hash"]')).toHaveText(
       '#hex=cars%2Fpacked.dat.gz&off=0x0',
     );
+    await expect(page.locator('[data-testid="hex-row"]').first()).toBeVisible();
 
     const rawDownloadPromise = page.waitForEvent('download');
     await page.locator('[data-testid="action-download-raw"]').click();

@@ -1,5 +1,7 @@
 import { isAbortLikeError } from '../../app/volArchiveSession';
 import type { VolEntry, VolInfo } from '../../formats/vol';
+import { parseHexHash } from '../../tools/hexview';
+import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
 import {
   ALL_FILES_SCOPE,
   type ExplorerIndex,
@@ -33,7 +35,7 @@ const EXPLORER_FALLBACK_VIEWPORT = 392;
 /** Debounce before visible rows are probed with `stat()` (avoids spamming during fast scroll). */
 const STAT_VISIBILITY_DEBOUNCE_MS = 60;
 
-export interface ArchiveExplorerSource {
+export interface ArchiveExplorerSource extends HexDataSource {
   readonly stat: StatFn;
   readonly readRaw: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
   readonly readDecompressed: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
@@ -112,7 +114,6 @@ function mountExplorer(
   let query = '';
   let rows: readonly IndexedVolEntry[] = queryExplorer(index, scope, query);
   let selectedPath: string | null = null;
-  let hexPlaceholderOpen = false;
   let actionBusy: 'raw' | 'decompressed' | null = null;
   let actionFeedback: { readonly kind: 'ok' | 'error'; readonly message: string } | null = null;
   let actionController: AbortController | null = null;
@@ -204,6 +205,8 @@ function mountExplorer(
   scopeLabel.dataset['testid'] = 'explorer-scope';
 
   const searchInput = el('input', 'ogt2-explorer-search');
+  searchInput.id = 'ogt2-explorer-search';
+  searchInput.name = 'explorerSearch';
   searchInput.type = 'search';
   searchInput.dataset['testid'] = 'explorer-search';
   searchInput.placeholder = 'Szukaj po nazwie lub ścieżce…';
@@ -218,6 +221,9 @@ function mountExplorer(
   toolbar.append(upButton, scopeLabel, searchInput, countLabel);
 
   // ----- Virtualized list ----------------------------------------------------------------------
+  const listScroll = el('div', 'ogt2-vlist-scroll');
+  const listTable = el('div', 'ogt2-vlist-table');
+
   const header = el('div', 'ogt2-vlist-header');
   header.setAttribute('aria-hidden', 'true');
   header.append(
@@ -240,13 +246,18 @@ function mountExplorer(
   emptyMessage.dataset['testid'] = 'explorer-empty';
   emptyMessage.hidden = true;
   list.append(spacer, emptyMessage);
+  listTable.append(header, list);
+  listScroll.append(listTable);
 
-  // ----- Details -------------------------------------------------------------------------------
+  // ----- Details & Workbench -------------------------------------------------------------------
   const details = el('section', 'ogt2-explorer-details');
   details.dataset['testid'] = 'explorer-details';
   details.setAttribute('aria-live', 'polite');
 
-  main.append(toolbar, header, list, details);
+  const workbench = el('div', 'ogt2-workbench');
+  workbench.dataset['testid'] = 'research-workbench';
+
+  main.append(toolbar, listScroll, details, workbench);
 
   const layout = el('div', 'ogt2-explorer');
   layout.append(tree, main);
@@ -484,9 +495,22 @@ function mountExplorer(
     const hexButton = el('button', 'ogt2-button ogt2-button-subtle', 'Podgląd hex');
     hexButton.type = 'button';
     hexButton.dataset['testid'] = 'action-hex-preview';
-    hexButton.setAttribute('aria-expanded', String(hexPlaceholderOpen));
+    const isHexOpenForEntry = hexPanel.isOpen() && hexPanel.getCurrentRoute()?.path === entry.path;
+    hexButton.setAttribute('aria-expanded', String(isHexOpenForEntry));
     hexButton.addEventListener('click', () => {
-      hexPlaceholderOpen = !hexPlaceholderOpen;
+      if (hexPanel.isOpen() && hexPanel.getCurrentRoute()?.path === entry.path) {
+        hexPanel.close();
+        if (parseHexHash(window.location.hash) !== null) {
+          window.location.hash = '';
+        }
+        renderDetails();
+        return;
+      }
+      const nextHash = buildHexPreviewHash(entry.path, 0);
+      if (window.location.hash !== nextHash) {
+        window.location.hash = nextHash;
+      }
+      hexPanel.open({ path: entry.path, offset: 0, mode: 'raw' });
       renderDetails();
     });
 
@@ -539,29 +563,6 @@ function mountExplorer(
       }
       details.append(status);
     }
-
-    if (hexPlaceholderOpen) {
-      const hexPlaceholder = el('div', 'ogt2-hex-placeholder');
-      hexPlaceholder.dataset['testid'] = 'hex-placeholder';
-
-      const hexTitle = el('p', 'ogt2-hex-placeholder-title', 'Podgląd hex (placeholder do M3.1)');
-      const hexMeta = el(
-        'p',
-        'ogt2-status-text',
-        `Plik: ${entry.path} · rozmiar: ${formatBytesExact(entry.size)} · offset w VOL: 0x${entry.address.toString(16).toUpperCase()}`,
-      );
-      const hexNote = el(
-        'p',
-        'ogt2-status-text',
-        'Wirtualizowany podgląd hex (16 B/wiersz, ASCII, inspektor typów) zostanie dodany w M3.1 pod adresem ',
-      );
-      const hashCode = el('code', 'ogt2-hex-hash', buildHexPreviewHash(entry.path));
-      hashCode.dataset['testid'] = 'hex-placeholder-hash';
-      hexNote.append(hashCode, '.');
-
-      hexPlaceholder.append(hexTitle, hexMeta, hexNote);
-      details.append(hexPlaceholder);
-    }
   }
 
   function recomputeRows(resetScroll: boolean): void {
@@ -587,7 +588,6 @@ function mountExplorer(
       return;
     }
     cancelActiveAction();
-    hexPlaceholderOpen = false;
     actionFeedback = null;
     selectedPath = path;
     for (const row of rowsLayer.querySelectorAll<HTMLElement>('.ogt2-vlist-row')) {
@@ -608,6 +608,43 @@ function mountExplorer(
         }
       },
     );
+  };
+
+  // ----- Hex viewer & hash routing -------------------------------------------------------------
+  const hexPanel = mountHexViewPanel({
+    container: workbench,
+    source,
+    onNavigateHash(hash: string): void {
+      if (window.location.hash !== hash) {
+        window.location.hash = hash;
+      }
+    },
+    onClose(): void {
+      if (parseHexHash(window.location.hash) !== null) {
+        window.location.hash = '';
+      }
+      renderDetails();
+    },
+  });
+
+  const applyHashRoute = (): void => {
+    const parsed = parseHexHash(window.location.hash);
+    if (parsed === null) {
+      if (hexPanel.isOpen()) {
+        hexPanel.close();
+        renderDetails();
+      }
+      return;
+    }
+    const targetItem = entryByPath.get(parsed.path);
+    if (targetItem === undefined || targetItem.entry.kind !== 'file') {
+      return;
+    }
+    if (selectedPath !== parsed.path) {
+      selectFile(parsed.path);
+    }
+    hexPanel.open(parsed);
+    renderDetails();
   };
 
   // ----- Events --------------------------------------------------------------------------------
@@ -637,10 +674,12 @@ function mountExplorer(
   list.addEventListener('scroll', onScroll, { passive: true });
   rowsLayer.addEventListener('click', onRowsClick);
   searchInput.addEventListener('input', onSearchInput);
+  window.addEventListener('hashchange', applyHashRoute);
 
   renderToolbar();
   renderRows();
   renderDetails();
+  applyHashRoute();
 
   return {
     dispose(): void {
@@ -655,9 +694,11 @@ function mountExplorer(
         statTimer = null;
       }
       statCache.dispose();
+      hexPanel.dispose();
       list.removeEventListener('scroll', onScroll);
       rowsLayer.removeEventListener('click', onRowsClick);
       searchInput.removeEventListener('input', onSearchInput);
+      window.removeEventListener('hashchange', applyHashRoute);
     },
   };
 }

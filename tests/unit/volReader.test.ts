@@ -401,4 +401,76 @@ describe('VolReader and Worker RPC (M2.6)', () => {
     client.dispose(true);
     server.dispose();
   });
+
+  it('streams raw ranges via readRange and caches last gunzipped entry across readDecompressedRange calls without detaching cache', async () => {
+    const largeRaw = deterministicPayload(4096, 31);
+    const gzSourcePayload = deterministicPayload(2048, 41);
+    const gzBytes = gzipSync(gzSourcePayload, { mtime: 0 });
+    const otherGzPayload = deterministicPayload(512, 43);
+    const otherGzBytes = gzipSync(otherGzPayload, { mtime: 0 });
+
+    const built = buildSyntheticVol([
+      {
+        kind: 'dir',
+        name: 'data',
+        children: [
+          { kind: 'file', name: 'raw_large.bin', data: largeRaw },
+          { kind: 'file', name: 'first.dat.gz', data: gzBytes },
+          { kind: 'file', name: 'second.dat.gz', data: otherGzBytes },
+        ],
+      },
+      { kind: 'dir', name: 'extra', children: [] },
+    ]);
+
+    const backingSource = new BufferByteSource(built.bytes);
+    const readSpy = vi.spyOn(backingSource, 'read');
+    const sharedCached = new CachedByteSource(backingSource, {
+      windowSize: 64 * 1024,
+    });
+    const reader = new VolReader();
+
+    // Direct VolReader.readRange validation + range check.
+    await reader.open(sharedCached);
+    expect(await reader.readRange('data/raw_large.bin', 100, 164)).toEqual(largeRaw.subarray(100, 164));
+    expect(await reader.readRange('data/raw_large.bin', 10, 10)).toEqual(new Uint8Array(0));
+    await expect(reader.readRange('data/raw_large.bin', 4000, 4097)).rejects.toThrow(RangeError);
+    reader.close();
+
+    // RPC readRange + 1-slot decompressed cache across readDecompressedRange calls.
+    const channel = createStructuredTransferRpcChannel();
+    const server = bindVolReaderRpcServer(channel.workerTransport, reader, {
+      createSource: () => sharedCached,
+    });
+    const client = new VolReaderRpcClient(channel.mainEndpoint);
+
+    await client.open(createBlobLikeFromBytes(built.bytes));
+    const readsAfterOpen = readSpy.mock.calls.length;
+
+    const rawSlice = await client.readRange('data/raw_large.bin', 512, 1024);
+    expect(rawSlice.totalSize).toBe(4096);
+    expect(rawSlice.offset).toBe(512);
+    expect(rawSlice.bytes).toEqual(largeRaw.subarray(512, 1024));
+
+    const gzWin1 = await client.readDecompressedRange('data/first.dat.gz', 0, 256);
+    const gzWin2 = await client.readDecompressedRange('data/first.dat.gz', 256, 768);
+    // Repeat read of first window proves the 1-slot cached Uint8Array buffer was NOT detached.
+    const gzWin1Again = await client.readDecompressedRange('data/first.dat.gz', 0, 256);
+
+    expect(gzWin1.totalSize).toBe(2048);
+    expect(gzWin1.bytes).toEqual(gzSourcePayload.subarray(0, 256));
+    expect(gzWin2.bytes).toEqual(gzSourcePayload.subarray(256, 768));
+    expect(gzWin1Again.bytes).toEqual(gzSourcePayload.subarray(0, 256));
+
+    // Switching path replaces the 1-slot cache cleanly.
+    const otherWin = await client.readDecompressedRange('data/second.dat.gz', 100, 200);
+    expect(otherWin.totalSize).toBe(512);
+    expect(otherWin.bytes).toEqual(otherGzPayload.subarray(100, 200));
+
+    // All reads fit in the single 64 KiB cached window without extra backing reads.
+    expect(readSpy.mock.calls.length).toBe(readsAfterOpen);
+
+    await client.close();
+    client.dispose(true);
+    server.dispose();
+  });
 });

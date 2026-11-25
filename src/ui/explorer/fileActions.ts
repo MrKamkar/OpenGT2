@@ -1,3 +1,4 @@
+import { buildHexHash } from '../../tools/hexview';
 import { baseNameOf } from './explorerModel';
 
 /**
@@ -46,11 +47,10 @@ export function buildDecompressedDownloadFilename(entryPath: string): string {
 }
 
 /**
- * Builds the planned M3.1 hex-viewer URL hash (`#hex=<encodedPath>&off=0x<hex>`).
+ * Builds the hex-viewer URL hash (`#hex=<encodedPath>&off=0x<hex>`).
  */
 export function buildHexPreviewHash(entryPath: string, offset = 0): string {
-  const safeOffset = Number.isFinite(offset) && offset >= 0 ? Math.trunc(offset) : 0;
-  return `#hex=${encodeURIComponent(entryPath)}&off=0x${safeOffset.toString(16)}`;
+  return buildHexHash({ path: entryPath, offset });
 }
 
 /**
