@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
-import { expect, test, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { expect, test, type Download, type Page } from '@playwright/test';
 import { gzipSync } from 'fflate';
 import { buildSyntheticVol, deterministicPayload } from '../fixtures/buildVol';
 
@@ -232,6 +233,95 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
     await search.fill('packed');
     await expect(countLabel).toHaveAttribute('data-count', '1');
     await expect(page.locator('[data-testid="explorer-row"][data-path="cars/packed.dat.gz"]')).toBeVisible();
+
+    assertCleanMonitors(monitors);
+  });
+
+  test('supports M2.9 file actions: hex placeholder, raw/decompressed downloads, and multi-member gzip error without console.error', async ({
+    page,
+    baseURL,
+  }) => {
+    expect(baseURL).toBeTruthy();
+    const monitors = attachErrorMonitors(page);
+    const fixture = createExplorerFixtureArchive();
+
+    await page.goto(buildPageUrl(baseURL ?? 'http://127.0.0.1:4173/'), {
+      waitUntil: 'load',
+    });
+
+    const appRoot = page.locator('#app');
+    await expect(appRoot).toHaveAttribute('data-worker', 'ready', { timeout: 10_000 });
+
+    await page.locator('[data-testid="file-input"]').setInputFiles({
+      name: 'SYNTHETIC_GT2.VOL',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from(fixture.built.bytes),
+    });
+
+    const archivePanel = page.locator('[data-testid="archive-panel"]');
+    await expect(archivePanel).toHaveAttribute('data-vol-state', 'ready', { timeout: 15_000 });
+
+    await page.locator('[data-testid="tree-dir"][data-path="cars"]').click();
+
+    const readDownloadBytes = async (download: Download): Promise<Uint8Array> => {
+      const filePath = await download.path();
+      expect(filePath).toBeTruthy();
+      return new Uint8Array(await readFile(filePath as string));
+    };
+
+    // 1. Select packed.dat.gz: hex placeholder, raw download, and decompressed download.
+    await page.locator('[data-testid="explorer-row"][data-path="cars/packed.dat.gz"]').click();
+    await expect(page.locator('[data-testid="details-name"]')).toHaveText('packed.dat.gz');
+
+    await page.locator('[data-testid="action-hex-preview"]').click();
+    await expect(page.locator('[data-testid="hex-placeholder"]')).toBeVisible();
+    await expect(page.locator('[data-testid="hex-placeholder-hash"]')).toHaveText(
+      '#hex=cars%2Fpacked.dat.gz&off=0x0',
+    );
+
+    const rawDownloadPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="action-download-raw"]').click();
+    const rawDownload = await rawDownloadPromise;
+    expect(rawDownload.suggestedFilename()).toBe('packed.dat.gz');
+    expect(await readDownloadBytes(rawDownload)).toEqual(fixture.packedGz);
+
+    const unpackBtn = page.locator('[data-testid="action-download-decompressed"]');
+    await expect(unpackBtn).toBeEnabled({ timeout: 5_000 });
+    const unpackedDownloadPromise = page.waitForEvent('download');
+    await unpackBtn.click();
+    const unpackedDownload = await unpackedDownloadPromise;
+    expect(unpackedDownload.suggestedFilename()).toBe('packed.dat');
+    expect(await readDownloadBytes(unpackedDownload)).toEqual(fixture.packedPlain);
+
+    // 2. Select hidden_gz.bin (gzip without .gz extension): decompresses as hidden_gz.bin.unpacked.
+    await page.locator('[data-testid="explorer-row"][data-path="cars/hidden_gz.bin"]').click();
+    await expect(unpackBtn).toBeEnabled({ timeout: 5_000 });
+    const hiddenUnpackedPromise = page.waitForEvent('download');
+    await unpackBtn.click();
+    const hiddenDownload = await hiddenUnpackedPromise;
+    expect(hiddenDownload.suggestedFilename()).toBe('hidden_gz.bin.unpacked');
+    expect(await readDownloadBytes(hiddenDownload)).toEqual(fixture.hiddenPlain);
+
+    // 3. Select fake.gz (plain bytes with .gz extension): unpack button stays disabled.
+    await page.locator('[data-testid="explorer-row"][data-path="cars/fake.gz"]').click();
+    await expect(page.locator('[data-testid="details-gzip"]')).toHaveAttribute('data-gzip', 'plain', {
+      timeout: 5_000,
+    });
+    await expect(unpackBtn).toBeDisabled();
+
+    // 4. Select multi_gz.bin (multi-member container): unpack shows clean UI error without console.error, raw download works.
+    await page.locator('[data-testid="explorer-row"][data-path="cars/multi_gz.bin"]').click();
+    await expect(unpackBtn).toBeEnabled({ timeout: 5_000 });
+    await unpackBtn.click();
+    const status = page.locator('[data-testid="action-status"]');
+    await expect(status).toHaveAttribute('data-status', 'error', { timeout: 5_000 });
+    await expect(status).toContainText('wieloczęściowym kontenerem gzip');
+
+    const multiRawPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="action-download-raw"]').click();
+    const multiRaw = await multiRawPromise;
+    expect(multiRaw.suggestedFilename()).toBe('multi_gz.bin');
+    expect(await readDownloadBytes(multiRaw)).toEqual(fixture.multiGzBytes);
 
     assertCleanMonitors(monitors);
   });

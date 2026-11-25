@@ -1,6 +1,6 @@
 import { gzipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
-import { gunzip } from '../../src/formats/gzip';
+import { gunzip, GzipError } from '../../src/formats/gzip';
 import { VolError, VolReader } from '../../src/formats/vol';
 import { BufferByteSource, CachedByteSource, type BlobLike } from '../../src/io';
 import {
@@ -329,6 +329,73 @@ describe('VolReader and Worker RPC (M2.6)', () => {
     await expect(client.list(undefined, { signal: abortController.signal })).rejects.toThrow(
       'cancelled',
     );
+
+    await client.close();
+    client.dispose(true);
+    server.dispose();
+  });
+
+  it('decompresses files via RPC readDecompressed with safe transfer and propagates GzipError for plain/multi-member files', async () => {
+    const plainSource1 = deterministicPayload(400, 5);
+    const plainSource2 = deterministicPayload(300, 9);
+    const gzFileBytes = gzipSync(plainSource1, { mtime: 0 });
+    const hiddenGzBytes = gzipSync(plainSource2, { mtime: 0 });
+    const notGzipBytes = new TextEncoder().encode('PLAIN_FILE');
+
+    // Multi-member padded gzip container: member1 + zero pad to 4B + member2.
+    const member1 = gzipSync(deterministicPayload(64, 1), { mtime: 0 });
+    const member2 = gzipSync(deterministicPayload(48, 2), { mtime: 0 });
+    const paddedOffset = member1.byteLength % 4 === 0 ? member1.byteLength : member1.byteLength + (4 - (member1.byteLength % 4));
+    const multiMemberBytes = new Uint8Array(paddedOffset + member2.byteLength);
+    multiMemberBytes.set(member1, 0);
+    multiMemberBytes.set(member2, paddedOffset);
+
+    const built = buildSyntheticVol([
+      {
+        kind: 'dir',
+        name: 'pack',
+        children: [
+          { kind: 'file', name: 'item.dat.gz', data: gzFileBytes },
+          { kind: 'file', name: 'hidden_gz.bin', data: hiddenGzBytes },
+          { kind: 'file', name: 'plain.txt', data: notGzipBytes },
+          { kind: 'file', name: 'multi.bin', data: multiMemberBytes },
+        ],
+      },
+      { kind: 'dir', name: 'extra', children: [] },
+    ]);
+
+    const sharedCached = new CachedByteSource(new BufferByteSource(built.bytes), {
+      windowSize: 64 * 1024,
+    });
+    const channel = createStructuredTransferRpcChannel();
+    const server = bindVolReaderRpcServer(channel.workerTransport, new VolReader(), {
+      createSource: () => sharedCached,
+    });
+    const client = new VolReaderRpcClient(channel.mainEndpoint);
+
+    await client.open(createBlobLikeFromBytes(built.bytes));
+    const readsAfterOpen = sharedCached.getStats().sourceReads;
+
+    const unpacked1 = await client.readDecompressed('pack/item.dat.gz');
+    const unpacked2 = await client.readDecompressed('pack/hidden_gz.bin');
+
+    expect(unpacked1).toEqual(plainSource1);
+    expect(unpacked2).toEqual(plainSource2);
+    expect(unpacked1.buffer.byteLength).toBe(plainSource1.byteLength);
+    expect(unpacked2.buffer.byteLength).toBe(plainSource2.byteLength);
+    // Transferable ArrayBuffer used on both responses, and CachedByteSource windows stayed intact.
+    expect(channel.workerSentTransfers[1]).toHaveLength(1);
+    expect(channel.workerSentTransfers[2]).toHaveLength(1);
+    expect(sharedCached.getStats().sourceReads).toBe(readsAfterOpen);
+
+    await expect(client.readDecompressed('pack/plain.txt')).rejects.toMatchObject({
+      name: 'GzipError',
+      code: GzipError.InvalidMagic,
+    });
+
+    await expect(client.readDecompressed('pack/multi.bin')).rejects.toMatchObject({
+      name: 'GzipError',
+    });
 
     await client.close();
     client.dispose(true);

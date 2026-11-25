@@ -166,6 +166,12 @@ body {
   border-color: var(--ogt2-accent);
 }
 
+.ogt2-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--ogt2-border);
+}
+
 .ogt2-button-primary {
   background: var(--ogt2-accent);
   color: var(--ogt2-accent-text);
@@ -658,6 +664,50 @@ body {
 
 .ogt2-details-meta {
   font-size: 0.82rem;
+}
+
+.ogt2-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ogt2-action-status {
+  margin: 0;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.ogt2-action-status.is-ok {
+  color: var(--ogt2-ok);
+}
+
+.ogt2-action-status.is-error {
+  color: var(--ogt2-error);
+}
+
+.ogt2-hex-placeholder {
+  border: 1px dashed var(--ogt2-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ogt2-hex-placeholder-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ogt2-accent);
+}
+
+.ogt2-hex-hash {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--ogt2-text);
 }
 
 @media (max-width: 760px) {

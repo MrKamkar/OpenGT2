@@ -42,6 +42,7 @@ export {
   type BindVolReaderRpcOptions,
   bindVolReaderRpcServer,
   toOwnedTransferUint8Array,
+  toTransferableDecompressedUint8Array,
   type VolReaderListParams,
   type VolReaderOpenParams,
   type VolReaderPathParams,

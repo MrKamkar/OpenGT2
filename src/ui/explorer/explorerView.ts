@@ -1,3 +1,4 @@
+import { isAbortLikeError } from '../../app/volArchiveSession';
 import type { VolEntry, VolInfo } from '../../formats/vol';
 import {
   ALL_FILES_SCOPE,
@@ -12,6 +13,13 @@ import {
   parentScopeOf,
   queryExplorer,
 } from './explorerModel';
+import {
+  buildDecompressedDownloadFilename,
+  buildHexPreviewHash,
+  buildRawDownloadFilename,
+  describeFileActionError,
+  triggerLocalBlobDownload,
+} from './fileActions';
 import { UNKNOWN_VALUE_LABEL, formatByteSize, formatBytesExact, formatUnixTimeUtc } from './formatters';
 import { LazyStatCache, type StatFn } from './lazyStatCache';
 import { computeVirtualRange } from './virtualRange';
@@ -27,6 +35,8 @@ const STAT_VISIBILITY_DEBOUNCE_MS = 60;
 
 export interface ArchiveExplorerSource {
   readonly stat: StatFn;
+  readonly readRaw: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
+  readonly readDecompressed: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
 }
 
 export interface ArchivePanelHandle {
@@ -102,10 +112,22 @@ function mountExplorer(
   let query = '';
   let rows: readonly IndexedVolEntry[] = queryExplorer(index, scope, query);
   let selectedPath: string | null = null;
+  let hexPlaceholderOpen = false;
+  let actionBusy: 'raw' | 'decompressed' | null = null;
+  let actionFeedback: { readonly kind: 'ok' | 'error'; readonly message: string } | null = null;
+  let actionController: AbortController | null = null;
   let renderedPaths = new Set<string>();
   let renderFrame: number | null = null;
   let statTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+
+  const cancelActiveAction = (): void => {
+    if (actionController !== null) {
+      actionController.abort();
+      actionController = null;
+    }
+    actionBusy = null;
+  };
 
   // ----- Summary -------------------------------------------------------------------------------
   const summary = el('div', 'ogt2-archive-summary');
@@ -376,6 +398,57 @@ function mountExplorer(
     }
   }
 
+  const runFileDownload = (mode: 'raw' | 'decompressed', path: string): void => {
+    if (disposed || actionBusy !== null) {
+      return;
+    }
+    cancelActiveAction();
+    const controller = new AbortController();
+    actionController = controller;
+    actionBusy = mode;
+    actionFeedback = null;
+    renderDetails();
+
+    const readPromise =
+      mode === 'raw'
+        ? source.readRaw(path, controller.signal)
+        : source.readDecompressed(path, controller.signal);
+
+    void readPromise
+      .then((bytes) => {
+        if (disposed || controller.signal.aborted || selectedPath !== path) {
+          return;
+        }
+        const filename =
+          mode === 'raw'
+            ? buildRawDownloadFilename(path)
+            : buildDecompressedDownloadFilename(path);
+        triggerLocalBlobDownload(bytes, filename);
+        actionFeedback = {
+          kind: 'ok',
+          message: `Pobrano lokalnie: ${filename} (${formatByteSize(bytes.byteLength)}, ${formatBytesExact(bytes.byteLength)}).`,
+        };
+      })
+      .catch((error: unknown) => {
+        if (disposed || controller.signal.aborted || selectedPath !== path || isAbortLikeError(error)) {
+          return;
+        }
+        actionFeedback = {
+          kind: 'error',
+          message: describeFileActionError(error),
+        };
+      })
+      .finally(() => {
+        if (actionController === controller) {
+          actionController = null;
+          actionBusy = null;
+        }
+        if (!disposed && selectedPath === path) {
+          renderDetails();
+        }
+      });
+  };
+
   function renderDetails(): void {
     details.replaceChildren();
     const selected = selectedPath === null ? undefined : entryByPath.get(selectedPath);
@@ -404,7 +477,91 @@ function mountExplorer(
             : 'sprawdzanie…';
     const gzipValue = appendMetaRow(meta, 'gzip', gzipLabel, 'details-gzip');
     gzipValue.dataset['gzip'] = gzipState;
-    details.append(title, meta);
+
+    const actions = el('div', 'ogt2-details-actions');
+    actions.dataset['testid'] = 'details-actions';
+
+    const hexButton = el('button', 'ogt2-button ogt2-button-subtle', 'Podgląd hex');
+    hexButton.type = 'button';
+    hexButton.dataset['testid'] = 'action-hex-preview';
+    hexButton.setAttribute('aria-expanded', String(hexPlaceholderOpen));
+    hexButton.addEventListener('click', () => {
+      hexPlaceholderOpen = !hexPlaceholderOpen;
+      renderDetails();
+    });
+
+    const downloadRawButton = el(
+      'button',
+      'ogt2-button ogt2-button-subtle',
+      actionBusy === 'raw' ? 'Pobieranie surowego…' : 'Pobierz surowy',
+    );
+    downloadRawButton.type = 'button';
+    downloadRawButton.dataset['testid'] = 'action-download-raw';
+    downloadRawButton.disabled = actionBusy !== null;
+    downloadRawButton.addEventListener('click', () => {
+      runFileDownload('raw', entry.path);
+    });
+
+    const downloadUnpackedButton = el(
+      'button',
+      'ogt2-button ogt2-button-subtle',
+      actionBusy === 'decompressed' ? 'Rozpakowywanie…' : 'Pobierz rozpakowany',
+    );
+    downloadUnpackedButton.type = 'button';
+    downloadUnpackedButton.dataset['testid'] = 'action-download-decompressed';
+    downloadUnpackedButton.disabled = gzipState !== 'gzip' || actionBusy !== null;
+    if (gzipState === 'plain') {
+      downloadUnpackedButton.title = 'Plik nie ma sygnatury gzip (1F 8B).';
+    } else if (gzipState === 'error') {
+      downloadUnpackedButton.title = 'Nie udało się zweryfikować sygnatury gzip.';
+    } else if (gzipState !== 'gzip') {
+      downloadUnpackedButton.title = 'Trwa sprawdzanie sygnatury gzip…';
+    } else {
+      downloadUnpackedButton.title = 'Rozpakuj strumień gzip w wątku roboczym i pobierz lokalnie';
+    }
+    downloadUnpackedButton.addEventListener('click', () => {
+      runFileDownload('decompressed', entry.path);
+    });
+
+    actions.append(hexButton, downloadRawButton, downloadUnpackedButton);
+    details.append(title, meta, actions);
+
+    if (actionFeedback !== null) {
+      const status = el(
+        'p',
+        `ogt2-action-status ${actionFeedback.kind === 'error' ? 'is-error' : 'is-ok'}`,
+        actionFeedback.message,
+      );
+      status.dataset['testid'] = 'action-status';
+      status.dataset['status'] = actionFeedback.kind;
+      if (actionFeedback.kind === 'error') {
+        status.setAttribute('role', 'alert');
+      }
+      details.append(status);
+    }
+
+    if (hexPlaceholderOpen) {
+      const hexPlaceholder = el('div', 'ogt2-hex-placeholder');
+      hexPlaceholder.dataset['testid'] = 'hex-placeholder';
+
+      const hexTitle = el('p', 'ogt2-hex-placeholder-title', 'Podgląd hex (placeholder do M3.1)');
+      const hexMeta = el(
+        'p',
+        'ogt2-status-text',
+        `Plik: ${entry.path} · rozmiar: ${formatBytesExact(entry.size)} · offset w VOL: 0x${entry.address.toString(16).toUpperCase()}`,
+      );
+      const hexNote = el(
+        'p',
+        'ogt2-status-text',
+        'Wirtualizowany podgląd hex (16 B/wiersz, ASCII, inspektor typów) zostanie dodany w M3.1 pod adresem ',
+      );
+      const hashCode = el('code', 'ogt2-hex-hash', buildHexPreviewHash(entry.path));
+      hashCode.dataset['testid'] = 'hex-placeholder-hash';
+      hexNote.append(hashCode, '.');
+
+      hexPlaceholder.append(hexTitle, hexMeta, hexNote);
+      details.append(hexPlaceholder);
+    }
   }
 
   function recomputeRows(resetScroll: boolean): void {
@@ -426,6 +583,12 @@ function mountExplorer(
   }
 
   const selectFile = (path: string): void => {
+    if (path === selectedPath) {
+      return;
+    }
+    cancelActiveAction();
+    hexPlaceholderOpen = false;
+    actionFeedback = null;
     selectedPath = path;
     for (const row of rowsLayer.querySelectorAll<HTMLElement>('.ogt2-vlist-row')) {
       const isSelected = row.dataset['path'] === path;
@@ -482,6 +645,7 @@ function mountExplorer(
   return {
     dispose(): void {
       disposed = true;
+      cancelActiveAction();
       if (renderFrame !== null) {
         cancelAnimationFrame(renderFrame);
         renderFrame = null;

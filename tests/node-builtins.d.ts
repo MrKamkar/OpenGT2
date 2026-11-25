@@ -28,6 +28,7 @@ declare module 'node:fs/promises' {
 
   export function open(path: string, flags: 'r'): Promise<FileHandle>;
   export function readdir(path: string, options: { withFileTypes: true }): Promise<Dirent[]>;
+  export function readFile(path: string): Promise<Uint8Array>;
   export function readFile(path: string, encoding: 'utf8'): Promise<string>;
 }
 

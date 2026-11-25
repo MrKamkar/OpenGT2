@@ -1,3 +1,4 @@
+import { gunzip } from '../formats/gzip';
 import {
   type VolEntry,
   type VolInfo,
@@ -51,6 +52,10 @@ export interface VolReaderRpcSchema {
     readonly params: VolReaderPathParams;
     readonly result: Uint8Array;
   };
+  readDecompressed: {
+    readonly params: VolReaderPathParams;
+    readonly result: Uint8Array;
+  };
   close: {
     readonly params: Record<string, never>;
     readonly result: void;
@@ -79,6 +84,27 @@ export function toOwnedTransferUint8Array(bytes: Uint8Array): {
 }
 
 /**
+ * Returns an unshared, exact-length `ArrayBuffer` view suitable for `withTransfer`.
+ * Avoids copying when `bytes` already owns its `ArrayBuffer` (e.g. fresh `gunzip()` output).
+ */
+export function toTransferableDecompressedUint8Array(bytes: Uint8Array): {
+  readonly bytes: Uint8Array;
+  readonly buffer: ArrayBuffer;
+} {
+  if (
+    bytes.buffer instanceof ArrayBuffer &&
+    bytes.byteOffset === 0 &&
+    bytes.byteLength === bytes.buffer.byteLength
+  ) {
+    return {
+      bytes,
+      buffer: bytes.buffer,
+    };
+  }
+  return toOwnedTransferUint8Array(bytes);
+}
+
+/**
  * Binds `VolReader` operations onto a worker-side `RpcMessageTransport`.
  */
 export function bindVolReaderRpcServer(
@@ -102,6 +128,12 @@ export function bindVolReaderRpcServer(
     read: async (params) => {
       const data = await reader.read(params.path);
       const owned = toOwnedTransferUint8Array(data);
+      return withTransfer(owned.bytes, [owned.buffer]);
+    },
+    readDecompressed: async (params) => {
+      const raw = await reader.read(params.path);
+      const decompressed = await gunzip(raw);
+      const owned = toTransferableDecompressedUint8Array(decompressed);
       return withTransfer(owned.bytes, [owned.buffer]);
     },
     close: () => {
@@ -144,6 +176,10 @@ export class VolReaderRpcClient {
 
   read(path: string, rpcOptions?: RpcCallOptions): Promise<Uint8Array> {
     return this.rpc.call('read', { path }, rpcOptions);
+  }
+
+  readDecompressed(path: string, rpcOptions?: RpcCallOptions): Promise<Uint8Array> {
+    return this.rpc.call('readDecompressed', { path }, rpcOptions);
   }
 
   close(rpcOptions?: RpcCallOptions): Promise<void> {
