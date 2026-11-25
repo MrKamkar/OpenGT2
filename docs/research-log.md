@@ -62,3 +62,23 @@ Chronological log of binary format investigations, reverse-engineering findings,
 - **Pewność:** N/A (infrastruktura I/O, trwałości i UI domykająca M1; format `GT2.VOL` nie był parsowany).
 - **Konsekwencje dla kodu:** Milestone M1 jest w pełni domknięty — gotowa jest kompletna podstawa (`ByteSource`, `CachedByteSource`, RPC, `WorkerPool`, `fingerprint`, `FileHandleStore`, `IdbCache`) do rozpoczęcia prac badawczych i parsera M2 (`GT2.VOL` + `gzip`).
 - **Otwarte pytania:** Brak blokad w M1; kolejnym krokiem jest M2.1 (`src/formats/vol/header.ts`, zgodnie z Załącznikiem A i protokołem 🔬 z §2.1).
+
+
+## 2026-11-25 — M2.11, M2.1–M2.5 — Generator syntetycznego `GT2.VOL` i czyste parsery (`header`, `offsets`, `toc`, `tree`, `sizes`)
+- **Pytanie:** Jak zaimplementować deterministyczny generator syntetycznych archiwów `GT2.VOL` oraz bezstanowe, strumieniowe parsery nagłówka, tablicy offsetów, TOC, rekonstrukcji drzewa katalogów i wyliczania rozmiarów plików na poziomie **E2** (bez czytania prawdziwego `GT2.VOL` i bez wczytywania archiwum do RAM)?
+- **Metoda:** Implementacja fixture buildera (`tests/fixtures/buildVol.ts`) oraz czystych modułów `src/formats/vol/` (`types.ts`, `header.ts`, `offsets.ts`, `toc.ts`, `tree.ts`, `sizes.ts`, `index.ts`) korzystających wyłącznie z `ByteSource` i `DataView(..., true)`, z pełnym pokryciem testami jednostkowymi Vitest (w tym TDD dla `tree.ts` na syntetycznym drzewie 3-poziomowym z wpisami `..`, pustym katalogiem z flagą `0x81`, plikami 0-bajtowym, wyrównanym do `0x800` i ostatnim plikiem z fallbackiem `0x800`).
+- **Wynik:**
+  - `tests/fixtures/buildVol.ts`: deterministyczny generator drzew o ≥ 3 poziomach zagnieżdżenia w porządku „first encounter”, wspierający `..` (`offsetIndex=0`), flagę `0x80`/`0x81`, pliki 0-bajtowe oraz mutacje negatywne (zły magic, ucięty plik, nieprawidłowe liczniki, błędne granice TOC, niemonotoniczne/nakładające się offsety).
+  - `src/formats/vol/header.ts` + `types.ts`: weryfikacja magic `"GTFS\0\0\0\0"`, `files > 0 && totalEntries > 0 && totalEntries > files`, izolacja pola `unk_0x0C` (`0x0C..0x0F`, **E0**) oraz typowane błędy `VolError` (`BadMagic`, `TruncatedHeader`, `InvalidHeaderCounts`, itd.). Odczyt wyłącznie 16 B.
+  - `src/formats/vol/offsets.ts`: odczyt wyłącznie `[0x10, 0x10 + files * 4)`, bezznakowe `splitOffset(raw)` (`>>> 0`, bezpieczne dla bitu 31) i dopisanie wirtualnego `offsets[files] = source.size`.
+  - `src/formats/vol/toc.ts`: wyliczanie granic TOC wg A.4 z twardą walidacją `tocLength >= totalEntries * 32` i odczytem wyłącznie zakresu TOC; dekodowanie 32-bajtowych rekordów (`int32` czas UTC, `int16 offsetIndex`, `uint8 flags` z izolacją bitów `0x02..0x7E` **E0**, `char[25]` ASCII dopełnione zerami).
+  - `src/formats/vol/tree.ts`: algorytm „first encounter” wg A.5; wpisy `..` oraz `offsetIndex === 0` nie trafiają do wyniku, a flaga `0x80` na nich przełącza bieżący katalog.
+  - `src/formats/vol/sizes.ts`: wyliczanie rozmiarów plików wg A.6 (w tym pliki 0-bajtowe i fallback `0x800` dla ostatniego pliku przy wyniku `<= 0`) oraz niekrytyczne kontrole spójności (niemonotoniczne adresy, nakładanie zakresów, przekroczenie rozmiaru VOL) raportowane wyłącznie w `warnings`.
+  - Wyrównano tabelę poziomów pewności `E0–E3` w `docs/formats.md` do `ROADMAP.md §3` i dopisano pełną specyfikację `GT2.VOL` na poziomie **E2**.
+- **Pewność:** **E2** dla całej struktury `GT2.VOL` na podstawie kodu referencyjnego `adeyblue/GTVolTools` (`GT2VolFile.cs`, MIT); **E1** dla kodowania plików 0-bajtowych, monotoniczności adresów oraz założenia `offsetIndex !== 0` dla zwykłych katalogów; **E0** dla `header.unk_0x0C` (`0x0C..0x0F`) i bitów flag TOC `0x02..0x7E`.
+- **Konsekwencje dla kodu:** Gotowy czysty rdzeń parsera `GT2.VOL` pod `VolReader` (M2.6) i weryfikację na realnym archiwum (M2.10).
+- **Otwarte pytania (do zweryfikowania w M2.10 na prawdziwym `local_assets/GT2.VOL`):**
+  1. Czy w prawdziwym `GT2.VOL` zwykłe katalogi **zawsze** mają `offsetIndex !== 0` (w odróżnieniu od wpisów `..` mających `offsetIndex === 0`)?
+  2. Jak w prawdziwym `GT2.VOL` kodowane są pliki 0-bajtowe w tablicy offsetów (czy faktycznie `next.address === prev.address && prev.tail === 0`)?
+  3. Czy wszystkie adresy plików w kolejności TOC są niemalejące i nienakładające się (0 ostrzeżeń w `warnings`)?
+  4. Czy w prawdziwym `GT2.VOL` występują niezerowe wartości `unk_0x0C` (**E0**) lub nieznane bity flag TOC `0x02..0x7E` (**E0**)?
