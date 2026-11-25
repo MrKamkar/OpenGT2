@@ -1,0 +1,16 @@
+# Dependencies & build output
+node_modules/
+dist/
+
+# Local proprietary game assets & dumps (NEVER commit)
+local_assets/
+dumps/
+*.vol
+*.VOL
+*.bin
+*.cue
+*.iso
+
+# OS & logs
+.DS_Store
+*.log
