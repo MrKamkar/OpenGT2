@@ -104,3 +104,18 @@ Chronological log of binary format investigations, reverse-engineering findings,
 - **Otwarte pytania:**
   1. W M2.8–M2.9: podpiąć `VolReaderRpcClient` i `gunzip` do UI Eksploratora (drzewo katalogów, pobieranie surowego i rozpakowanego pliku).
   2. W M3/M4: zbadać dokładną strukturę 7 wieloczęściowych kontenerów bez `.gz` (zaczynających się od `1F 8B 08`) oraz weryfikować, na co dokładnie wskazuje `offsetIndex` w zwykłych katalogach.
+
+## 2026-11-25 — M2.8–M2.9 — UI Eksplorator GT2.VOL oraz akcje na pliku (domknięcie M2)
+- **Pytanie:** Jak zbudować responsywny, wirtualizowany eksplorator dla >11 500 wpisów z leniwym wykrywaniem gzip i lokalnym pobieraniem plików (surowych i rozpakowanych w Workerze), bez kolizji z `InputManager`, bez ładowania całego archiwum do RAM i bez użycia `SharedArrayBuffer`?
+- **Metoda:**
+  - M2.8: `src/ui/explorer/` (`explorerModel.ts`, `virtualRange.ts`, `lazyStatCache.ts`, `formatters.ts`, `explorerView.ts`), `src/app/volArchiveSession.ts`, `isEditableElement()` w `src/core/input/domInputBridge.ts` oraz integracja z `src/main.ts` i `src/ui/fileLoaderScreen.ts`. Pokrycie testami jednostkowymi (`explorerModel.test.ts`, `virtualRange.test.ts`, `lazyStatCache.test.ts`, `explorerFormatters.test.ts`, `volArchiveSession.test.ts`, `inputManager.test.ts`) i Playwright e2e (`tests/e2e/explorer.spec.ts` na syntetycznym VOL z 11 606 plikami).
+  - M2.9: rozszerzenie `src/workers/volReaderProtocol.ts` o `readDecompressed` (wywołuje `gunzip()` w Workerze i zwraca wynik przez `withTransfer` bez odłączania okien `CachedByteSource`), `src/ui/explorer/fileActions.ts` (lokalne pobieranie `Blob` URL, nazewnictwo `.gz`/`.unpacked`, mapowanie błędów wieloczęściowych kontenerów gzip, hash `#hex=<path>&off=0x0` pod M3.1) oraz podpięcie akcji w `explorerView.ts` + testy (`fileActions.test.ts`, `volReader.test.ts`, `explorer.spec.ts`).
+- **Wynik:**
+  - Drzewo katalogów + wirtualizowana lista (`EXPLORER_ROW_HEIGHT = 28`, `EXPLORER_OVERSCAN = 8`) renderują jedynie widoczny wycinek DOM (< 60 wierszy przy >11 600 wpisach) i wyświetlają nazwę, rozmiar, datę `YYYY-MM-DD HH:MM:SS UTC` oraz flagę `gzip`.
+  - `LazyStatCache` sonduje wyłącznie widoczne pliki (limit 4 równoległych `stat()`), anuluje wywołania po przewinięciu poza widok i przypina wybrany plik (`ensure()`), nie odpytując wszystkich 11 578 plików naraz.
+  - `attachDomInputBridge` ignoruje `keydown` w polach edycyjnych (`isEditableElement`), dzięki czemu wyszukiwarka WSAD/strzałek/Spacji nie koliduje z `InputManager` (a `keyup` nadal zwalnia wcześniej wciśnięte klawisze).
+  - Pliki niebędące `GT2.VOL` wyświetlają czytelny komunikat błędu przy zerowej liczbie `console.error`; pusty canvas WebGL2 pozostaje nietknięty (§1.1).
+  - Akcje M2.9 („Podgląd hex” jako placeholder z docelowym hashem M3.1, „Pobierz surowy”, „Pobierz rozpakowany”) działają lokalnie na `Blob` URL; próba rozpakowania wieloczęściowego kontenera gzip kończy się czytelnym komunikatem w UI bez błędu konsoli i z możliwością pobrania pliku surowego.
+- **Pewność:** N/A (zadania UI i warstwy aplikacji zamykające M2, oparte na kontrakcie `GT2.VOL` zweryfikowanym jako **E3** w M2.10).
+- **Konsekwencje dla kodu:** Milestone M2 jest w pełni domknięty. Kolejnym etapem jest M3.1 (`src/tools/hexview` pod adresem `#hex=<path>&off=0x0`) oraz badanie 7 wieloczęściowych kontenerów gzip bez rozszerzenia `.gz`.
+- **Otwarte pytania:** W M3 zintegrować przycisk „Podgląd hex” z właściwym widokiem hexview oraz dodać obsługę rozpakowywania wieloczłonowych kontenerów gzip.
