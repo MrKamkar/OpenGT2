@@ -19,7 +19,13 @@ export function extractFileMeta(file: FileMetaReadable): SelectedFileMeta {
   };
 }
 
+export interface RememberedFileInfo {
+  readonly name: string;
+  readonly note?: string;
+}
+
 export interface FileLoaderScreenHandle {
+  setRememberedFile(info: RememberedFileInfo | null): void;
   dispose(): void;
 }
 
@@ -29,6 +35,15 @@ export interface FileLoaderScreenOptions {
   readonly capabilities: BrowserCapabilities;
   readonly onFileSelected: (file: File) => void;
   readonly onReset: () => void;
+  /**
+   * Optional File System Access API picker callback.
+   * Returns `true` if handled (file picked or user cancelled), or `false` to fall back to `<input type="file">`.
+   */
+  readonly onPickFileWithHandle?: () => Promise<boolean>;
+  /**
+   * Optional callback invoked when the user clicks to reopen a previously remembered FileSystemFileHandle.
+   */
+  readonly onReopenRememberedFile?: () => Promise<void>;
 }
 
 interface CapabilityRow {
@@ -103,7 +118,15 @@ function createCapabilitiesSection(capabilities: BrowserCapabilities): HTMLEleme
 }
 
 export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoaderScreenHandle {
-  const { container, stateMachine, capabilities, onFileSelected, onReset } = options;
+  const {
+    container,
+    stateMachine,
+    capabilities,
+    onFileSelected,
+    onReset,
+    onPickFileWithHandle,
+    onReopenRememberedFile,
+  } = options;
 
   const overlay = document.createElement('main');
   overlay.className = 'ogt2-overlay';
@@ -158,7 +181,28 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   selectButton.dataset['testid'] = 'select-file-button';
   selectButton.textContent = 'Wybierz plik GT2.VOL';
 
-  dropzone.append(dropPrompt, dropHint, selectButton, fileInput);
+  const rememberedPanel = document.createElement('div');
+  rememberedPanel.className = 'ogt2-remembered';
+  rememberedPanel.dataset['testid'] = 'remembered-file-panel';
+  rememberedPanel.hidden = true;
+
+  const rememberedLabel = document.createElement('p');
+  rememberedLabel.className = 'ogt2-remembered-label';
+
+  const reopenButton = document.createElement('button');
+  reopenButton.type = 'button';
+  reopenButton.className = 'ogt2-button';
+  reopenButton.dataset['testid'] = 'reopen-file-button';
+  reopenButton.textContent = 'Otwórz ponownie';
+
+  const rememberedNote = document.createElement('p');
+  rememberedNote.className = 'ogt2-remembered-note';
+  rememberedNote.dataset['testid'] = 'remembered-file-note';
+  rememberedNote.hidden = true;
+
+  rememberedPanel.append(rememberedLabel, reopenButton, rememberedNote);
+
+  dropzone.append(dropPrompt, dropHint, selectButton, fileInput, rememberedPanel);
 
   const statusPanel = document.createElement('section');
   statusPanel.className = 'ogt2-status';
@@ -193,9 +237,39 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     onFileSelected(file);
   };
 
-  const onSelectButtonClick = (): void => {
+  const triggerInputFallback = (): void => {
     fileInput.value = '';
     fileInput.click();
+  };
+
+  const onSelectButtonClick = (): void => {
+    if (capabilities.showOpenFilePicker && onPickFileWithHandle !== undefined) {
+      void onPickFileWithHandle()
+        .then((handled) => {
+          if (!handled) {
+            triggerInputFallback();
+          }
+        })
+        .catch(() => {
+          triggerInputFallback();
+        });
+      return;
+    }
+    triggerInputFallback();
+  };
+
+  const onReopenButtonClick = (): void => {
+    if (onReopenRememberedFile === undefined) {
+      return;
+    }
+    reopenButton.disabled = true;
+    void onReopenRememberedFile()
+      .catch(() => {
+        // Handled gracefully by caller / UI status without uncaught rejections.
+      })
+      .finally(() => {
+        reopenButton.disabled = false;
+      });
   };
 
   const onFileInputChange = (): void => {
@@ -238,6 +312,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   };
 
   selectButton.addEventListener('click', onSelectButtonClick);
+  reopenButton.addEventListener('click', onReopenButtonClick);
   fileInput.addEventListener('change', onFileInputChange);
   dropzone.addEventListener('dragenter', onDragEnter);
   dropzone.addEventListener('dragover', onDragOver);
@@ -365,13 +440,35 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     }
   };
 
+  const setRememberedFile = (info: RememberedFileInfo | null): void => {
+    if (info === null) {
+      rememberedPanel.hidden = true;
+      rememberedLabel.textContent = '';
+      rememberedNote.hidden = true;
+      rememberedNote.textContent = '';
+      return;
+    }
+    rememberedPanel.hidden = false;
+    rememberedLabel.textContent = `Zapamiętany plik: ${info.name}`;
+    reopenButton.textContent = `Otwórz ponownie (${info.name})`;
+    if (info.note !== undefined && info.note.length > 0) {
+      rememberedNote.hidden = false;
+      rememberedNote.textContent = info.note;
+    } else {
+      rememberedNote.hidden = true;
+      rememberedNote.textContent = '';
+    }
+  };
+
   renderState(stateMachine.getState());
   const unsubscribe = stateMachine.subscribe(renderState);
 
   return {
+    setRememberedFile,
     dispose(): void {
       unsubscribe();
       selectButton.removeEventListener('click', onSelectButtonClick);
+      reopenButton.removeEventListener('click', onReopenButtonClick);
       fileInput.removeEventListener('change', onFileInputChange);
       dropzone.removeEventListener('dragenter', onDragEnter);
       dropzone.removeEventListener('dragover', onDragOver);

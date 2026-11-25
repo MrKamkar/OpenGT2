@@ -11,7 +11,12 @@ import {
   installInputDebugHook,
 } from './core/input';
 import { GlContext, WebGL2UnavailableError } from './renderer/GlContext';
-import { BlobByteSource, fingerprint } from './io';
+import {
+  BlobByteSource,
+  FileHandleStore,
+  fingerprint,
+  pickVolFileWithHandle,
+} from './io';
 import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
 import { createHealthWorker } from './workers/createHealthWorker';
 import type { HealthPingMessage, HealthPongMessage } from './workers/health.worker';
@@ -134,7 +139,11 @@ export function initApp(): void {
       });
   };
 
-  mountFileLoaderScreen({
+  const fileHandleStore = new FileHandleStore({
+    isSupported: () => capabilities.showOpenFilePicker,
+  });
+
+  const screen = mountFileLoaderScreen({
     container: root,
     stateMachine,
     capabilities,
@@ -143,7 +152,78 @@ export function initApp(): void {
       selectionGeneration += 1;
       stateMachine.dispatch({ type: 'RESET' });
     },
+    async onPickFileWithHandle(): Promise<boolean> {
+      try {
+        const picked = await pickVolFileWithHandle(window);
+        if (picked.status === 'unsupported') {
+          return false;
+        }
+        if (picked.status === 'cancelled') {
+          return true;
+        }
+        try {
+          const saved = await fileHandleStore.saveHandle(picked.handle);
+          if (saved) {
+            screen.setRememberedFile({ name: picked.handle.name });
+          }
+        } catch {
+          // Storage may be unavailable (e.g. restricted private mode); continue opening the file cleanly.
+        }
+        openFile(picked.file);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    async onReopenRememberedFile(): Promise<void> {
+      try {
+        const result = await fileHandleStore.reopenStoredFile({ requestPermission: true });
+        switch (result.status) {
+          case 'opened':
+            screen.setRememberedFile({ name: result.handle.name });
+            openFile(result.file);
+            break;
+          case 'denied':
+            screen.setRememberedFile({
+              name: result.handle.name,
+              note: 'Brak zgody na ponowny dostęp do pliku — wybierz plik ręcznie.',
+            });
+            break;
+          case 'prompt':
+            screen.setRememberedFile({
+              name: result.handle.name,
+              note: 'Wymagana zgoda przeglądarki na odczyt pliku.',
+            });
+            break;
+          case 'error':
+            screen.setRememberedFile({
+              name: result.handle.name,
+              note: 'Nie udało się ponownie otworzyć zapamiętanego pliku — wybierz go ponownie.',
+            });
+            break;
+          case 'empty':
+          case 'unsupported':
+            screen.setRememberedFile(null);
+            break;
+        }
+      } catch {
+        screen.setRememberedFile(null);
+      }
+    },
   });
+
+  if (capabilities.showOpenFilePicker) {
+    void fileHandleStore
+      .loadHandle()
+      .then((handle) => {
+        if (handle !== null) {
+          screen.setRememberedFile({ name: handle.name });
+        }
+      })
+      .catch(() => {
+        // Ignore IndexedDB unavailability silently so browsers without storage emit zero console errors.
+      });
+  }
 
   attachDomInputBridge({
     inputManager,

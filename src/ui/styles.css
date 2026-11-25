@@ -176,6 +176,33 @@ body {
   filter: brightness(1.06);
 }
 
+.ogt2-remembered {
+  width: 100%;
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ogt2-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.ogt2-remembered[hidden] {
+  display: none;
+}
+
+.ogt2-remembered-label {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ogt2-muted);
+}
+
+.ogt2-remembered-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ogt2-warn);
+}
+
 .ogt2-status {
   border: 1px solid var(--ogt2-border);
   border-radius: 12px;
