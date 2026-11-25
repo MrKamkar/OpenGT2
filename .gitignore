@@ -14,3 +14,7 @@ dumps/
 # OS & logs
 .DS_Store
 *.log
+
+# Local agent config & roadmap
+.agent/
+ROADMAP.md
