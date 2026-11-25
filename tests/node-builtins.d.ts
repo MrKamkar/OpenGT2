@@ -23,3 +23,14 @@ declare module 'node:path' {
 declare module 'node:url' {
   export function fileURLToPath(url: string | URL): string;
 }
+
+declare module 'node:process' {
+  export const env: Record<string, string | undefined>;
+}
+
+declare module 'node:buffer' {
+  export const Buffer: {
+    alloc(size: number, fill?: number): Uint8Array;
+    from(data: ArrayLike<number>): Uint8Array;
+  };
+}

@@ -50,7 +50,14 @@ const opengt2Plugin = {
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'local_assets/**', 'dumps/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'local_assets/**',
+      'dumps/**',
+      'playwright-report/**',
+      'test-results/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
