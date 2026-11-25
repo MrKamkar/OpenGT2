@@ -1,0 +1,5 @@
+dist/
+node_modules/
+local_assets/
+dumps/
+package-lock.json
