@@ -129,7 +129,7 @@ TOC entries appear in directory-grouped "first encounter" order:
 | Rozszerzenie (zewn. / wewn.) | Kompresja | Sygnatura magic (hex / ASCII) | Liczba plików | Zakres rozmiaru | Rola / uwagi | Pewność |
 | --- | --- | --- | --- | --- | --- | --- |
 | `.es` | brak | `45 4E 47 4E` (`"ENGN"`) | `2 747` | `4 080–90 080 B` | Dane dźwięku silnika (zakres M11) | **E1** |
-| `.cdo.gz` / `.cno.gz` | gzip (1 człon) | `47 54 02 00` (`"GT\x02\x00"`) | `2 220` (`1 110` + `1 110`) | `11 048–20 000 B` | Modele 3D aut dzień/noc (`100% <= 0x5000`, Załącznik D.1; zakres M6) | **E3** (magic/limit) / **E2** (układ) |
+| `.cdo.gz` / `.cno.gz` | gzip (1 człon) | `47 54 02 00` (`"GT\x02\x00"`) | `2 220` (`1 110` + `1 110`) | `11 048–20 000 B` | Modele 3D aut dzień/noc (`100% <= 0x5000`, Załącznik D; zweryfikowane w M6.1–M6.6) | **E3** (CDO/CNO) / **E1** (rekordy cienia) |
 | `.tro.gz` | gzip (1 człon) | `40 28 23 29 47 54 2D 50` (`"@(#)GT-P"`) | `126` | `77 768–696 792 B` | Geometria torów (zakres M8) | **E1** |
 | `.bso.gz` | gzip (1 człon) | `42 47 00 00` (`"BG\0\0"`) | `34` | `7 232–22 096 B` | Obiekty tła / nieba (zakres M8) | **E1** |
 | `.dat.gz` | gzip (1 człon) | `47 54 44 54` (`"GTDT"`, `22` pliki), `WSDB` pod `0x04` (`7` plików) i inne (`10`) | `39` | `32–776 504 B` | Pliki bazy danych (`GTDT`, `WSDB` — **E3** w M5.1) oraz pliki menu (`10`, **E0**/**E1**) | **E3** (`GTDT`/`WSDB`) / **E1** (pozostałe) |
@@ -454,3 +454,67 @@ encodeCarId(code):
 | Day texture + CLUTs | `.cdp.gz` (`.cdp`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
 | Night texture + CLUTs | `.cnp.gz` (`.cnp`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
 | Engine sound bank | `.es` | `2,747` | `0` direct 5-char `carId` matches; stems match `DDDDD` (`305`), `DDDDD_LD` (`2,440`), `LLL_L` (`2`) | — | **E1** (M11) |
+
+---
+
+## GT2 Car Model Format: `CDO` / `CNO` (`src/formats/car/cdo/`)
+
+- **Confidence:** **E3** (header, LOD table, LOD headers, vertices, packed normals, 4 polygon lists, and shadow header verified across `2,220 / 2,220` decompressed `.cdo.gz`/`.cno.gz` models in `local_assets/GT2.VOL`, `tests/unit/cdoRealArchive.test.ts`); **E1** (clean-room shadow payload record layout, `0x08..0x0F` wheel diagnostic, `renderOrder`, `renderFlags`, `paletteRaw`, `scale`); **E0** (`unk_0x04`, `unk_0x10`, `0x40..0x867`, `unk_0x4e`, unused zero bitfields).
+- **Clean-room source:** Implemented solely from [ROADMAP.md Appendix D](../ROADMAP.md#załącznik-d-format-aut-gt2-cdocnocdpcnp) and streaming verification against `local_assets/GT2.VOL` (no code copied from `pez2k/gt2tools`).
+- **Endianness & Size Limit:** Little-endian (`DataView(..., true)`) (**E3**); uncompressed size `11,048–20,000 B` (`100% <= 0x5000` / `20,480 B`) (**E3**).
+
+### 1. Fixed Header (`0x00..0x867`, `2,152` bytes)
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 3 B | `uint8[3]` | Magic `"GT\x02"` (`47 54 02`) | **E3** |
+| `0x03` | 1 B | `uint8` | `unk_0x03`: observed `0x00` across `2,220 / 2,220` models | **E1** |
+| `0x04` | 4 B | `uint32` LE | `unk_0x04`: observed `0x00000000` across `2,220 / 2,220` models | **E0** |
+| `0x08` | 8 B | `uint16[4]` LE | `rawWheelDiag0x08`: observed `0` across `2,220 / 2,220` models (reserved for M6.9) | **E1** |
+| `0x10` | 8 B | `uint16[4]` LE | `unk_0x10`: observed `0` across `2,220 / 2,220` models | **E0** |
+| `0x18` | 8 B | `uint16[4]` LE | `menuWheels`: `frontRadius`, `frontWidth`, `rearRadius`, `rearWidth` (`1/4096 m` units; non-zero across `2,220 / 2,220`) | **E3** (layout) / **E2** (units) |
+| `0x20` | 32 B | `4×(4×int16)` LE | `wheelPositions`: `[x, y, z, menuX]` per wheel (`1/4096 m`; pairs `0/1` and `2/3` symmetric in `±x` and matching `z`) | **E3** (layout) / **E2** (units) |
+| `0x40` | `0x828` B | `uint8[]` | `unk_0x40`: unknown gap (`0x40..0x867`), explicitly skipped | **E0** |
+
+### 2. LOD Table (`0x868`) & Sequential LOD Header (`0x50` bytes)
+
+- **LOD Directory (`0x868`, **E3**):** `uint32 LE lodCount` (`3` across `2,220 / 2,220` models) + `lodCount × 8 B` entries `{ uint16 zero (0), uint16 maxDistance ([5, 15, 300]), uint32 offset (RAM pointer placeholder) }`. LOD blocks begin at `0x884` and MUST be read sequentially (ignoring non-zero `offset` placeholders).
+
+| Offset in LOD | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 2 B | `uint16` LE | `vertexCount` (`<= 256` due to 8-bit vertex indices) | **E3** |
+| `0x02` | 2 B | `uint16` LE | `normalCount` (`0` in `8` LODs across `4` files; otherwise `> 0`) | **E3** |
+| `0x04` | 2 B | `uint16` LE | `triCount` (untextured triangles) | **E3** |
+| `0x06` | 2 B | `uint16` LE | `quadCount` (untextured quads) | **E3** |
+| `0x08` | 4 B | `uint16[2]` LE | `unk_0x08`: observed `[0, 0]` across `6,660 / 6,660` LODs | **E1** |
+| `0x0C` | 2 B | `uint16` LE | `uvTriCount` (UV-textured triangles) | **E3** |
+| `0x0E` | 2 B | `uint16` LE | `uvQuadCount` (UV-textured quads) | **E3** |
+| `0x10` | 4 B | `uint32` LE | `unk_0x10`: observed `0` across `6,660 / 6,660` LODs | **E1** |
+| `0x14` | 40 B | `uint32[10]` LE | `sectionOffsets` RAM pointers (`sectionOffsets[0] === 0x50` across `6,660 / 6,660` LODs) | **E3** |
+| `0x3C` | 16 B | `8×int16` LE | `boundingBox`: `low XYZW`, `high XYZW` (`100%` exact match with vertex min/max across `6,660 / 6,660` LODs) | **E3** |
+| `0x4C` | 2 B | `uint16` LE | `scale` (observed `14..23`) | **E1** |
+| `0x4E` | 2 B | `uint16` LE | `unk_0x4e`: scale-related value | **E0** |
+
+### 3. LOD Geometry & Polygon Lists (Sequential, No Padding)
+
+1. **Vertices (`vertexCount × 8 B`, **E3** layout / **E2** scale):** `int16 x, y, z, w` LE (`w === 0` across all vertices; unit `1/4096 m`).
+2. **Packed Normals (`normalCount × 4 B`, **E3**):** `uint32` LE containing three 10-bit two's-complement fields scaled by `/ 500`:
+   - `bits 0..1`: `rawLow2Bits` (`0` across `945,187 / 945,187` normals, **E0**),
+   - `bits 2..11`: `X`, `bits 12..21`: `Y`, `bits 22..31`: `Z`.
+   - Observed lengths across `945,187 / 945,187` normals: `[0.9967, 1.0000]` (`0` outside `±5%`).
+3. **Four Polygon Lists in File Order (`16 B` untextured × 2, `28 B` textured × 2, **E3**):**
+   - `triangles` (`triCount × 16 B`, `faceType = 32` / `0x20`, `9,854` records),
+   - `quads` (`quadCount × 16 B`, `faceType = 40` / `0x28`, `71,188` records),
+   - `uvTriangles` (`uvTriCount × 28 B`, `faceType = 37` / `0x25`, `295,480` records),
+   - `uvQuads` (`uvQuadCount × 28 B`, `faceType = 45` / `0x2D` [`466,201` records] + modulated variant `faceType = 44` / `0x2C` [`8` records across `2` files, accepted with parser warning]).
+   - Base `16 B` layout: `0x00` `uint8[4] v0..v3` (`v3 === 0` for triangles), `0x04` `uint16` (`renderOrder` bits `0..4` [**E1**], `n0` bits `5..13`, bits `14..15 === 0` [**E0**]), `0x06` `uint16` (bits `0..11 === 0` [**E0**], `renderFlags` bits `12..15` observed `{0, 4, 8, 12}` [**E1**]), `0x08` `uint32` (bit `0 === 0` [**E0**], `n1` bits `1..9`, `n2` bits `10..18`, `n3` bits `19..27`, bits `28..31 === 0` [**E0**]), `0x0C` `uint32` (`color` `BGR888` bits `0..23` as `0xBBGGRR`, `faceType` bits `24..31`).
+   - Additional `12 B` UV block (`0x10..0x1B`): `uv0 (u,v)`, `uint16 paletteRaw` (**E1**, reserved for M6.9), `uv1 (u,v)`, `uint16 pad0x16 === 0` (**E3**), `uv2 (u,v)`, `uv3 (u,v)` (`(0,0)` for triangles; `u ∈ [0, 255]`, `v ∈ [0, 223]`).
+   - Edge case (`4` files / `8` LODs): `normalCount === 0` with all polygon normal indices `[0, 0, 0, 0]` (accepted with warning; non-zero index when `normalCount === 0` is rejected).
+
+### 4. Trailing Shadow Block (After Final LOD)
+
+- **Header (`28 B` / `0x1C`, **E3**):** `uint16 vertexCount` (`24` in `2,218` files, `48` in `2` files), `uint16 triangleCount` (`2` or `4`), `uint16 quadCount` (`16` or `32`), `uint16 unk_0x06` (`0` across `2,220 / 2,220`, **E0**), `8×int16` `boundingBox` (`lowX/highX/lowZ/highZ` match shadow `XZ` min/max across `2,220 / 2,220`; `lowY`/`highY` non-zero in `46`/`62` files), `uint16 scale` (`15..17`, **E1**), `uint16 unk_0x1a` (**E0**).
+- **Clean-room Payload Layout (**E1**, `100%` exact EOF across `2,220 / 2,220` models):**
+  - `vertexCount × 4 B`: `int16 x, int16 z` LE (`1/4096 m`).
+  - `triangleCount × 4 B` followed by `quadCount × 4 B`: packed `uint32` LE (`v0` bits `0..5`, `v1` `6..11`, `v2` `12..17`, `v3` `18..23` [`0` on triangles], `flagsRaw` bits `24..31` observed `0x80`/`0x00` — diagnostic only).
+  - Sample shadow header + start of payload (`64 B` total): `1800020010000000b7f80000bfef0000490700001f12000011004d12` + `0000bfef00001f120000e1f200008e0b8404170b640641084907c30978057611`.
