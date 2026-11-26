@@ -204,3 +204,14 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
   - **M4.3 (`tim/`) jest ZDECYDOWANIE POTRZEBNE:** w archiwum znajduje się `3 729` pełnoprawnych obrazów TIM we wszystkich 3 trybach indeksowanych/direct (`4 bpp`, `8 bpp`, `16 bpp`). Parser `tim/` powinien też obsługiwać udokumentowaną anomalię `img.bnum = 12 + 2·imgW·imgH·2`, gdy `imgOff + 12 + imgW·imgH·2 === fileLength`.
   - **M4.4 (`gtimg/`) — dokładny zakres:** skupić się na formatach menu `GM\x03\x00` (w tym rozpakowaniu wieloczłonowych kontenerów `.dat` + indeksów `.idx`) oraz kontenerze `GTMP` wg `GTVolTools`. Tekstury aut `.cdp/.cnp` zostają w M6.7, tekstury torów `.trp/.bsp` w M8, a format `00 00 02 01` (`.lgf.gz`) pozostaje jako E1 poza zakresem M4.4 do czasu niezależnego potwierdzenia.
 - **Otwarte pytania:** W kolejnej sesji (M4.3–M4.4) zweryfikować nagłówek `GM\x03\x00` i `GTMP` względem `GTVolTools` (`GMImage.cs`, `Image.cs`) oraz zaimplementować czytnik wieloczłonowych kontenerów gzip.
+
+## 2026-11-26 — M4.2 — Konwersja kolorów PS1 `A1B5G5R5` ↔ `RGBA8888` i dekodowanie CLUT
+- **Pytanie:** Jak ujednolicić czystą konwersję kolorów PS1 `15-bit A1B5G5R5` (`bit 15 = STP`, `14..10 = B`, `9..5 = G`, `4..0 = R`) oraz obsługę wszystkich 4 przypadków sprzętowych przezroczystości wraz z round-tripem nieprzezroczystej czerni i dekodowaniem tablic CLUT LE?
+- **Metoda:** Implementacja czystego modułu `src/formats/ps1/color.ts` + `src/formats/ps1/index.ts` (zero DOM/WebGL/`window`, `DataView(..., true)` LE) oraz testów jednostkowych w `tests/unit/ps1Color.test.ts`.
+- **Wynik:**
+  - `ps1Color15ToRgba` obsługuje wszystkie 4 przypadki sprzętowe (`0x0000`, `0x8000`, kolor niezerowy bez STP, kolor niezerowy z STP) dla trzech jawnych trybów `TransparencyMode`: `'opaque'`, `'transparent-zero'` i `'stp-semi-transparent'` (z walidacją `semiTransparentAlpha`).
+  - `rgbaToPs1Color15` kwantyzuje kanały `8→5 bit` (`compress8To5`, dokładna odwrotność `(c << 3) | (c >> 2)` dla wszystkich 32 wartości) i w trybie `'transparent-zero'` mapuje widoczną czerń `(0, 0, 0, 255)` na `0x8000` (`PS1_OPAQUE_BLACK`), a `a === 0` na `0x0000` (`PS1_TRANSPARENT_BLACK`).
+  - Dodano dekodery CLUT LE: `decodeClut15ToUint16`, `clut15Uint16ToRgba` i `decodeClut15ToRgba` z bezpiecznym przycinaniem niekompletnych końcówek.
+  - Istniejący `src/tools/blindimage/decoder.ts` może w przyszłości współdzielić ten moduł przy zachowaniu zgodności interfejsów (bez refaktoryzacji w M4.2).
+- **Pewność:** **E2** (sprzętowa specyfikacja PSX-SPX / Załącznik B.1; do wykorzystania w M4.3–M4.9).
+- **Otwarte pytania:** W kolejnej sesji wdrożyć M4.3 (`src/formats/tim/` z obsługą anomalii 34 plików `.tim.gz`) oraz M4.4 (`src/formats/gtimg/` dla `GM`/`GTMP`).
