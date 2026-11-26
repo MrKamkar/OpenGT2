@@ -288,7 +288,125 @@ Slots `0..30` are packed contiguously (`gap = 0` between adjacent tables, `final
 - **`(<region>_)?arcade_data.dat.gz` (`pairCount = 68`):** slots `0..29` match the exact same 30 part struct sizes (`0` mismatches); slots `[30..33]` hold arcade tables (`2,340 B`, `3,648 B`, `3,780 B`, `3,780 B`), `[64]` holds an `86 B` string table ending at exact EOF (`41,250 B`).
 - **`*_dev.dat.gz` (`2` files):** single-half `pairCount` (`31` / `3`) storing developer ASCII part codes (e.g., length-prefixed part name strings) rather than binary car structs.
 
-### 5. `WSDB` (`(<region>_)unistrdb.dat.gz`) Header Summary (**E3** header / M5.4 deferred)
+### 5. Verified `gtmode_data` Car Struct Layouts (M5.3)
+
+All structs are packed (`#include <pshpack1.h>`) little-endian records matching `C_ASSERT` sizes in `GT2DataExploder/structs.h` (`adeyblue/GTVolTools`, MIT License). `carId` is decoded as unsigned `uint32` LE (`E3`). Across all `7/7` regional variants (`621` PAL / `618` USA / `613` JP cars), the `carId` sets of `CarDimensions`, `CarEngineData`, `CarGearbox`, `CarSuspension`, `CarTyres`, `CarRearTyres`, and `CarData` match `100%` (`0` orphan or missing IDs).
+
+#### 5.1 `CarDimensions` (`0x14` / 20 B, slot `3`, **E3** structure)
+
+| Offset | Size | Type | Field | Notes / Meaning | Confidence |
+| --- | --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `carId` | Numeric car identifier | **E3** |
+| `0x04` | 4 B | `uint32` LE | `unk_0x04` | `unk` in `structs.h` | **E0** |
+| `0x08` | 2 B | `uint16` LE | `length` | Vehicle length in mm (observed `2790–5537`) | **E3** |
+| `0x0A` | 2 B | `uint16` LE | `height` | Vehicle height in mm (observed `1016–1773`) | **E3** |
+| `0x0C` | 2 B | `uint16` LE | `unk_0x0c` | `unk2` in `structs.h` (GT3 wheelbase note unconfirmed for GT2) | **E0** |
+| `0x0E` | 2 B | `uint16` LE | `weightKg` | Stock vehicle weight in kg (`weight`; observed `425–2055`) | **E3** |
+| `0x10` | 1 B | `uint8` | `rmWeightMultiplier` | Racing modification weight multiplier (`rmWeightMultipier`; observed `17–79`) | **E3** |
+| `0x11` | 1 B | `uint8` | `unk_0x11` | `unk4` in `structs.h` | **E0** |
+| `0x12` | 2 B | `uint16` LE | `unk_0x12` | `unk5` in `structs.h` | **E0** |
+
+#### 5.2 `CarEngineData` (`0x4C` / 76 B, slot `6`, **E3** structure)
+
+| Offset | Size | Type | Field | Notes / Meaning | Confidence |
+| --- | --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `carId` | Numeric car identifier | **E3** |
+| `0x04` | 2 B | `uint16` LE | `engineTypeNameIndex` | Index into `unistrdb` (`engineTypeName`) | **E2** |
+| `0x06` | 2 B | `uint16` LE | `engineTypeName2Index` | Index into `unistrdb` (`engineTypeName2`) | **E2** |
+| `0x08` | 2 B | `uint16` LE | `unk_0x08` | `unk3` in `structs.h` | **E0** |
+| `0x0A` | 2 B | `uint16` LE | `unk_0x0a` | `unk4` in `structs.h` | **E0** |
+| `0x0C` | 32 B | `uint16[16]` LE | `bandAcceleration` | Torque/power curve sample values (`0xFFFF` = unused) | **E2** |
+| `0x2C` | 2 B | `uint16` LE | `engineCc` | Nominal displacement in cc (observed `0–25230`) | **E3** |
+| `0x2E` | 2 B | `uint16` LE | `ps` | Base power in PS (observed `23–1030`) | **E3** |
+| `0x30` | 2 B | `uint16` LE | `maxPowerRpmRaw` | Peak power RPM ÷ 10 (observed `0–1200`) | **E3** |
+| `0x32` | 2 B | `uint16` LE | `torqueKgmRaw` | Peak torque in kg·m × 10 (observed `0–954`) | **E3** |
+| `0x34` | 2 B | `uint16` LE | `torqueRpmStringIndex` | Index into `unistrdb` (`torqueRPM`) | **E2** |
+| `0x36` | 5 B | `uint8[5]` | `baseUnits` | `CalculateRealPS` inputs (`[0],[3],[4]` confirmed in disassembly; `[1],[2]` unconfirmed) | **E2** |
+| `0x3B` | 16 B | `uint8[16]` | `bandRpms` | Sample RPMs ÷ 100 (`0xFF` = unused) | **E2** |
+| `0x4B` | 1 B | `uint8` | `bandPointCount` | Active point count in `bandAcceleration` / `bandRpms` (`significantUnks` in `structs.h`; observed `7–16`) | **E2** |
+
+#### 5.3 `CarGearbox` (`0x24` / 36 B, slot `17`, **E3** structure)
+
+| Offset | Size | Type | Field | Notes / Meaning | Confidence |
+| --- | --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `carId` | Numeric car identifier | **E3** |
+| `0x04` | 4 B | `int32` LE | `price` | Purchase price (observed `0–11000`) | **E3** |
+| `0x08` | 1 B | `uint8` | `type` | `0` = Stock/NA, `1` = Close, `2` = Super Close, `3` = Fully Customised (observed `0–3`) | **E3** |
+| `0x09` | 1 B | `uint8` | `unk_0x09` | `unk1` in `structs.h` | **E0** |
+| `0x0A` | 16 B | `uint8[16]` | `unk_0x0a` | `unk2[16]` in `structs.h` (individual gear ratios unconfirmed) | **E0** |
+| `0x1A` | 2 B | `uint16` LE | `finalGear` | Final drive ratio (observed `2430–6666`) | **E3** |
+| `0x1C` | 4 B | `int32` LE | `unk_0x1c` | `unk3` in `structs.h` | **E0** |
+| `0x20` | 4 B | `int32` LE | `unk_0x20` | `unk4` in `structs.h` | **E0** |
+
+#### 5.4 `CarSuspension` (`0x4C` / 76 B, slot `18`, **E3** structure)
+
+| Offset | Size | Type | Field | Notes / Meaning | Confidence |
+| --- | --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `carId` | Numeric car identifier | **E3** |
+| `0x04` | 4 B | `int32` LE | `price` | Purchase price (observed `0–20000`) | **E3** |
+| `0x08` | 1 B | `uint8` | `stage` | `0` = Stock/NA, `1` = Sports, `2` = Semi-Racing, `3` = Professional (observed `0–3`) | **E3** |
+| `0x09` | 1 B | `uint8` | `unk_0x09` | `unk1` in `structs.h` | **E0** |
+| `0x0A` | 2 B | `uint16` LE | `unk_0x0a` | `unk2` in `structs.h` | **E0** |
+| `0x0C` | 64 B | `uint8[64]` | `unk_0x0c` | `unk3[0x4C - 0x0C]` in `structs.h` | **E0** |
+
+#### 5.5 `CarTyres` (`0x10` / 16 B, slot `22`) and `CarRearTyres` (`0x0C` / 12 B, slot `23`)
+
+Note: Unlike `CarTyres`, `CarRearTyres` is `12` bytes (`0x0C`) and **omits the 4-byte `price` field**, shifting all subsequent offsets by `-4` bytes.
+
+| Struct | Offset | Size | Type | Field | Notes / Meaning | Confidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| `CarTyres` | `0x00` | 4 B | `uint32` LE | `carId` | Numeric car identifier | **E3** |
+| `CarTyres` | `0x04` | 4 B | `int32` LE | `price` | Purchase price (observed `0–18000`) | **E3** |
+| `CarTyres` | `0x08` | 1 B | `uint8` | `type` | `0..7` (Stock/Sports/Hard/Medium/Soft/Super Soft/Sim/Dirt) | **E3** |
+| `CarTyres` | `0x09` | 1 B | `uint8` | `unk_0x09` | `unk1` in `structs.h` (observed `0`) | **E0** |
+| `CarTyres` | `0x0A` | 2 B | `uint16` LE | `unk_0x0a` | `unk2` in `structs.h` | **E0** |
+| `CarTyres` | `0x0C` | 4 B | `uint32` LE | `unk_0x0c` | `unk3` in `structs.h` | **E0** |
+| `CarRearTyres` | `0x00` | 4 B | `uint32` LE | `carId` | Numeric car identifier | **E3** |
+| `CarRearTyres` | `0x04` | 1 B | `uint8` | `type` | `0..7` (Stock..Dirt) | **E3** |
+| `CarRearTyres` | `0x05` | 1 B | `uint8` | `unk_0x05` | `unk1` in `structs.h` (observed `0`) | **E0** |
+| `CarRearTyres` | `0x06` | 2 B | `uint16` LE | `unk_0x06` | `unk2` in `structs.h` | **E0** |
+| `CarRearTyres` | `0x08` | 4 B | `uint32` LE | `unk_0x08` | `unk3` in `structs.h` | **E0** |
+
+#### 5.6 `CarData` (`0x48` / 72 B, slot `30`, **E3** structure)
+
+Important `structs.h` discrepancies resolved during M5.3:
+- Offset `0x0E` is named `weightDistribution` in `CarData` but `rmPartId` in `OpponentInfo`; observed values (`0–1054`) match `CarRacingModification` count (`1056`) rather than weight distribution, so it is kept as `unk_0x0e` (**E0**).
+- Source offset comments `16` (`unk5`) and `1a` (`naPart`) in `structs.h` are off under `#include <pshpack1.h>`; actual byte offsets are `0x14` and `0x18` (with `0x18` observed `0` across `100%` of records and doubted by the original author), so both are `unk_0x14` / `unk_0x18` (**E0**).
+
+| Offset | Size | Type | Field | Notes / Meaning | Confidence |
+| --- | --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `carId` | Numeric car identifier | **E3** |
+| `0x04` | 2 B | `int16` LE | `brakePart` | Default `CarBrakes` index (`0–1147` PAL) | **E3** |
+| `0x06` | 4 B | `int32` LE | `specialCar` | `1` = special car, `0` = normal (`88` special cars in PAL) | **E3** |
+| `0x0A` | 2 B | `uint16` LE | `weightPartId` | `CarDimensions` / weight part index (`0–620` PAL) | **E3** |
+| `0x0C` | 2 B | `uint16` LE | `unk_0x0c` | `unk3` in `structs.h` (observed `0`) | **E0** |
+| `0x0E` | 2 B | `uint16` LE | `unk_0x0e` | Conflicting `weightDistribution` / `rmPartId` in `structs.h` (`0–1054` PAL) | **E0** |
+| `0x10` | 2 B | `uint16` LE | `enginePartId` | `CarEngineData` index (`0–620` PAL) | **E3** |
+| `0x12` | 2 B | `uint16` LE | `unk_0x12` | `unk4` in `structs.h` (observed `0`) | **E0** |
+| `0x14` | 4 B | `int32` LE | `unk_0x14` | `unk5` in `structs.h` (comment `16` inaccurate; observed `0`) | **E0** |
+| `0x18` | 4 B | `int32` LE | `unk_0x18` | `naPart` in `structs.h` (comment `1a` inaccurate; observed `0`) | **E0** |
+| `0x1C` | 2 B | `uint16` LE | `turboPart` | `CarTurboTuning` index (`0–1165` PAL) | **E3** |
+| `0x1E` | 2 B | `uint16` LE | `drivetrainPart` | `CarDrivetrain` index (`0–620` PAL) | **E3** |
+| `0x20` | 2 B | `uint16` LE | `flywheel` | `CarFlywheel` index (`0` observed on stock cars) | **E2** |
+| `0x22` | 2 B | `uint16` LE | `clutch` | `CarClutch` index (`0–2198` PAL) | **E3** |
+| `0x24` | 2 B | `uint16` LE | `unk_0x24` | `unk8` in `structs.h` (observed `0`) | **E0** |
+| `0x26` | 2 B | `uint16` LE | `differential` | `CarLSD` index (`0–2345` PAL) | **E3** |
+| `0x28` | 2 B | `uint16` LE | `transmission` | `CarGearbox` index (`0–2215` PAL) | **E3** |
+| `0x2A` | 2 B | `uint16` LE | `suspension` | `CarSuspension` index (`0–2207` PAL) | **E3** |
+| `0x2C` | 4 B | `uint32` LE | `unk_0x2c` | `unk9` in `structs.h` (observed `0`) | **E0** |
+| `0x30` | 2 B | `uint16` LE | `frontTyres` | `CarTyres` index (`6–4715` PAL) | **E3** |
+| `0x32` | 2 B | `uint16` LE | `rearTyres` | `CarRearTyres` index (`6–4715` PAL) | **E3** |
+| `0x34` | 4 B | `uint32` LE | `unk_0x34` | `unk10` in `structs.h` (non-zero on `88` special cars) | **E0** |
+| `0x38` | 2 B | `uint16` LE | `rimsCode3` | Stock wheel/rims code (`0–10`) | **E2** |
+| `0x3A` | 2 B | `uint16` LE | `manufacturerId` | Manufacturer ID (`0–38`) | **E2** |
+| `0x3C` | 2 B | `uint16` LE | `nameFirstPartIndex` | `unistrdb` index (`8–841` PAL) | **E2** |
+| `0x3E` | 2 B | `uint16` LE | `nameSecondPartIndex` | `unistrdb` index (`8–845` PAL) | **E2** |
+| `0x40` | 1 B | `uint8` | `unk_0x40` | `padding` in `structs.h` (empirically equals `specialCar` on `621/621`) | **E0** |
+| `0x41` | 1 B | `uint8` | `year` | 2-digit model year (`0–99`) | **E3** |
+| `0x42` | 2 B | `uint16` LE | `unk_0x42` | `unk14` in `structs.h` (observed `0`) | **E0** |
+| `0x44` | 4 B | `uint32` LE | `newPrice` | New car price (`2800–2000000`) | **E3** |
+
+### 6. `WSDB` (`(<region>_)unistrdb.dat.gz`) Header Summary (**E3** header / M5.4 deferred)
 
 | Offset | Size | Type | Name / Meaning | Confidence |
 | --- | --- | --- | --- | --- |
