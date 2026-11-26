@@ -24,11 +24,14 @@ export interface RememberedFileInfo {
   readonly note?: string;
 }
 
+export type AppViewMode = 'loader' | 'viewer' | 'inspector';
+
 export interface FileLoaderScreenHandle {
   /** Container (inside the card, below the status panel) hosting the GT2.VOL explorer (M2.8). */
   readonly archiveContainer: HTMLElement;
   /** Widens the card for the explorer layout. */
   setWide(wide: boolean): void;
+  setAppViewMode(mode: AppViewMode, options?: { readonly hasViewer?: boolean }): void;
   setRememberedFile(info: RememberedFileInfo | null): void;
   setClearDataStatus(message: string | null): void;
   dispose(): void;
@@ -40,6 +43,7 @@ export interface FileLoaderScreenOptions {
   readonly capabilities: BrowserCapabilities;
   readonly onFileSelected: (file: File) => void;
   readonly onReset: () => void;
+  readonly onSwitchToViewer?: () => void;
   /**
    * Optional File System Access API picker callback.
    * Returns `true` if handled (file picked or user cancelled), or `false` to fall back to `<input type="file">`.
@@ -267,8 +271,30 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   archiveContainer.className = 'ogt2-archive-slot';
   archiveContainer.dataset['testid'] = 'archive-slot';
 
+  const inspectorNav = document.createElement('nav');
+  inspectorNav.className = 'ogt2-inspector-nav';
+  inspectorNav.dataset['testid'] = 'inspector-nav';
+  inspectorNav.setAttribute('aria-label', 'Przełącznik widoku');
+  inspectorNav.hidden = true;
+
+  const inspectorViewerBtn = document.createElement('button');
+  inspectorViewerBtn.type = 'button';
+  inspectorViewerBtn.className = 'ogt2-button ogt2-button-subtle';
+  inspectorViewerBtn.dataset['testid'] = 'inspector-nav-viewer';
+  inspectorViewerBtn.textContent = '← Przeglądarka 3D';
+
+  const inspectorSelfBtn = document.createElement('button');
+  inspectorSelfBtn.type = 'button';
+  inspectorSelfBtn.className = 'ogt2-button ogt2-button-subtle is-active';
+  inspectorSelfBtn.dataset['testid'] = 'inspector-nav-inspector';
+  inspectorSelfBtn.setAttribute('aria-pressed', 'true');
+  inspectorSelfBtn.textContent = 'Inspektor archiwum';
+
+  inspectorNav.append(inspectorViewerBtn, inspectorSelfBtn);
+
   card.append(
     header,
+    inspectorNav,
     dropzone,
     statusPanel,
     archiveContainer,
@@ -389,6 +415,11 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     event.preventDefault();
   };
 
+  const onInspectorViewerClick = (): void => {
+    options.onSwitchToViewer?.();
+  };
+
+  inspectorViewerBtn.addEventListener('click', onInspectorViewerClick);
   selectButton.addEventListener('click', onSelectButtonClick);
   reopenButton.addEventListener('click', onReopenButtonClick);
   clearDataButton.addEventListener('click', onClearDataButtonClick);
@@ -547,10 +578,16 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     setWide(wide: boolean): void {
       card.classList.toggle('is-wide', wide);
     },
+    setAppViewMode(mode: AppViewMode, modeOptions?: { readonly hasViewer?: boolean }): void {
+      container.dataset['viewMode'] = mode;
+      overlay.hidden = mode === 'viewer';
+      inspectorNav.hidden = mode !== 'inspector' || modeOptions?.hasViewer !== true;
+    },
     setRememberedFile,
     setClearDataStatus,
     dispose(): void {
       unsubscribe();
+      inspectorViewerBtn.removeEventListener('click', onInspectorViewerClick);
       selectButton.removeEventListener('click', onSelectButtonClick);
       reopenButton.removeEventListener('click', onReopenButtonClick);
       clearDataButton.removeEventListener('click', onClearDataButtonClick);

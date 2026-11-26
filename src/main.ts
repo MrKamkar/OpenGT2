@@ -5,12 +5,19 @@ import {
   detectCapabilities,
   getBlockingCapabilityError,
 } from './app/capabilities';
+import { AssetRepository } from './assets';
 import {
   InputManager,
   attachDomInputBridge,
   installInputDebugHook,
+  isDebugMode,
 } from './core/input';
-import { GlContext, WebGL2UnavailableError } from './renderer/GlContext';
+import { findGtdbEntries, pairGtdbRegionVariants } from './formats/gtdb';
+import {
+  CarViewerSession,
+  GlContext,
+  WebGL2UnavailableError,
+} from './renderer';
 import {
   BlobByteSource,
   DEFAULT_IDB_CACHE_VERSION,
@@ -19,6 +26,8 @@ import {
   fingerprint,
   pickVolFileWithHandle,
 } from './io';
+import { parseHexHash } from './tools/hexview';
+import { type CarViewerHandle, mountCarViewer } from './ui/carViewer';
 import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
 import { type ArchivePanelHandle, mountArchivePanel } from './ui/explorer/explorerView';
 import { describeVolOpenError, loadAllVolEntries } from './app/volArchiveSession';
@@ -71,10 +80,12 @@ export function initApp(): void {
   root.append(canvas);
 
   const inputManager = new InputManager({ initialContext: 'menu' });
+  const debugMode = isDebugMode(window.location.search);
   installInputDebugHook(window, window.location.search, inputManager);
 
   const stateMachine = new AppStateMachine();
   const blockingError = getBlockingCapabilityError(capabilities);
+  let glContext: GlContext | null = null;
 
   if (blockingError !== null) {
     root.dataset['webgl2'] = 'unavailable';
@@ -84,7 +95,7 @@ export function initApp(): void {
     });
   } else {
     try {
-      new GlContext(canvas, {
+      glContext = new GlContext(canvas, {
         onContextLost(): void {
           root.dataset['webgl2'] = 'lost';
         },
@@ -111,8 +122,45 @@ export function initApp(): void {
   let scannerSession: ScannerRpcClient | null = null;
   let imageDecoderPool: WorkerPool<ImageDecoderRpcSchema> | null = null;
   let archivePanel: ArchivePanelHandle | null = null;
+  let assetRepository: AssetRepository | null = null;
+  let carViewerSession: CarViewerSession | null = null;
+  let carViewerHandle: CarViewerHandle | null = null;
+  let hasActiveViewer = false;
+
+  const setActiveMode = (mode: 'loader' | 'viewer' | 'inspector'): void => {
+    if (mode === 'viewer' && hasActiveViewer && carViewerSession !== null && carViewerHandle !== null) {
+      screen.setAppViewMode('viewer', { hasViewer: true });
+      carViewerHandle.setVisible(true);
+      inputManager.releaseAll();
+      inputManager.setContext('viewer');
+      carViewerSession.start();
+      carViewerSession.renderCurrentFrame();
+      canvas.focus({ preventScroll: true });
+      return;
+    }
+
+    carViewerSession?.pause();
+    carViewerHandle?.setVisible(false);
+    inputManager.releaseAll();
+    inputManager.setContext('menu');
+    screen.setAppViewMode(mode, { hasViewer: hasActiveViewer });
+  };
+
+  const closeViewerSession = (): void => {
+    hasActiveViewer = false;
+    carViewerHandle?.dispose();
+    carViewerHandle = null;
+    carViewerSession?.dispose();
+    carViewerSession = null;
+    assetRepository?.dispose();
+    assetRepository = null;
+    glContext?.clear();
+    inputManager.releaseAll();
+    inputManager.setContext('menu');
+  };
 
   const closeVolSession = (): void => {
+    closeViewerSession();
     if (volSession !== null) {
       volSession.dispose(true);
       volSession = null;
@@ -149,6 +197,7 @@ export function initApp(): void {
    */
   const openVolArchive = (file: File, generation: number): void => {
     closeVolSession();
+    screen.setAppViewMode('loader');
     const panel = archivePanel;
     if (panel === null) {
       return;
@@ -250,6 +299,55 @@ export function initApp(): void {
           loadCarCatalog: (params, signal) =>
             client.loadCarCatalog(params, signal !== undefined ? { signal } : undefined),
         });
+
+        const carVariants = pairGtdbRegionVariants(findGtdbEntries(entries));
+        const repo = new AssetRepository({
+          volInfo: info,
+          entries,
+          backend: client,
+        });
+        assetRepository = repo;
+
+        if (glContext !== null && carVariants.length > 0 && repo.carAssetIndex.indexedBodyCount > 0) {
+          let viewerHandleRef: CarViewerHandle | null = null;
+          const viewerSession = new CarViewerSession({
+            glContext,
+            canvas,
+            inputManager,
+            assetRepository: repo,
+            initialMode: 'hd',
+            onStateChange(snapshot): void {
+              viewerHandleRef?.updateState(snapshot);
+            },
+            onStatsUpdate(stats): void {
+              viewerHandleRef?.updateDebugStats(stats);
+            },
+          });
+          viewerHandleRef = mountCarViewer({
+            container: root,
+            canvas,
+            fileName: file.name,
+            variants: carVariants,
+            loadCarCatalog: (params, signal) =>
+              client.loadCarCatalog(params, signal !== undefined ? { signal } : undefined),
+            assetRepository: repo,
+            session: viewerSession,
+            debugMode,
+            onSwitchToInspector(): void {
+              setActiveMode('inspector');
+            },
+            onResetFile: resetLoadedArchive,
+          });
+          carViewerSession = viewerSession;
+          carViewerHandle = viewerHandleRef;
+          hasActiveViewer = true;
+
+          const startInInspector = parseHexHash(window.location.hash) !== null;
+          setActiveMode(startInInspector ? 'inspector' : 'viewer');
+        } else {
+          hasActiveViewer = false;
+          setActiveMode('inspector');
+        }
       })
       .catch((error: unknown) => {
         if (!isCurrent()) {
@@ -311,16 +409,22 @@ export function initApp(): void {
     version: DEFAULT_IDB_CACHE_VERSION,
   });
 
+  const resetLoadedArchive = (): void => {
+    selectionGeneration += 1;
+    closeVolSession();
+    archivePanel?.clear();
+    screen.setAppViewMode('loader');
+    stateMachine.dispatch({ type: 'RESET' });
+  };
+
   const screen = mountFileLoaderScreen({
     container: root,
     stateMachine,
     capabilities,
     onFileSelected: openFile,
-    onReset(): void {
-      selectionGeneration += 1;
-      closeVolSession();
-      archivePanel?.clear();
-      stateMachine.dispatch({ type: 'RESET' });
+    onReset: resetLoadedArchive,
+    onSwitchToViewer(): void {
+      setActiveMode('viewer');
     },
     async onClearData(): Promise<void> {
       await Promise.all([idbCache.clear(), fileHandleStore.clearHandle()]);
@@ -405,6 +509,12 @@ export function initApp(): void {
         // Ignore IndexedDB unavailability silently so browsers without storage emit zero console errors.
       });
   }
+
+  window.addEventListener('hashchange', () => {
+    if (hasActiveViewer && parseHexHash(window.location.hash) !== null) {
+      setActiveMode('inspector');
+    }
+  });
 
   attachDomInputBridge({
     inputManager,

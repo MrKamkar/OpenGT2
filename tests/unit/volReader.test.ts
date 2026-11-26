@@ -17,6 +17,9 @@ import {
   deterministicPayload,
 } from '../fixtures/buildVol';
 import { buildSyntheticGtmodeData, buildSyntheticUnistrdb } from '../fixtures/buildGtdb';
+import { CDO_FACE_TYPE_UV_QUAD, CDO_FACE_TYPE_UV_TRI } from '../../src/formats/car/cdo';
+import { buildSyntheticCdo } from '../fixtures/buildCdo';
+import { buildSyntheticCdp } from '../fixtures/buildCdp';
 
 function createBlobLikeFromBytes(bytes: Uint8Array): BlobLike {
   const makeSlice = (start: number, end: number): BlobLike => {
@@ -587,6 +590,124 @@ describe('VolReader and Worker RPC (M2.6)', () => {
     expect(catalogResult.entries[0]?.name.displayName).toBe('Worker Runner');
     expect(catalogResult.entries[0]?.engine?.ps).toBe(260);
     expect(catalogResult.entries[0]?.dimensions?.weightKg).toBe(1090);
+
+    await client.close();
+    client.dispose(true);
+    server.dispose();
+  });
+
+  it('decodes and transfers CarModel (day/night + model-only) via loadCarResources RPC without detaching cache windows', async () => {
+    const vertices: readonly (readonly [number, number, number, number])[] = [
+      [-2000, 0, -4000, 0],
+      [2000, 0, -4000, 0],
+      [2000, 1500, 4000, 0],
+      [-2000, 1500, 4000, 0],
+    ];
+    const normals: readonly (readonly [number, number, number])[] = [
+      [0, 500, 0],
+      [0, 0, 500],
+      [500, 0, 0],
+      [-500, 0, 0],
+    ];
+    const validCdoOpts = {
+      lods: [
+        {
+          maxDistance: 5,
+          vertices,
+          normals,
+          uvTriangles: [
+            {
+              vertices: [0, 2, 3, 0] as const,
+              normals: [0, 2, 3, 0] as const,
+              faceType: CDO_FACE_TYPE_UV_TRI,
+              paletteRaw: 0x0001,
+              uvs: [
+                [10, 20],
+                [100, 20],
+                [100, 120],
+                [0, 0],
+              ] as const,
+            },
+          ],
+          uvQuads: [
+            {
+              vertices: [3, 2, 1, 0] as const,
+              normals: [3, 2, 1, 0] as const,
+              faceType: CDO_FACE_TYPE_UV_QUAD,
+              paletteRaw: 0x0002,
+              uvs: [
+                [0, 0],
+                [64, 0],
+                [64, 64],
+                [0, 64],
+              ] as const,
+            },
+          ],
+        },
+        { maxDistance: 15, vertices, normals, uvTriangles: [], uvQuads: [] },
+        { maxDistance: 300, vertices, normals, uvTriangles: [], uvQuads: [] },
+      ],
+    };
+    const dayCdo = buildSyntheticCdo(validCdoOpts);
+    const dayCdp = buildSyntheticCdp({ colorCount: 2, colorIds: [0x30, 0x31] });
+    const nightCdo = buildSyntheticCdo(validCdoOpts);
+    const nightCdp = buildSyntheticCdp({ colorCount: 1, colorIds: [0x32] });
+
+    const built = buildSyntheticVol([
+      {
+        kind: 'dir',
+        name: 'carobj',
+        children: [
+          { kind: 'file', name: 'a1000.cdo.gz', data: gzipSync(dayCdo, { mtime: 0 }) },
+          { kind: 'file', name: 'a1000.cdp.gz', data: gzipSync(dayCdp, { mtime: 0 }) },
+          { kind: 'file', name: 'a1000.cno.gz', data: gzipSync(nightCdo, { mtime: 0 }) },
+          { kind: 'file', name: 'a1000.cnp.gz', data: gzipSync(nightCdp, { mtime: 0 }) },
+        ],
+      },
+      { kind: 'dir', name: 'extra', children: [] },
+    ]);
+
+    const sharedCached = new CachedByteSource(new BufferByteSource(built.bytes), {
+      windowSize: 64 * 1024,
+    });
+    const channel = createStructuredTransferRpcChannel();
+    const server = bindVolReaderRpcServer(channel.workerTransport, new VolReader(), {
+      createSource: () => sharedCached,
+    });
+    const client = new VolReaderRpcClient(channel.mainEndpoint);
+
+    await client.open(createBlobLikeFromBytes(built.bytes));
+    const readsAfterOpen = sharedCached.getStats().sourceReads;
+
+    const dayRes = await client.loadCarResources({
+      modelPath: 'carobj/a1000.cdo.gz',
+      texturePath: 'carobj/a1000.cdp.gz',
+      variant: 'day',
+    });
+    expect(dayRes.carModel.lods).toHaveLength(3);
+    expect(dayRes.carModel.texture?.variant).toBe('day');
+    expect(dayRes.carModel.texture?.source.colorCount).toBe(2);
+    expect(dayRes.carModel.texture?.indexedImage.indices.byteLength).toBe(256 * 224);
+
+    const nightRes = await client.loadCarResources({
+      modelPath: 'carobj/a1000.cno.gz',
+      texturePath: 'carobj/a1000.cnp.gz',
+      variant: 'night',
+    });
+    expect(nightRes.carModel.texture?.variant).toBe('night');
+    expect(nightRes.carModel.texture?.source.colorCount).toBe(1);
+
+    const modelOnlyRes = await client.loadCarResources({
+      modelPath: 'carobj/a1000.cdo.gz',
+      variant: 'day',
+    });
+    expect(modelOnlyRes.carModel.texture).toBeNull();
+
+    // Transferables were used without detaching CachedByteSource windows.
+    expect(channel.workerSentTransfers[1]?.length).toBeGreaterThan(0);
+    expect(channel.workerSentTransfers[2]?.length).toBeGreaterThan(0);
+    expect(channel.workerSentTransfers[3]?.length).toBeGreaterThan(0);
+    expect(sharedCached.getStats().sourceReads).toBe(readsAfterOpen);
 
     await client.close();
     client.dispose(true);

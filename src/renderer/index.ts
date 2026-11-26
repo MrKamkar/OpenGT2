@@ -123,6 +123,20 @@ export {
   type WebGL2CarRendererContext,
 } from './carRenderer';
 export {
+  type CarLodSelection,
+  type CarViewerCanvasInputTarget,
+  type CarViewerDebugStats,
+  type CarViewerGlContextLike,
+  type CarViewerPointerEventLike,
+  type CarViewerRafScheduler,
+  CarViewerSession,
+  type CarViewerSessionOptions,
+  type CarViewerSessionSnapshot,
+  type CarViewerWheelEventLike,
+  type LoadCarOptions,
+  resolveAutoLodIndex,
+} from './carViewerSession';
+export {
   type DrawOrderMode,
   type OrderingTableOptions,
   type OrderingTableResult,

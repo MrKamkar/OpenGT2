@@ -1,4 +1,11 @@
 import {
+  type CarModel,
+  type CarTextureVariant,
+  buildCarModel,
+  parseCdo,
+  parseCdp,
+} from '../formats/car';
+import {
   type CarCatalogEntry,
   buildCarCatalogFromBuffers,
   parseUnistrdb,
@@ -65,6 +72,16 @@ export interface VolReaderCarCatalogResult {
   readonly stringCount: number | null;
 }
 
+export interface VolReaderLoadCarResourcesParams {
+  readonly modelPath: string;
+  readonly texturePath?: string;
+  readonly variant: CarTextureVariant;
+}
+
+export interface VolReaderCarResourcesResult {
+  readonly carModel: CarModel;
+}
+
 export interface VolReaderRpcSchema {
   open: {
     readonly params: VolReaderOpenParams;
@@ -97,6 +114,10 @@ export interface VolReaderRpcSchema {
   loadCarCatalog: {
     readonly params: VolReaderLoadCarCatalogParams;
     readonly result: VolReaderCarCatalogResult;
+  };
+  loadCarResources: {
+    readonly params: VolReaderLoadCarResourcesParams;
+    readonly result: VolReaderCarResourcesResult;
   };
   close: {
     readonly params: Record<string, never>;
@@ -162,6 +183,52 @@ function clampRange(
   return { offset, end: clampedEnd };
 }
 
+function addOwnedBuffer(set: Set<ArrayBuffer>, view: ArrayBufferView): void {
+  if (
+    view.buffer instanceof ArrayBuffer &&
+    view.byteOffset === 0 &&
+    view.byteLength === view.buffer.byteLength
+  ) {
+    set.add(view.buffer);
+  }
+}
+
+/**
+ * Collects unique, unshared `ArrayBuffer`s inside a decoded `CarModel` so worker `postMessage`
+ * transfers them zero-copy without `DataCloneError` on shared views (e.g. `indices`).
+ */
+export function collectCarModelTransferables(carModel: CarModel): Transferable[] {
+  const buffers = new Set<ArrayBuffer>();
+
+  for (const lod of carModel.lods) {
+    addOwnedBuffer(buffers, lod.rawVerticesInt16);
+    addOwnedBuffer(buffers, lod.positionsMeters);
+    addOwnedBuffer(buffers, lod.normals);
+  }
+  addOwnedBuffer(buffers, carModel.shadow.rawVerticesXZ);
+
+  const texture = carModel.texture;
+  if (texture !== null) {
+    addOwnedBuffer(buffers, texture.source.colorIds);
+    addOwnedBuffer(buffers, texture.source.indices);
+    for (const slot of texture.source.colorSlots) {
+      for (const pal of slot.palettes) {
+        addOwnedBuffer(buffers, pal);
+      }
+      addOwnedBuffer(buffers, slot.emptyEntryMasks);
+      addOwnedBuffer(buffers, slot.stpEntryMasks);
+      addOwnedBuffer(buffers, slot.illuminationMasks);
+      addOwnedBuffer(buffers, slot.paintMasks);
+    }
+    addOwnedBuffer(buffers, texture.indexedImage.indices);
+    for (const pal of texture.indexedImage.palettes) {
+      addOwnedBuffer(buffers, pal);
+    }
+  }
+
+  return Array.from(buffers);
+}
+
 /**
  * Binds `VolReader` operations onto a worker-side `RpcMessageTransport`.
  */
@@ -182,6 +249,11 @@ export function bindVolReaderRpcServer(
     const unpacked = await gunzip(raw);
     decompressedCache = { path: normalized, bytes: unpacked };
     return unpacked;
+  };
+
+  const readMaybeGunzip = async (rawPath: string): Promise<Uint8Array> => {
+    const raw = await reader.read(normalizeEntryPath(rawPath));
+    return isGzipMagic(raw) ? gunzip(raw) : raw;
   };
 
   const server = bindRpcServer<VolReaderRpcSchema>(transport, {
@@ -242,10 +314,6 @@ export function bindVolReaderRpcServer(
       );
     },
     loadCarCatalog: async (params) => {
-      const readMaybeGunzip = async (rawPath: string): Promise<Uint8Array> => {
-        const raw = await reader.read(normalizeEntryPath(rawPath));
-        return isGzipMagic(raw) ? gunzip(raw) : raw;
-      };
       const gtmodeBytes = await readMaybeGunzip(params.gtmodeDataPath);
       const unistrBytes =
         params.unistrdbPath !== undefined ? await readMaybeGunzip(params.unistrdbPath) : null;
@@ -260,6 +328,24 @@ export function bindVolReaderRpcServer(
         entries: catalog.listCars(),
         stringCount,
       };
+    },
+    loadCarResources: async (params) => {
+      const modelBytes = await readMaybeGunzip(params.modelPath);
+      const cdo = parseCdo(modelBytes);
+      let carModel: CarModel;
+      if (params.texturePath !== undefined) {
+        const textureBytes = await readMaybeGunzip(params.texturePath);
+        const cdp = parseCdp(textureBytes);
+        carModel = buildCarModel(cdo, {
+          texture: cdp,
+          variant: params.variant,
+        });
+      } else {
+        carModel = buildCarModel(cdo, {
+          variant: params.variant,
+        });
+      }
+      return withTransfer({ carModel }, collectCarModelTransferables(carModel));
     },
     close: () => {
       decompressedCache = null;
@@ -338,6 +424,13 @@ export class VolReaderRpcClient {
     rpcOptions?: RpcCallOptions,
   ): Promise<VolReaderCarCatalogResult> {
     return this.rpc.call('loadCarCatalog', params, rpcOptions);
+  }
+
+  loadCarResources(
+    params: VolReaderLoadCarResourcesParams,
+    rpcOptions?: RpcCallOptions,
+  ): Promise<VolReaderCarResourcesResult> {
+    return this.rpc.call('loadCarResources', params, rpcOptions);
   }
 
   close(rpcOptions?: RpcCallOptions): Promise<void> {
