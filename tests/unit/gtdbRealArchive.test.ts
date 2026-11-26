@@ -20,8 +20,12 @@ import {
   decodeCarTyresTable,
   findGtdbEntries,
   getGtdbTable,
+  getUnistrdbString,
   isGtdtMagic,
+  isWsdbMagic,
   parseGtdbLayout,
+  parseUnistrdb,
+  type UnistrdbTable,
 } from '../../src/formats/gtdb';
 import { gunzip, isGzipMagic } from '../../src/formats/gzip';
 import { VolReader } from '../../src/formats/vol';
@@ -99,6 +103,37 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
     expect(discovered.gtmodeData.length).toBeGreaterThan(0);
     expect(discovered.gtmodeRace.length).toBe(discovered.gtmodeData.length);
     expect(discovered.unistrdb.length).toBeGreaterThan(0);
+
+    const unistrByRegion = new Map<string, UnistrdbTable>();
+    for (const match of discovered.unistrdb) {
+      const raw = await cachedSource.read(
+        match.entry.address,
+        match.entry.address + match.entry.size,
+      );
+      expect(isGzipMagic(raw)).toBe(true);
+      const unpacked = await gunzip(raw);
+      expect(isWsdbMagic(unpacked)).toBe(true);
+
+      const table = parseUnistrdb(unpacked);
+      expect(table.fileSize).toBe(unpacked.byteLength);
+      expect(table.count).toBeGreaterThan(0);
+      expect(table.strings).toHaveLength(table.count);
+
+      let emptyCount = 0;
+      for (const value of table.strings) {
+        if (value.length === 0) {
+          emptyCount += 1;
+        }
+        for (let c = 0; c < value.length; c += 1) {
+          const cu = value.charCodeAt(c);
+          expect(cu).toBeGreaterThanOrEqual(0x20);
+          expect(cu).not.toBe(0x7f);
+          expect(cu < 0xd800 || cu > 0xdfff).toBe(true);
+        }
+      }
+      expect(emptyCount).toBeLessThanOrEqual(1);
+      unistrByRegion.set(match.region ?? 'jpn', table);
+    }
 
     for (const match of discovered.gtmodeData) {
       const raw = await cachedSource.read(
@@ -223,6 +258,15 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
       const decodedCarData = decodeCarDataTable(unpacked, carData);
       expect(decodedCarData).toHaveLength(decodedDimensions.length);
       expect(new Set(decodedCarData.map((row) => row.carId))).toEqual(dimIds);
+      const stringTable = unistrByRegion.get(match.region ?? 'jpn');
+      expect(stringTable).toBeDefined();
+      for (const row of decodedEngines) {
+        if (stringTable !== undefined) {
+          expect(getUnistrdbString(stringTable, row.engineTypeNameIndex)?.length).toBeGreaterThan(0);
+          expect(getUnistrdbString(stringTable, row.engineTypeName2Index)?.length).toBeGreaterThan(0);
+          expect(getUnistrdbString(stringTable, row.torqueRpmStringIndex)?.length).toBeGreaterThan(0);
+        }
+      }
       for (const row of decodedCarData) {
         expect(row.specialCar === 0 || row.specialCar === 1).toBe(true);
         expect(row.year).toBeLessThanOrEqual(99);
@@ -233,6 +277,10 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         expect(row.suspension).toBeLessThan(decodedSuspensions.length);
         expect(row.frontTyres).toBeLessThan(decodedFrontTyres.length);
         expect(row.rearTyres).toBeLessThan(decodedRearTyres.length);
+        if (stringTable !== undefined) {
+          expect(getUnistrdbString(stringTable, row.nameFirstPartIndex)?.length).toBeGreaterThan(0);
+          expect(getUnistrdbString(stringTable, row.nameSecondPartIndex)).toBeDefined();
+        }
       }
     }
 

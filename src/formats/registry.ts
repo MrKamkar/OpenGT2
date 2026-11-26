@@ -50,6 +50,15 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     notes: 'Strumień kompresji gzip (1F 8B); w GT2.VOL występuje zarówno z .gz, jak i bez rozszerzenia.',
   },
   {
+    id: 'wsdb',
+    ext: [],
+    magic: [0x57, 0x53, 0x44, 0x42],
+    magicOffset: 4,
+    formatName: 'GT2 Wide String Database (WSDB)',
+    evidence: 'E3',
+    notes: 'Baza napisów UTF-16LE ("WSDB" pod 0x04); zweryfikowano 7 plików unistrdb w GT2.VOL (M5.4).',
+  },
+  {
     id: 'tim',
     ext: ['.tim'],
     magic: [0x10, 0x00, 0x00, 0x00],

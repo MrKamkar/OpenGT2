@@ -75,3 +75,14 @@ export {
   decodeCarDataTable,
   type CarData,
 } from './carData';
+
+export {
+  WSDB_HEADER_SIZE,
+  WSDB_MAGIC_BYTES,
+  WSDB_MAGIC_LE,
+  WSDB_MAGIC_OFFSET,
+  getUnistrdbString,
+  isWsdbMagic,
+  parseUnistrdb,
+  type UnistrdbTable,
+} from './unistrdb';

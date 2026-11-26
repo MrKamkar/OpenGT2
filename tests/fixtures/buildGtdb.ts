@@ -5,6 +5,8 @@ import {
   GTDT_PAIR_SIZE,
   GTMODE_DATA_TABLE_SPECS,
   GTMODE_RACE_TABLE_SPECS,
+  WSDB_HEADER_SIZE,
+  WSDB_MAGIC_BYTES,
   type GtdbTableSpec,
 } from '../../src/formats/gtdb';
 
@@ -127,4 +129,54 @@ export function buildValidGtmodeRaceBuffer(
   return buildValidGtdbForSpecs(GTMODE_RACE_TABLE_SPECS, countsByName, {
     trailingEmptyPairs: 2,
   });
+}
+
+export interface BuildSyntheticUnistrdbOptions {
+  readonly magicBytes?: readonly [number, number, number, number];
+  readonly fileSizeOverride?: number;
+  readonly countOverride?: number;
+  readonly terminatorOverride?: number;
+  readonly trailingBytes?: number;
+  readonly truncateTo?: number;
+}
+
+/**
+ * Builds a synthetic `WSDB` (`unistrdb`) UTF-16LE buffer for unit tests (zero Sony/GT2 data).
+ */
+export function buildSyntheticUnistrdb(
+  strings: readonly string[],
+  options: BuildSyntheticUnistrdbOptions = {},
+): Uint8Array {
+  let payloadBytes = 0;
+  for (const s of strings) {
+    payloadBytes += 4 + s.length * 2;
+  }
+  const totalBytes = WSDB_HEADER_SIZE + payloadBytes + (options.trailingBytes ?? 0);
+  const buffer = new Uint8Array(totalBytes);
+  const view = new DataView(buffer.buffer);
+
+  view.setUint32(0, options.fileSizeOverride ?? totalBytes, true);
+  const magic = options.magicBytes ?? WSDB_MAGIC_BYTES;
+  buffer[4] = magic[0];
+  buffer[5] = magic[1];
+  buffer[6] = magic[2];
+  buffer[7] = magic[3];
+  view.setUint16(8, options.countOverride ?? strings.length, true);
+
+  let cursor = WSDB_HEADER_SIZE;
+  for (const s of strings) {
+    view.setUint16(cursor, s.length, true);
+    cursor += 2;
+    for (let i = 0; i < s.length; i += 1) {
+      view.setUint16(cursor + i * 2, s.charCodeAt(i), true);
+    }
+    cursor += s.length * 2;
+    view.setUint16(cursor, options.terminatorOverride ?? 0, true);
+    cursor += 2;
+  }
+
+  if (options.truncateTo !== undefined) {
+    return buffer.slice(0, options.truncateTo);
+  }
+  return buffer;
 }
