@@ -99,3 +99,17 @@ export {
   type CarCatalogName,
   type GtdbRegionVariant,
 } from './carCatalog';
+
+export {
+  CAR_ID_BITS_PER_CHAR,
+  CAR_ID_CHARSET,
+  CAR_ID_CODE_LENGTH,
+  CAR_ID_MAX_VALUE,
+  CarAssetIndex,
+  buildCarAssetIndex,
+  decodeCarId,
+  encodeCarId,
+  resolveCarAssets,
+  tryDecodeCarId,
+  type ResolvedCarAssets,
+} from './carId';

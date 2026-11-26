@@ -11,11 +11,13 @@ import {
   GTMODE_DATA_TABLE_COUNT,
   GTMODE_RACE_TABLE_COUNT,
   GTMODE_RACE_TABLE_SPECS,
+  buildCarAssetIndex,
   buildCarCatalogFromBuffers,
   decodeCarDataTable,
   decodeCarDimensionsTable,
   decodeCarEngineDataTable,
   decodeCarGearboxTable,
+  decodeCarId,
   decodeCarRearTyresTable,
   decodeCarSuspensionTable,
   decodeCarTyresTable,
@@ -307,6 +309,7 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
       expect((raceStrings?.offset ?? 0) + (raceStrings?.size ?? 0)).toBe(unpacked.byteLength);
     }
 
+    const assetIndex = buildCarAssetIndex(reader.getAllEntries());
     const variants = pairGtdbRegionVariants(discovered);
     expect(variants).toHaveLength(7);
     expect(selectDefaultGtdbVariant(variants)?.id).toBe('eng');
@@ -341,6 +344,15 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         expect(car.suspensions.length).toBeGreaterThanOrEqual(1);
         expect(car.frontTyres.length).toBeGreaterThanOrEqual(1);
         expect(car.rearTyres.length).toBeGreaterThanOrEqual(1);
+
+        const decodedCode = decodeCarId(car.carId);
+        expect(decodedCode).toHaveLength(5);
+        const assets = assetIndex.resolve(car.carId);
+        expect(assets.code).toBe(decodedCode);
+        expect(assets.dayModel).not.toBeNull();
+        expect(assets.nightModel).not.toBeNull();
+        expect(assets.dayTexture).not.toBeNull();
+        expect(assets.nightTexture).not.toBeNull();
       }
     }
   }, 60_000);

@@ -227,7 +227,7 @@ All `29 / 29` entries in the database directory of verified `GT2.VOL` are single
 | `(<region>_)?arcade_data.dat.gz` | `(none)`, `eng`, `usa` | `3` | `41,250 B` | `"GTDT"` (`pairCount = 68`) | **E3** (header) / **E1** (extra tables) |
 | `(<region>_)?license_data.dat.gz` | `(none)`, `eng`, `usa` | `3` | `36,432 B` | `"GTDT"` (`pairCount = 64`) | **E3** (header) / **E2** (`LicenseTestInfo`) |
 | `*_dev.dat.gz` (`gtmode_data_dev`, `gtmode_race_dev`) | `(none)` | `2` | `32–315,006 B` | `"GTDT"` (`pairCount = 31` / `3`) | **E1** (ASCII dev part names / empty stub) |
-| `(<region>_)unistrdb.dat.gz` | `eng`, `fra`, `ger`, `ita`, `jpn`, `spa`, `usa` | `7` | `16,128–22,020 B` | `"WSDB"` at `0x04` | **E3** (header) / **E2** (records, M5.4) |
+| `(<region>_)unistrdb.dat.gz` | `eng`, `fra`, `ger`, `ita`, `jpn`, `spa`, `usa` | `7` | `16,128–22,020 B` | `"WSDB"` at `0x04` | **E3** (verified across `7/7` variants in M5.4) |
 
 ### 2. `GTDT` Container Header & Directory (**E3**)
 
@@ -406,11 +406,51 @@ Important `structs.h` discrepancies resolved during M5.3:
 | `0x42` | 2 B | `uint16` LE | `unk_0x42` | `unk14` in `structs.h` (observed `0`) | **E0** |
 | `0x44` | 4 B | `uint32` LE | `newPrice` | New car price (`2800–2000000`) | **E3** |
 
-### 6. `WSDB` (`(<region>_)unistrdb.dat.gz`) Header Summary (**E3** header / M5.4 deferred)
+### 6. `WSDB` (`(<region>_)unistrdb.dat.gz`, **E3**)
+
+Verified in M5.4 against `GT2DataExploder/main.cpp` (`ExtractUniStrDb`, `adeyblue/GTVolTools`, MIT License) and all `7/7` unpacked `unistrdb` files (`eng`, `fra`, `ger`, `ita`, `jpn`, `spa`, `usa`) in `local_assets/GT2.VOL`:
 
 | Offset | Size | Type | Name / Meaning | Confidence |
 | --- | --- | --- | --- | --- |
-| `0x00` | 4 B | `uint32` LE | `fileSize`: exact unpacked byte length (`7/7` verified) | **E3** |
+| `0x00` | 4 B | `uint32` LE | `fileSize`: exact unpacked byte length (`7/7` match `unpacked.byteLength`, `0` trailing bytes) | **E3** |
 | `0x04` | 4 B | `char[4]` | Magic `"WSDB"` (`57 53 44 42`) | **E3** |
-| `0x08` | 2 B | `uint16` LE | `numStrings` (`846` PAL, `851` USA, `764` JP) | **E3** |
-| `0x0A` | variable | `uint16 len + UTF-16LE chars + 0x0000` | Wide-string records (exact decoder & encoding verification deferred to M5.4) | **E2** |
+| `0x08` | 2 B | `uint16` LE | `numStrings` (`846` PAL `eng/fra/ger/ita/spa`, `851` `usa`, `764` `jpn`) | **E3** |
+| `0x0A` | variable | `WsdbRecord[numStrings]` | Sequential records: `uint16 LE charCount`, `uint16 LE[charCount]` UTF-16LE code units, `uint16 LE 0x0000` terminator | **E3** |
+
+- **Character Encoding & Integrity (`7/7` variants, **E3**):** Pure BMP **UTF-16LE** (`0` UTF-16 surrogates, `0` embedded nulls, `0` control characters `< 0x20` or `0x7F`, `0` non-zero terminators). `eng` uses ASCII (`maxCodeUnit = 0x7a`); European variants include Latin accents/punctuation (up to `0x2019`); `jpn` includes CJK/Kana characters (`2,741` non-ASCII code units, up to `0x96e8`).
+- **Empty String Entries (**E3**):** Each variant contains exactly `1` empty entry (`charCount === 0`, preserved as `""`, at index `195` in PAL/USA and `140` in `jpn`), referenced by `CarData.nameSecondPartIndex` on single-part names (`57` PAL / `55` USA / `367` JP).
+- **Database Index Validation (**E3**):** `100%` of `CarData.nameFirstPartIndex` (`> 0` length), `CarData.nameSecondPartIndex`, and `CarEngineData` string indices (`engineTypeNameIndex`, `engineTypeName2Index`, `torqueRpmStringIndex` — all non-empty) resolve within `[0, numStrings)` across all `7/7` variants.
+
+### 7. `carId (uint32)` ↔ VOL Asset Mapping (`src/formats/gtdb/carId.ts`)
+
+- **Confidence:** **E3** for 30-bit `carId` ↔ 5-character stem encoding and `.cdo`/`.cno`/`.cdp`/`.cnp` resolution; **E1** for `.es` audio stem patterns (deferred to M11).
+- **Reference Source:** `adeyblue/GTVolTools` (`GTMP/GMImage.cs:CarNameConversion`, MIT License).
+
+#### 7.1 Bit-Packed 5-Character Encoding (**E3**)
+
+`carId` (`uint32` LE) encodes a 5-character lowercase stem `[c0, c1, c2, c3, c4]` (`30` active bits, MSB-first, bits `30..31` always `0`):
+
+```text
+CAR_ID_CHARSET = "-0123456789abcdefghijklmnopqrstuvwxyz"   (37 symbols, index 0..36)
+
+decodeCarId(carId):
+  c4 = charset[(carId >>>  0) & 0x3F]
+  c3 = charset[(carId >>>  6) & 0x3F]
+  c2 = charset[(carId >>> 12) & 0x3F]
+  c1 = charset[(carId >>> 18) & 0x3F]
+  c0 = charset[(carId >>> 24) & 0x3F]
+  code = c0 + c1 + c2 + c3 + c4
+
+encodeCarId(code):
+  carId = Σ_{i=0..4} (charset.indexOf(code[i]) << ((4 - i) * 6))
+```
+
+#### 7.2 VOL Asset Coverage (`local_assets/GT2.VOL`, **E3** models/textures, **E1** audio)
+
+| Asset Role | Extensions in `GT2.VOL` | Total Entries | Coverage on `CarData.carId` (PAL `621` / USA `618` / JP `613`) | Coverage on `CarRacingModification.rmBodyId` (`1,056`) | Confidence |
+| --- | --- | --- | --- | --- | --- |
+| Day 3D model | `.cdo.gz` (`.cdo`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
+| Night 3D model | `.cno.gz` (`.cno`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
+| Day texture + CLUTs | `.cdp.gz` (`.cdp`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
+| Night texture + CLUTs | `.cnp.gz` (`.cnp`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
+| Engine sound bank | `.es` | `2,747` | `0` direct 5-char `carId` matches; stems match `DDDDD` (`305`), `DDDDD_LD` (`2,440`), `LLL_L` (`2`) | — | **E1** (M11) |
