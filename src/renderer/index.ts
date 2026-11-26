@@ -48,3 +48,30 @@ export {
   buildCarMeshData,
 } from './meshData';
 export { CarRenderMesh, type WebGL2MeshContext } from './mesh';
+export {
+  type Aabb3,
+  type Mat4,
+  PS1_FIXED_POINT_SCALE,
+  type Vec3,
+  cdoBoundingBoxToAabbMeters,
+  fixedPointToMeters,
+  mat4Identity,
+  mat4LookAt,
+  mat4Multiply,
+  mat4Perspective,
+  mat4TransformPoint,
+  vec3Add,
+  vec3Cross,
+  vec3Dot,
+  vec3Length,
+  vec3Normalize,
+  vec3Scale,
+  vec3Sub,
+} from './math';
+export {
+  CAMERA_VIEW_PRESETS,
+  OrbitCamera,
+  type OrbitCameraOptions,
+  type OrbitCameraPreset,
+  type OrbitCameraState,
+} from './camera';
