@@ -11,6 +11,7 @@ import {
   GTMODE_DATA_TABLE_COUNT,
   GTMODE_RACE_TABLE_COUNT,
   GTMODE_RACE_TABLE_SPECS,
+  buildCarCatalogFromBuffers,
   decodeCarDataTable,
   decodeCarDimensionsTable,
   decodeCarEngineDataTable,
@@ -23,8 +24,10 @@ import {
   getUnistrdbString,
   isGtdtMagic,
   isWsdbMagic,
+  pairGtdbRegionVariants,
   parseGtdbLayout,
   parseUnistrdb,
+  selectDefaultGtdbVariant,
   type UnistrdbTable,
 } from '../../src/formats/gtdb';
 import { gunzip, isGzipMagic } from '../../src/formats/gzip';
@@ -302,6 +305,43 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
       expect(getGtdbTable(layout, 'RestrictedCars')?.count).toBeGreaterThan(0);
       const raceStrings = getGtdbTable(layout, 'RaceStrings');
       expect((raceStrings?.offset ?? 0) + (raceStrings?.size ?? 0)).toBe(unpacked.byteLength);
+    }
+
+    const variants = pairGtdbRegionVariants(discovered);
+    expect(variants).toHaveLength(7);
+    expect(selectDefaultGtdbVariant(variants)?.id).toBe('eng');
+
+    for (const variant of variants) {
+      expect(variant.unistrdb).not.toBeNull();
+      const rawData = await cachedSource.read(
+        variant.gtmodeData.address,
+        variant.gtmodeData.address + variant.gtmodeData.size,
+      );
+      const unpackedData = await gunzip(rawData);
+      const unpackedStrings =
+        variant.unistrdb !== null
+          ? await gunzip(
+              await cachedSource.read(
+                variant.unistrdb.address,
+                variant.unistrdb.address + variant.unistrdb.size,
+              ),
+            )
+          : null;
+
+      const catalog = buildCarCatalogFromBuffers(unpackedData, unpackedStrings, variant.id);
+      const expectedCount =
+        variant.id === 'jpn' ? 613 : variant.id === 'usa' ? 618 : 621;
+      expect(catalog.size).toBe(expectedCount);
+      for (const car of catalog.listCars()) {
+        expect(catalog.getCar(car.carId)).toBe(car);
+        expect(car.name.isFallback).toBe(false);
+        expect(car.dimensions).not.toBeNull();
+        expect(car.engine).not.toBeNull();
+        expect(car.gearboxes.length).toBeGreaterThanOrEqual(1);
+        expect(car.suspensions.length).toBeGreaterThanOrEqual(1);
+        expect(car.frontTyres.length).toBeGreaterThanOrEqual(1);
+        expect(car.rearTyres.length).toBeGreaterThanOrEqual(1);
+      }
     }
   }, 60_000);
 });

@@ -86,3 +86,16 @@ export {
   parseUnistrdb,
   type UnistrdbTable,
 } from './unistrdb';
+
+export {
+  CarCatalog,
+  buildCarCatalogFromBuffers,
+  formatCarIdHex,
+  pairGtdbRegionVariants,
+  selectDefaultGtdbVariant,
+  type CarCatalogEngineSummary,
+  type CarCatalogEntry,
+  type CarCatalogInput,
+  type CarCatalogName,
+  type GtdbRegionVariant,
+} from './carCatalog';
