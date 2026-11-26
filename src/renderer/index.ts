@@ -103,3 +103,22 @@ export {
   type Ps1RenderOptions,
   type WebGL2Ps1Context,
 } from './ps1Pipeline';
+export {
+  HD_DEFAULT_MAX_ANISOTROPY,
+  HD_TEXTURE_ARRAY_HEIGHT,
+  HD_TEXTURE_ARRAY_LAYERS,
+  HD_TEXTURE_ARRAY_WIDTH,
+  HdCarTextureArray,
+  HdPipeline,
+  type HdPipelineOptions,
+  type HdRenderOptions,
+  type WebGL2HdContext,
+  prepareHdPaletteArrayData,
+} from './hdPipeline';
+export {
+  CarRenderer,
+  type CarRendererOptions,
+  type RenderMode,
+  type SetCarOptions,
+  type WebGL2CarRendererContext,
+} from './carRenderer';
