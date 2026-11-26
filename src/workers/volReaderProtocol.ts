@@ -1,4 +1,9 @@
-import { gunzip } from '../formats/gzip';
+import {
+  type CarCatalogEntry,
+  buildCarCatalogFromBuffers,
+  parseUnistrdb,
+} from '../formats/gtdb';
+import { gunzip, isGzipMagic } from '../formats/gzip';
 import {
   type VolEntry,
   VolError,
@@ -48,6 +53,18 @@ export interface VolReaderRangeResult {
   readonly bytes: Uint8Array;
 }
 
+export interface VolReaderLoadCarCatalogParams {
+  readonly gtmodeDataPath: string;
+  readonly unistrdbPath?: string;
+  readonly region?: string | null;
+}
+
+export interface VolReaderCarCatalogResult {
+  readonly region: string | null;
+  readonly entries: readonly CarCatalogEntry[];
+  readonly stringCount: number | null;
+}
+
 export interface VolReaderRpcSchema {
   open: {
     readonly params: VolReaderOpenParams;
@@ -76,6 +93,10 @@ export interface VolReaderRpcSchema {
   readDecompressedRange: {
     readonly params: VolReaderRangeParams;
     readonly result: VolReaderRangeResult;
+  };
+  loadCarCatalog: {
+    readonly params: VolReaderLoadCarCatalogParams;
+    readonly result: VolReaderCarCatalogResult;
   };
   close: {
     readonly params: Record<string, never>;
@@ -220,6 +241,26 @@ export function bindVolReaderRpcServer(
         [owned.buffer],
       );
     },
+    loadCarCatalog: async (params) => {
+      const readMaybeGunzip = async (rawPath: string): Promise<Uint8Array> => {
+        const raw = await reader.read(normalizeEntryPath(rawPath));
+        return isGzipMagic(raw) ? gunzip(raw) : raw;
+      };
+      const gtmodeBytes = await readMaybeGunzip(params.gtmodeDataPath);
+      const unistrBytes =
+        params.unistrdbPath !== undefined ? await readMaybeGunzip(params.unistrdbPath) : null;
+      const stringCount = unistrBytes !== null ? parseUnistrdb(unistrBytes).count : null;
+      const catalog = buildCarCatalogFromBuffers(
+        gtmodeBytes,
+        unistrBytes,
+        params.region ?? null,
+      );
+      return {
+        region: catalog.region,
+        entries: catalog.listCars(),
+        stringCount,
+      };
+    },
     close: () => {
       decompressedCache = null;
       reader.close();
@@ -290,6 +331,13 @@ export class VolReaderRpcClient {
     rpcOptions?: RpcCallOptions,
   ): Promise<VolReaderRangeResult> {
     return this.rpc.call('readDecompressedRange', { path, start, end }, rpcOptions);
+  }
+
+  loadCarCatalog(
+    params: VolReaderLoadCarCatalogParams,
+    rpcOptions?: RpcCallOptions,
+  ): Promise<VolReaderCarCatalogResult> {
+    return this.rpc.call('loadCarCatalog', params, rpcOptions);
   }
 
   close(rpcOptions?: RpcCallOptions): Promise<void> {

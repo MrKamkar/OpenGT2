@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { expect, test, type Download, type Page } from '@playwright/test';
 import { gzipSync } from 'fflate';
 import { buildGm, buildIdxContainer } from '../fixtures/buildGtimg';
+import { buildSyntheticGtmodeData, buildSyntheticUnistrdb } from '../fixtures/buildGtdb';
 import { buildTim } from '../fixtures/buildTim';
 import { buildSyntheticVol, deterministicPayload } from '../fixtures/buildVol';
 
@@ -809,6 +810,219 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
 
     // Main WebGL2 canvas remains untouched (ready and empty)
     await expect(appRoot).toHaveAttribute('data-webgl2', 'ready');
+
+    assertCleanMonitors(monitors);
+  });
+
+  test('M5.6 Car Catalog decodes synthetic gtmode_data + unistrdb in Worker, filters, sorts, and shows E3/E2/E0 details', async ({
+    page,
+    baseURL,
+  }) => {
+    const monitors = attachErrorMonitors(page);
+
+    const makeCarRecord = (
+      carId: number,
+      firstIdx: number,
+      secondIdx: number,
+      year: number,
+      newPrice: number,
+    ) => ({
+      carId,
+      brakePart: 0,
+      specialCar: 0,
+      weightPartId: 0,
+      unk_0x0c: 0,
+      unk_0x0e: 0,
+      enginePartId: 0,
+      unk_0x12: 0,
+      unk_0x14: 0,
+      unk_0x18: 0,
+      turboPart: 0,
+      drivetrainPart: 0,
+      flywheel: 0,
+      clutch: 0,
+      unk_0x24: 0,
+      differential: 0,
+      transmission: 0,
+      suspension: 0,
+      unk_0x2c: 0,
+      frontTyres: 0,
+      rearTyres: 0,
+      unk_0x34: 0,
+      rimsCode3: 1,
+      manufacturerId: 2,
+      nameFirstPartIndex: firstIdx,
+      nameSecondPartIndex: secondIdx,
+      unk_0x40: 0,
+      year,
+      unk_0x42: 0,
+      newPrice,
+    });
+
+    const makeDimRecord = (carId: number, weightKg: number) => ({
+      carId,
+      unk_0x04: 0x11223344,
+      length: 4150,
+      height: 1290,
+      unk_0x0c: 0,
+      weightKg,
+      rmWeightMultiplier: 65,
+      unk_0x11: 0,
+      unk_0x12: 0,
+    });
+
+    const makeEngRecord = (carId: number, ps: number) => ({
+      carId,
+      engineTypeNameIndex: 6,
+      engineTypeName2Index: 7,
+      unk_0x08: 0,
+      unk_0x0a: 0,
+      bandAcceleration: new Array<number>(16).fill(0xffff),
+      engineCc: 1998,
+      ps,
+      maxPowerRpmRaw: 750,
+      torqueKgmRaw: 310,
+      torqueRpmStringIndex: 8,
+      baseUnits: [100, 0, 0, 80, 75],
+      bandRpms: new Array<number>(16).fill(0xff),
+      bandPointCount: 10,
+    });
+
+    const engData = buildSyntheticGtmodeData({
+      cars: [
+        makeCarRecord(0x10000001, 0, 1, 95, 22000),
+        makeCarRecord(0x10000002, 2, 3, 98, 48000),
+        makeCarRecord(0x10000003, 4, 5, 99, 15000),
+      ],
+      dimensions: [
+        makeDimRecord(0x10000001, 1180),
+        makeDimRecord(0x10000002, 990),
+        makeDimRecord(0x10000003, 1340),
+      ],
+      engines: [
+        makeEngRecord(0x10000001, 180),
+        makeEngRecord(0x10000002, 340),
+        makeEngRecord(0x10000003, 120),
+      ],
+    });
+    const engStrings = buildSyntheticUnistrdb([
+      'Proto',
+      'Alpha',
+      'Proto',
+      'Beta',
+      'Proto',
+      'Gamma',
+      'I4',
+      'DOHC',
+      '5500 rpm',
+    ]);
+
+    const usaData = buildSyntheticGtmodeData({
+      cars: [makeCarRecord(0x20000001, 0, 1, 97, 39000)],
+      dimensions: [makeDimRecord(0x20000001, 1110)],
+      engines: [makeEngRecord(0x20000001, 290)],
+    });
+    const usaStrings = buildSyntheticUnistrdb([
+      'Metric',
+      'Delta',
+      'Metric',
+      'Delta',
+      'Metric',
+      'Delta',
+      'V6',
+      'SOHC',
+      '6000 rpm',
+    ]);
+
+    const carVol = buildSyntheticVol([
+      {
+        kind: 'dir',
+        name: 'carparam',
+        children: [
+          { kind: 'file', name: 'eng_gtmode_data.dat.gz', data: gzipSync(engData, { mtime: 0 }) },
+          { kind: 'file', name: 'eng_unistrdb.dat.gz', data: gzipSync(engStrings, { mtime: 0 }) },
+          { kind: 'file', name: 'usa_gtmode_data.dat.gz', data: gzipSync(usaData, { mtime: 0 }) },
+          { kind: 'file', name: 'usa_unistrdb.dat.gz', data: gzipSync(usaStrings, { mtime: 0 }) },
+        ],
+      },
+      { kind: 'dir', name: 'empty', unixTime: 945_000_060, children: [] },
+    ]);
+
+    await page.goto(buildPageUrl(baseURL ?? 'http://127.0.0.1:4173/', 'debug=1'), {
+      waitUntil: 'load',
+    });
+
+    const appRoot = page.locator('#app');
+    await expect(appRoot).toHaveAttribute('data-worker', 'ready', { timeout: 10_000 });
+
+    await page.locator('[data-testid="file-input"]').setInputFiles({
+      name: 'SYNTHETIC_CARS.VOL',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from(carVol.bytes),
+    });
+
+    const archivePanel = page.locator('[data-testid="archive-panel"]');
+    await expect(archivePanel).toHaveAttribute('data-vol-state', 'ready', { timeout: 15_000 });
+
+    await page.locator('[data-testid="archive-tab-cars"]').click();
+    await expect(page.locator('[data-testid="car-catalog-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('3 aut', {
+      timeout: 10_000,
+    });
+    await expect(page.locator('[data-testid="car-catalog-region"]')).toHaveValue('eng');
+
+    // Sort by PS descending -> Proto Beta (340 PS) first
+    await page.locator('[data-testid="car-sort-ps"]').click();
+    const firstRowAfterPs = page.locator('[data-testid="car-catalog-row"]').first();
+    await expect(firstRowAfterPs).toContainText('Proto Beta');
+    await firstRowAfterPs.click();
+
+    // Details panel shows E3, E2, E0 badges
+    const details = page.locator('[data-testid="car-catalog-details"]');
+    await expect(details).toContainText('Proto Beta');
+    await expect(details.locator('[data-evidence="E3"]').first()).toBeVisible();
+    await expect(details.locator('[data-evidence="E2"]').first()).toBeVisible();
+    await expect(details.locator('[data-evidence="E0"]').first()).toBeVisible();
+
+    // Filter with WSAD keys without triggering InputManager
+    const carSearch = page.locator('[data-testid="car-catalog-search"]');
+    await carSearch.click();
+    await carSearch.pressSequentially('gamma');
+    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('1 / 3 aut');
+    await expect(page.locator('[data-testid="car-catalog-row"]')).toHaveCount(1);
+    const inputSnapshot = await page.evaluate(() => window.__input?.getSnapshot());
+    expect(inputSnapshot?.pressedCodes).toEqual([]);
+    expect(inputSnapshot?.activeActions).toEqual([]);
+
+    // Switch regional variant to USA
+    await carSearch.fill('');
+    await page.locator('[data-testid="car-catalog-region"]').selectOption('usa');
+    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('1 aut', {
+      timeout: 10_000,
+    });
+    await expect(page.locator('[data-testid="car-catalog-row"]').first()).toContainText('Metric Delta');
+
+    // Verify all <input>, <select>, <textarea> have unique non-empty id and name
+    const formIssues = await page.evaluate(() => {
+      const nodes = [...document.querySelectorAll('input, select, textarea')];
+      const ids = new Set<string>();
+      const names = new Set<string>();
+      const problems: string[] = [];
+      for (const node of nodes) {
+        const id = node.id;
+        const name = node.getAttribute('name') ?? '';
+        if (!id || !name) {
+          problems.push(`missing:${node.outerHTML}`);
+        } else {
+          if (ids.has(id)) problems.push(`dup-id:${id}`);
+          if (names.has(name)) problems.push(`dup-name:${name}`);
+          ids.add(id);
+          names.add(name);
+        }
+      }
+      return problems;
+    });
+    expect(formIssues).toEqual([]);
 
     assertCleanMonitors(monitors);
   });

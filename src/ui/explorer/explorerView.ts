@@ -1,10 +1,19 @@
 import { isAbortLikeError } from '../../app/volArchiveSession';
 import {
+  findGtdbEntries,
+  pairGtdbRegionVariants,
+} from '../../formats/gtdb';
+import {
   REGISTRY_HEAD_PROBE_BYTES,
   classifyFile,
 } from '../../formats/registry';
 import type { VolEntry, VolInfo } from '../../formats/vol';
 import { parseHexHash } from '../../tools/hexview';
+import {
+  type CarCatalogPanelHandle,
+  type LoadCarCatalogFn,
+  mountCarCatalogPanel,
+} from '../carCatalog';
 import {
   type ImageDecoderService,
   type ThumbnailGalleryHandle,
@@ -57,6 +66,7 @@ export interface ArchiveExplorerSource extends HexDataSource {
   readonly readDecompressed: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
   readonly scanEntry?: ScanEntryFn;
   readonly imageDecoder?: ImageDecoderService;
+  readonly loadCarCatalog?: LoadCarCatalogFn;
 }
 
 export interface ArchivePanelHandle {
@@ -302,7 +312,66 @@ function mountExplorer(
 
   const layout = el('div', 'ogt2-explorer');
   layout.append(tree, main);
-  host.append(summary, layout);
+
+  const carVariants =
+    source.loadCarCatalog !== undefined ? pairGtdbRegionVariants(findGtdbEntries(entries)) : [];
+  let carCatalogPanel: CarCatalogPanelHandle | null = null;
+  let carCatalogMount: HTMLElement | null = null;
+  let switchArchiveTab: ((tab: 'explorer' | 'cars') => void) | null = null;
+
+  if (carVariants.length > 0 && source.loadCarCatalog !== undefined) {
+    const tabBar = el('div', 'ogt2-archive-tabs');
+    tabBar.setAttribute('role', 'tablist');
+    tabBar.setAttribute('aria-label', 'Widoki archiwum GT2.VOL');
+
+    const explorerTabBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', 'Eksplorator plików');
+    explorerTabBtn.type = 'button';
+    explorerTabBtn.dataset['testid'] = 'archive-tab-explorer';
+    explorerTabBtn.setAttribute('role', 'tab');
+    explorerTabBtn.setAttribute('aria-selected', 'true');
+
+    const carsTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Katalog aut');
+    carsTabBtn.type = 'button';
+    carsTabBtn.dataset['testid'] = 'archive-tab-cars';
+    carsTabBtn.setAttribute('role', 'tab');
+    carsTabBtn.setAttribute('aria-selected', 'false');
+
+    tabBar.append(explorerTabBtn, carsTabBtn);
+
+    carCatalogMount = el('div', 'ogt2-car-catalog-mount');
+    carCatalogMount.hidden = true;
+    carCatalogPanel = mountCarCatalogPanel({
+      container: carCatalogMount,
+      variants: carVariants,
+      loadCarCatalog: source.loadCarCatalog,
+    });
+
+    switchArchiveTab = (tab: 'explorer' | 'cars'): void => {
+      const showCars = tab === 'cars';
+      layout.hidden = showCars;
+      if (carCatalogMount !== null) {
+        carCatalogMount.hidden = !showCars;
+      }
+      explorerTabBtn.classList.toggle('is-active', !showCars);
+      explorerTabBtn.setAttribute('aria-selected', String(!showCars));
+      carsTabBtn.classList.toggle('is-active', showCars);
+      carsTabBtn.setAttribute('aria-selected', String(showCars));
+      if (showCars) {
+        carCatalogPanel?.activate();
+      }
+    };
+
+    explorerTabBtn.addEventListener('click', () => {
+      switchArchiveTab?.('explorer');
+    });
+    carsTabBtn.addEventListener('click', () => {
+      switchArchiveTab?.('cars');
+    });
+
+    host.append(summary, tabBar, layout, carCatalogMount);
+  } else {
+    host.append(summary, layout);
+  }
 
   // ----- Lazy stat -----------------------------------------------------------------------------
   const scheduleRender = (): void => {
@@ -876,6 +945,7 @@ function mountExplorer(
     if (targetItem === undefined || targetItem.entry.kind !== 'file') {
       return;
     }
+    switchArchiveTab?.('explorer');
     if (selectedPath !== parsed.path) {
       selectFile(parsed.path);
     }
@@ -930,6 +1000,7 @@ function mountExplorer(
         statTimer = null;
       }
       statCache.dispose();
+      carCatalogPanel?.dispose();
       thumbnailGallery?.dispose();
       imageViewerPanel?.dispose();
       hexPanel.dispose();

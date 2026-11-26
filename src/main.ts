@@ -247,6 +247,8 @@ export function initApp(): void {
               );
             },
           },
+          loadCarCatalog: (params, signal) =>
+            client.loadCarCatalog(params, signal !== undefined ? { signal } : undefined),
         });
       })
       .catch((error: unknown) => {

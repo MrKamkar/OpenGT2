@@ -16,6 +16,7 @@ import {
   createThreeLevelFixture,
   deterministicPayload,
 } from '../fixtures/buildVol';
+import { buildSyntheticGtmodeData, buildSyntheticUnistrdb } from '../fixtures/buildGtdb';
 
 function createBlobLikeFromBytes(bytes: Uint8Array): BlobLike {
   const makeSlice = (start: number, end: number): BlobLike => {
@@ -468,6 +469,124 @@ describe('VolReader and Worker RPC (M2.6)', () => {
 
     // All reads fit in the single 64 KiB cached window without extra backing reads.
     expect(readSpy.mock.calls.length).toBe(readsAfterOpen);
+
+    await client.close();
+    client.dispose(true);
+    server.dispose();
+  });
+
+  it('decodes gtmode_data and unistrdb into a CarCatalog via loadCarCatalog RPC', async () => {
+    const gtmodeBytes = buildSyntheticGtmodeData({
+      cars: [
+        {
+          carId: 0x22334455,
+          brakePart: 0,
+          specialCar: 0,
+          weightPartId: 0,
+          unk_0x0c: 0,
+          unk_0x0e: 0,
+          enginePartId: 0,
+          unk_0x12: 0,
+          unk_0x14: 0,
+          unk_0x18: 0,
+          turboPart: 0,
+          drivetrainPart: 0,
+          flywheel: 0,
+          clutch: 0,
+          unk_0x24: 0,
+          differential: 0,
+          transmission: 0,
+          suspension: 0,
+          unk_0x2c: 0,
+          frontTyres: 0,
+          rearTyres: 0,
+          unk_0x34: 0,
+          rimsCode3: 0,
+          manufacturerId: 1,
+          nameFirstPartIndex: 0,
+          nameSecondPartIndex: 1,
+          unk_0x40: 0,
+          year: 99,
+          unk_0x42: 0,
+          newPrice: 35000,
+        },
+      ],
+      dimensions: [
+        {
+          carId: 0x22334455,
+          unk_0x04: 0,
+          length: 4100,
+          height: 1250,
+          unk_0x0c: 0,
+          weightKg: 1090,
+          rmWeightMultiplier: 60,
+          unk_0x11: 0,
+          unk_0x12: 0,
+        },
+      ],
+      engines: [
+        {
+          carId: 0x22334455,
+          engineTypeNameIndex: 2,
+          engineTypeName2Index: 3,
+          unk_0x08: 0,
+          unk_0x0a: 0,
+          bandAcceleration: new Array<number>(16).fill(0xffff),
+          engineCc: 1998,
+          ps: 260,
+          maxPowerRpmRaw: 740,
+          torqueKgmRaw: 300,
+          torqueRpmStringIndex: 4,
+          baseUnits: [100, 0, 0, 80, 75],
+          bandRpms: new Array<number>(16).fill(0xff),
+          bandPointCount: 9,
+        },
+      ],
+    });
+    const unistrBytes = buildSyntheticUnistrdb([
+      'Worker',
+      'Runner',
+      'I4',
+      'DOHC',
+      '5000 rpm',
+    ]);
+    const built = buildSyntheticVol([
+      {
+        kind: 'dir',
+        name: 'carparam',
+        children: [
+          {
+            kind: 'file',
+            name: 'eng_gtmode_data.dat.gz',
+            data: gzipSync(gtmodeBytes, { mtime: 0 }),
+          },
+          {
+            kind: 'file',
+            name: 'eng_unistrdb.dat.gz',
+            data: gzipSync(unistrBytes, { mtime: 0 }),
+          },
+        ],
+      },
+      { kind: 'dir', name: 'extra', children: [] },
+    ]);
+
+    const channel = createStructuredTransferRpcChannel();
+    const server = bindVolReaderRpcServer(channel.workerTransport);
+    const client = new VolReaderRpcClient(channel.mainEndpoint);
+
+    await client.open(createBlobLikeFromBytes(built.bytes));
+    const catalogResult = await client.loadCarCatalog({
+      gtmodeDataPath: 'carparam/eng_gtmode_data.dat.gz',
+      unistrdbPath: 'carparam/eng_unistrdb.dat.gz',
+      region: 'eng',
+    });
+
+    expect(catalogResult.region).toBe('eng');
+    expect(catalogResult.stringCount).toBe(5);
+    expect(catalogResult.entries).toHaveLength(1);
+    expect(catalogResult.entries[0]?.name.displayName).toBe('Worker Runner');
+    expect(catalogResult.entries[0]?.engine?.ps).toBe(260);
+    expect(catalogResult.entries[0]?.dimensions?.weightKg).toBe(1090);
 
     await client.close();
     client.dispose(true);
