@@ -336,6 +336,22 @@ export class CarRenderer {
     );
   }
 
+  /**
+   * Releases JS references to invalidated GPU handles immediately upon `webglcontextlost`
+   * without issuing `gl.delete*` calls on a lost WebGL2 context (`M7.9`).
+   */
+  public invalidateOnContextLost(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    this.mesh = null;
+    this.ps1Texture = null;
+    this.hdTexture = null;
+    this.hdTextureDirty = false;
+    this.carModel = null;
+  }
+
   public dispose(): void {
     if (this.disposed) {
       return;

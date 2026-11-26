@@ -39,6 +39,11 @@ export interface ResizeObserverLike {
   disconnect(): void;
 }
 
+export interface GlContextLifecycleListener {
+  readonly onContextLost?: () => void;
+  readonly onContextRestored?: () => void;
+}
+
 export interface GlContextOptions {
   readonly clearColor?: RgbaColor;
   readonly getDevicePixelRatio?: () => number;
@@ -90,6 +95,7 @@ export class GlContext {
   private readonly onContextLostCallback: (() => void) | undefined;
   private readonly onContextRestoredCallback: (() => void) | undefined;
   private resizeObserver: ResizeObserverLike | null = null;
+  private readonly contextListeners = new Set<GlContextLifecycleListener>();
   private contextLost = false;
   private disposed = false;
 
@@ -97,12 +103,18 @@ export class GlContext {
     event.preventDefault();
     this.contextLost = true;
     this.onContextLostCallback?.();
+    for (const listener of this.contextListeners) {
+      listener.onContextLost?.();
+    }
   };
 
   private readonly handleContextRestored = (): void => {
     this.contextLost = false;
     this.resize();
     this.onContextRestoredCallback?.();
+    for (const listener of this.contextListeners) {
+      listener.onContextRestored?.();
+    }
   };
 
   private readonly handleWindowResize = (): void => {
@@ -151,6 +163,16 @@ export class GlContext {
     }
 
     this.resize();
+  }
+
+  public addContextListener(listener: GlContextLifecycleListener): () => void {
+    if (this.disposed) {
+      return () => {};
+    }
+    this.contextListeners.add(listener);
+    return () => {
+      this.contextListeners.delete(listener);
+    };
   }
 
   public isContextLost(): boolean {
@@ -209,6 +231,7 @@ export class GlContext {
       return;
     }
     this.disposed = true;
+    this.contextListeners.clear();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.canvas.removeEventListener('webglcontextlost', this.handleContextLost);

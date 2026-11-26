@@ -27,7 +27,7 @@ import {
   pickVolFileWithHandle,
 } from './io';
 import { parseHexHash } from './tools/hexview';
-import { type CarViewerHandle, mountCarViewer } from './ui/carViewer';
+import { type CarViewerHandle, installViewerDebugHook, mountCarViewer } from './ui/carViewer';
 import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
 import { type ArchivePanelHandle, mountArchivePanel } from './ui/explorer/explorerView';
 import { describeVolOpenError, loadAllVolEntries } from './app/volArchiveSession';
@@ -125,6 +125,7 @@ export function initApp(): void {
   let assetRepository: AssetRepository | null = null;
   let carViewerSession: CarViewerSession | null = null;
   let carViewerHandle: CarViewerHandle | null = null;
+  let uninstallViewerDebugHook: (() => void) | null = null;
   let hasActiveViewer = false;
 
   const setActiveMode = (mode: 'loader' | 'viewer' | 'inspector'): void => {
@@ -148,6 +149,8 @@ export function initApp(): void {
 
   const closeViewerSession = (): void => {
     hasActiveViewer = false;
+    uninstallViewerDebugHook?.();
+    uninstallViewerDebugHook = null;
     carViewerHandle?.dispose();
     carViewerHandle = null;
     carViewerSession?.dispose();
@@ -340,6 +343,11 @@ export function initApp(): void {
           });
           carViewerSession = viewerSession;
           carViewerHandle = viewerHandleRef;
+          uninstallViewerDebugHook = installViewerDebugHook(
+            window,
+            window.location.search,
+            viewerSession,
+          );
           hasActiveViewer = true;
 
           const startInInspector = parseHexHash(window.location.hash) !== null;

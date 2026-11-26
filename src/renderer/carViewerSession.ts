@@ -1,7 +1,7 @@
 import type { AssetRepository, AssetRepositoryCacheStats } from '../assets';
 import type { InputManager } from '../core/input';
 import type { CarModel, CarModelLod, CarTextureVariant } from '../formats/car';
-import type { GlViewportSize, WebGL2ClearContext } from './GlContext';
+import type { GlContextLifecycleListener, GlViewportSize, WebGL2ClearContext } from './GlContext';
 import { type OrbitCameraState, OrbitCamera } from './camera';
 import {
   CarRenderer,
@@ -28,6 +28,33 @@ export interface CarViewerGlContextLike {
   isContextLost(): boolean;
   getSize(): GlViewportSize;
   clear(): void;
+  addContextListener?(listener: GlContextLifecycleListener): () => void;
+}
+
+export interface CarViewerPixelSample {
+  readonly width: number;
+  readonly height: number;
+  readonly totalSamples: number;
+  readonly nonBackgroundPixels: number;
+  readonly avgR: number;
+  readonly avgG: number;
+  readonly avgB: number;
+}
+
+interface WebGL2ReadPixelsContext {
+  readonly RGBA: number;
+  readonly UNSIGNED_BYTE: number;
+  readonly FRAMEBUFFER: number;
+  bindFramebuffer?(target: number, framebuffer: WebGLFramebuffer | null): void;
+  readPixels?(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    format: number,
+    type: number,
+    pixels: ArrayBufferView,
+  ): void;
 }
 
 export interface CarViewerPointerEventLike {
@@ -186,6 +213,7 @@ export class CarViewerSession {
   private contextLost = false;
   private restoredCount = 0;
   private running = false;
+  private pausedByContextLoss = false;
   private disposed = false;
 
   private loadGeneration = 0;
@@ -201,6 +229,7 @@ export class CarViewerSession {
     hasError: false,
   };
   private glErrorCount = 0;
+  private readonly removeContextListener: (() => void) | null = null;
 
   private readonly activePointers = new Map<number, { x: number; y: number }>();
 
@@ -286,10 +315,24 @@ export class CarViewerSession {
       this.canvas.addEventListener('pointercancel', this.handlePointerUp);
       this.canvas.addEventListener('wheel', this.handleWheel, { passive: false });
     }
+
+    if (typeof this.glContext.addContextListener === 'function') {
+      this.removeContextListener = this.glContext.addContextListener({
+        onContextLost: () => this.handleContextLost(),
+        onContextRestored: () => this.handleContextRestored(),
+      });
+    }
   }
 
   public start(): void {
-    if (this.disposed || this.running) {
+    if (this.disposed) {
+      return;
+    }
+    if (this.contextLost) {
+      this.pausedByContextLoss = true;
+      return;
+    }
+    if (this.running) {
       return;
     }
     this.running = true;
@@ -301,6 +344,7 @@ export class CarViewerSession {
   }
 
   public pause(): void {
+    this.pausedByContextLoss = false;
     if (!this.running) {
       return;
     }
@@ -578,12 +622,96 @@ export class CarViewerSession {
     };
   }
 
+  /**
+   * Renders a fresh frame if ready and samples a centered viewport box via `gl.readPixels`
+   * for `?debug=1` / E2E verification without changing `preserveDrawingBuffer: false`.
+   */
+  public sampleCenterPixels(boxSize = 48): CarViewerPixelSample {
+    const { width, height } = this.glContext.getSize();
+    const safeW = Math.max(1, width);
+    const safeH = Math.max(1, height);
+
+    if (this.disposed || this.contextLost || this.glContext.isContextLost()) {
+      return {
+        width: safeW,
+        height: safeH,
+        totalSamples: 0,
+        nonBackgroundPixels: 0,
+        avgR: 0,
+        avgG: 0,
+        avgB: 0,
+      };
+    }
+
+    this.renderCurrentFrame();
+
+    const readGl = this.gl as unknown as WebGL2ReadPixelsContext;
+    if (typeof readGl.readPixels !== 'function') {
+      return {
+        width: safeW,
+        height: safeH,
+        totalSamples: 0,
+        nonBackgroundPixels: 0,
+        avgR: 0,
+        avgG: 0,
+        avgB: 0,
+      };
+    }
+
+    const readW = Math.min(safeW, Math.max(1, Math.trunc(boxSize)));
+    const readH = Math.min(safeH, Math.max(1, Math.trunc(boxSize)));
+    const readX = Math.max(0, Math.floor((safeW - readW) * 0.5));
+    const readY = Math.max(0, Math.floor((safeH - readH) * 0.5));
+
+    if (typeof readGl.bindFramebuffer === 'function') {
+      readGl.bindFramebuffer(readGl.FRAMEBUFFER, null);
+    }
+
+    const pixels = new Uint8Array(readW * readH * 4);
+    readGl.readPixels(readX, readY, readW, readH, readGl.RGBA, readGl.UNSIGNED_BYTE, pixels);
+
+    let nonBackgroundPixels = 0;
+    let sumR = 0;
+    let sumG = 0;
+    let sumB = 0;
+    const totalSamples = readW * readH;
+
+    for (let i = 0; i < totalSamples; i += 1) {
+      const base = i * 4;
+      const r = pixels[base] ?? 0;
+      const g = pixels[base + 1] ?? 0;
+      const b = pixels[base + 2] ?? 0;
+
+      const isBlackBg = r <= 2 && g <= 2 && b <= 2;
+      const isClearBg =
+        Math.abs(r - 12) <= 2 && Math.abs(g - 16) <= 2 && Math.abs(b - 24) <= 2;
+
+      if (!isBlackBg && !isClearBg) {
+        nonBackgroundPixels += 1;
+        sumR += r;
+        sumG += g;
+        sumB += b;
+      }
+    }
+
+    return {
+      width: safeW,
+      height: safeH,
+      totalSamples,
+      nonBackgroundPixels,
+      avgR: nonBackgroundPixels > 0 ? sumR / nonBackgroundPixels : 0,
+      avgG: nonBackgroundPixels > 0 ? sumG / nonBackgroundPixels : 0,
+      avgB: nonBackgroundPixels > 0 ? sumB / nonBackgroundPixels : 0,
+    };
+  }
+
   public dispose(): void {
     if (this.disposed) {
       return;
     }
     this.disposed = true;
     this.pause();
+    this.removeContextListener?.();
     this.loadGeneration += 1;
     if (this.activeLoadAbort !== null) {
       this.activeLoadAbort.abort('CarViewerSession disposed');
@@ -599,6 +727,57 @@ export class CarViewerSession {
     this.renderer?.dispose();
     this.renderer = null;
     this.activeModel = null;
+  }
+
+  private handleContextLost(): void {
+    if (this.disposed || this.contextLost) {
+      return;
+    }
+    const wasRunning = this.running;
+    this.pause();
+    this.pausedByContextLoss = wasRunning;
+    this.contextLost = true;
+    this.renderer?.invalidateOnContextLost();
+    this.renderer = null;
+    this.emitStateChange();
+    this.emitDebugStats();
+  }
+
+  private handleContextRestored(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.contextLost = false;
+    this.restoredCount += 1;
+    this.lastGlError = {
+      code: GL_NO_ERROR_CODE,
+      name: 'NO_ERROR',
+      hasError: false,
+    };
+
+    if (this.bodyCode !== null) {
+      const cached =
+        this.assetRepository.getCachedCarModel(this.bodyCode, this.timeOfDay) ?? this.activeModel;
+      if (cached !== null) {
+        this.activeModel = cached;
+        const renderer = this.ensureRenderer();
+        this.activeLodIndex = this.computeTargetLodIndex(cached);
+        renderer.setCar(cached, {
+          lodIndex: this.activeLodIndex,
+          colorSlotIndex: this.colorSlotIndex,
+        });
+      }
+    }
+
+    if (this.pausedByContextLoss) {
+      this.pausedByContextLoss = false;
+      this.start();
+    }
+    if (this.running) {
+      this.renderCurrentFrame();
+    }
+    this.emitStateChange();
+    this.emitDebugStats();
   }
 
   private ensureRenderer(): CarRenderer {

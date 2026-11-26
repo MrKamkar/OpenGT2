@@ -13,3 +13,8 @@ export {
   type CarViewerMountOptions,
   mountCarViewer,
 } from './carViewerView';
+export {
+  installViewerDebugHook,
+  type ViewerDebugApi,
+  type ViewerDebugWindowHost,
+} from './debugHook';
