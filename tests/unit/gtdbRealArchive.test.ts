@@ -4,10 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  CAR_ENGINE_BAND_COUNT,
+  CAR_ENGINE_BASE_UNITS_LENGTH,
   GTMODE_DATA_TABLE_COUNT,
   GTMODE_RACE_TABLE_COUNT,
   GTMODE_RACE_TABLE_SPECS,
   decodeCarDimensionsTable,
+  decodeCarEngineDataTable,
   findGtdbEntries,
   getGtdbTable,
   isGtdtMagic,
@@ -135,6 +138,25 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         expect(row.weightKg).toBeLessThanOrEqual(3000);
         expect(row.rmWeightMultiplier).toBeGreaterThanOrEqual(1);
         expect(row.rmWeightMultiplier).toBeLessThanOrEqual(255);
+      }
+
+      if (engines === undefined) {
+        throw new Error('Missing CarEngineData table slice');
+      }
+      const decodedEngines = decodeCarEngineDataTable(unpacked, engines);
+      expect(decodedEngines).toHaveLength(decodedDimensions.length);
+      const engineIds = new Set(decodedEngines.map((row) => row.carId));
+      expect(engineIds).toEqual(dimIds);
+      for (const row of decodedEngines) {
+        expect(row.bandAcceleration).toHaveLength(CAR_ENGINE_BAND_COUNT);
+        expect(row.baseUnits).toHaveLength(CAR_ENGINE_BASE_UNITS_LENGTH);
+        expect(row.bandRpms).toHaveLength(CAR_ENGINE_BAND_COUNT);
+        expect(row.ps).toBeGreaterThanOrEqual(10);
+        expect(row.ps).toBeLessThanOrEqual(1500);
+        expect(row.maxPowerRpmRaw).toBeLessThanOrEqual(2000);
+        expect(row.torqueKgmRaw).toBeLessThanOrEqual(1500);
+        expect(row.bandPointCount).toBeGreaterThanOrEqual(1);
+        expect(row.bandPointCount).toBeLessThanOrEqual(CAR_ENGINE_BAND_COUNT);
       }
     }
 

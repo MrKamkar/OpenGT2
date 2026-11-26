@@ -32,3 +32,12 @@ export {
   decodeCarDimensionsTable,
   type CarDimensions,
 } from './carDimensions';
+
+export {
+  CAR_ENGINE_BAND_COUNT,
+  CAR_ENGINE_BASE_UNITS_LENGTH,
+  CAR_ENGINE_DATA_SIZE,
+  decodeCarEngineData,
+  decodeCarEngineDataTable,
+  type CarEngineData,
+} from './carEngineData';
