@@ -58,6 +58,22 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     notes: 'Standardowy format tekstury PS1 (PSX-SPX); zweryfikowano 3 729 obrazów w GT2.VOL (M4.1/M4.3).',
   },
   {
+    id: 'gm',
+    ext: ['.gm'],
+    magic: [0x47, 0x4d, 0x03, 0x00],
+    formatName: 'GT2 Menu Foreground Image (GM)',
+    evidence: 'E3',
+    notes: 'Obrazy pierwszego planu menu GT2 (4 bpp, kafelki 16x8, 32 palety); zweryfikowano 16 914 obrazów w GT2.VOL (M4.4).',
+  },
+  {
+    id: 'gtmp',
+    ext: ['.gtmp'],
+    magic: [0x47, 0x54, 0x4d, 0x50],
+    formatName: 'GT2 Menu Background Image (GTMP)',
+    evidence: 'E3',
+    notes: 'Obrazy tła menu GT2 (8 bpp, kafelki 16x8, 16 palet); zweryfikowano 458 bloków w GT2.VOL (M4.4).',
+  },
+  {
     id: 'cdo',
     ext: ['.cdo', '.cno'],
     magic: [0x47, 0x54, 0x02],

@@ -39,6 +39,22 @@ describe('file format classifier registry (M3.4)', () => {
     expect(tim.evidence).toBe('E3');
     expect(tim.matchedBy).toBe('magic');
 
+    const gm = classifyFile({
+      path: 'menu/screen.gm',
+      headBytes: new Uint8Array([0x47, 0x4d, 0x03, 0x00, 0x00, 0x00]),
+    });
+    expect(gm.id).toBe('gm');
+    expect(gm.evidence).toBe('E3');
+    expect(gm.matchedBy).toBe('magic+ext');
+
+    const gtmp = classifyFile({
+      path: 'menu/bg.gtmp',
+      headBytes: new Uint8Array([0x47, 0x54, 0x4d, 0x50, 0x00, 0x00]),
+    });
+    expect(gtmp.id).toBe('gtmp');
+    expect(gtmp.evidence).toBe('E3');
+    expect(gtmp.matchedBy).toBe('magic+ext');
+
     const cdo = classifyFile({
       path: 'cars/sample.cdo',
       headBytes: new Uint8Array([0x47, 0x54, 0x02, 0x00]),
