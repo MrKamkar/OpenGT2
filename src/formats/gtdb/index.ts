@@ -49,3 +49,11 @@ export {
   decodeCarGearboxTable,
   type CarGearbox,
 } from './carGearbox';
+
+export {
+  CAR_SUSPENSION_SIZE,
+  CAR_SUSPENSION_UNK_0X0C_LENGTH,
+  decodeCarSuspension,
+  decodeCarSuspensionTable,
+  type CarSuspension,
+} from './carSuspension';

@@ -7,12 +7,14 @@ import {
   CAR_ENGINE_BAND_COUNT,
   CAR_ENGINE_BASE_UNITS_LENGTH,
   CAR_GEARBOX_UNK_0X0A_LENGTH,
+  CAR_SUSPENSION_UNK_0X0C_LENGTH,
   GTMODE_DATA_TABLE_COUNT,
   GTMODE_RACE_TABLE_COUNT,
   GTMODE_RACE_TABLE_SPECS,
   decodeCarDimensionsTable,
   decodeCarEngineDataTable,
   decodeCarGearboxTable,
+  decodeCarSuspensionTable,
   findGtdbEntries,
   getGtdbTable,
   isGtdtMagic,
@@ -113,6 +115,7 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
       const engines = getGtdbTable(layout, 'CarEngineData');
       const drivetrains = getGtdbTable(layout, 'CarDrivetrain');
       const gearboxes = getGtdbTable(layout, 'CarGearbox');
+      const suspensions = getGtdbTable(layout, 'CarSuspension');
       const frontTyres = getGtdbTable(layout, 'CarTyres');
       const rearTyres = getGtdbTable(layout, 'CarRearTyres');
 
@@ -175,6 +178,19 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         expect(row.finalGear).toBeGreaterThanOrEqual(1000);
         expect(row.finalGear).toBeLessThanOrEqual(10000);
         expect(row.unk_0x0a.byteLength).toBe(CAR_GEARBOX_UNK_0X0A_LENGTH);
+      }
+
+      if (suspensions === undefined) {
+        throw new Error('Missing CarSuspension table slice');
+      }
+      const decodedSuspensions = decodeCarSuspensionTable(unpacked, suspensions);
+      expect(decodedSuspensions).toHaveLength(suspensions.count ?? 0);
+      expect(new Set(decodedSuspensions.map((row) => row.carId))).toEqual(dimIds);
+      for (const row of decodedSuspensions) {
+        expect(row.price).toBeGreaterThanOrEqual(0);
+        expect(row.stage).toBeGreaterThanOrEqual(0);
+        expect(row.stage).toBeLessThanOrEqual(3);
+        expect(row.unk_0x0c.byteLength).toBe(CAR_SUSPENSION_UNK_0X0C_LENGTH);
       }
     }
 
