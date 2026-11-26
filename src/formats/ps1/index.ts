@@ -21,3 +21,13 @@ export {
   type RgbaColor,
   type TransparencyMode,
 } from './color';
+export {
+  INDEXED_4BPP_PALETTE_SIZE,
+  INDEXED_8BPP_PALETTE_SIZE,
+  decodeIndexedImageToRgba,
+  unpack4BppIndices,
+  type DecodeIndexedImageOptions,
+  type DecodedRgbaImage,
+  type IndexedBpp,
+  type IndexedImage,
+} from './indexedImage';
