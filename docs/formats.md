@@ -96,4 +96,47 @@ TOC entries appear in directory-grouped "first encounter" order:
 - **`.gz` entries (E3):** `5114/5114` (100%) `.gz` files in verified `GT2.VOL` begin with standard RFC 1952 gzip magic (`1F 8B 08`) and decompress cleanly with valid CRC-32 and ISIZE on both `DecompressionStream('gzip')` and `fflate`.
 - **Non-`.gz` entries starting with `1F 8B`:** `91` entries in verified `GT2.VOL` lack the `.gz` extension yet start with `1F 8B 08`:
   - `84/91` are standalone RFC 1952 gzip streams that pass strict single-stream `gunzip` and CRC-32 verification (**E3**).
-  - `7/91` are multi-member containers starting with a valid CRC-checked gzip member followed by zero-padding to either a 4-byte boundary (`5` entries) or a 2048-byte CD sector boundary (`2` entries) where the next `1F 8B` member begins (**E1**; container unpacking deferred to M3/M4).
+  - `7/91` are multi-member gzip containers starting with a valid CRC-checked gzip member followed by zero-padding to either a 4-byte boundary or a 2048-byte CD sector boundary where the next `1F 8B` member begins (**E3** for framing and member magic verified in M4.1):
+    - `5` `.dat` containers (`37.55–46.83 MB` compressed) holding `12,658` sequential gzip members (`2,493–2,561` per file), zero-padded to 4-byte or 2048-byte boundaries, every member starting with `47 4D 03 00` (`"GM\x03\x00"`).
+    - `2` extensionless containers (`116,736 B` and `118,784 B` compressed) holding `12` sequential gzip members each (`24` total), zero-padded to 2048-byte sector boundaries, every member being a valid 16-bpp PS1 TIM image (`10 00 00 00 02 00 00 00`).
+
+---
+
+## Formaty obrazów w GT2.VOL
+
+> **Źródło i weryfikacja (M4.1):** pełny skan strumieniowy wszystkich `11 578` plików lokalnego `GT2.VOL` (`488 241 152 B`), w tym `5 114` plików `.gz`, `84` samodzielnych strumieni `1F 8B` oraz `7` wieloczłonowych kontenerów `1F 8B` (`12 682` członów łącznie). Test automatyczny: `tests/unit/volImageInventory.test.ts`.
+
+### 1. Kandydaci na formaty obrazów i tekstur
+
+| Rozszerzenie (zewn. / wewn.) | Kompresja | Sygnatura magic (hex / ASCII) | Liczba plików / członów | Zakres rozmiaru (po rozpakowaniu) | Rola / uwagi | Pewność |
+| --- | --- | --- | --- | --- | --- | --- |
+| `.tim` | brak (surowy) | `10 00 00 00` | `3 576` plików | `1 216–163 860 B` | Standardowy PS1 TIM: `3 539` w trybie `4 bpp + CLUT` (`flags = 0x08`), `37` w trybie `4 bpp` bez CLUT (`flags = 0x00`); `100%` ścisła zgodność `bnum` | **E3** |
+| `.tim.gz` (`.tim`) | gzip (1 człon) | `10 00 00 00` | `129` plików | `4 672–169 504 B` | PS1 TIM: `120` `4 bpp + CLUT`, `7` `8 bpp + CLUT`, `2` `4 bpp` bez CLUT; `95` ścisłe + `34` z anomalią `img.bnum` (szczegóły poniżej) | **E3** |
+| `(brak)` `[multi-gz]` | multi-gzip (`2048 B`) | `10 00 00 00 02 00 00 00` | `2` pliki (`24` człony) | `7 860–122 900 B` / człon | PS1 TIM `16 bpp` bez CLUT (`flags = 0x02`), `100%` ścisła zgodność `bnum` | **E3** |
+| `.dat` `[multi-gz]` | multi-gzip (`4 B` / `2048 B`) | `47 4D 03 00` (`"GM\x03\x00"`) | `5` plików (`12 658` członów) | `3 184–563 792 B` / człon | Obrazy menu GT2 (`GMImage` wg `GTVolTools`; prawdopodobnie indeksowane przez `6` plików `.idx`); wariant 2. bajtu po magic obserwowany jako `00..03` | **E3** (obecność/magic) / **E2** (układ wg `GTVolTools`) |
+| `.dat` (surowy `GTMP`) | brak (surowy) | `47 54 4D 50` (`"GTMP"`) | `1` plik | `44 724 224 B` | Kontener obrazów menu GT2 (`GTMP` wg `GTVolTools`; kolejne pola LE: `0x00140503`, `16031`, `16030`) | **E3** (obecność/magic) / **E2** (układ wg `GTVolTools`) |
+| `.cdp.gz` / `.cnp.gz` | gzip (1 człon) | brak stałego magic (`uint16` liczba kolorów) | `2 220` (`1 110` + `1 110`) | `45 984 B` (stały, `0xB3A0`) | Tekstury i palety lakierów aut dzień/noc (`0x43A0 + 0x7000 = 45 984 B`, 100% zgodności z Załącznikiem D.7; zakres M6.7) | **E3** (rozmiar/obecność) / **E2** (układ) |
+| `.trp.gz` / `.bsp.gz` | gzip (1 człon) | brak stałego magic (`uint32[1] = 0x10`) | `160` (`126` + `34`) | `7 172–295 620 B` | Kandydaci na pakiety tekstur torów/tła sparowane `1:1` z `.tro.gz` (`126`) i `.bso.gz` (`34`) (zakres M8) | **E1** |
+| `.lgf.gz` + `(brak)` (1-człon. gzip) | gzip (1 człon) | `00 00 02 01` | `261` (`180` + `81`) | `36 956 B` (`.lgf`), `2 063–589 824 B` (`(brak)`) | Powtarzalna niezweryfikowana sygnatura (kandydat badawczy — brak potwierdzenia kodem referencyjnym) | **E1** |
+
+### 2. Rygorystyczna weryfikacja TIM i anomalia `img.bnum` (dla M4.3)
+
+- **Zero fałszywych trafień TIM (`0 / 3 729`):** Każdy z `3 705` pojedynczych plików (`3 576` surowych `.tim` + `129` `.tim.gz`) oraz `24` członów z `2` bezrozszerzeniowych kontenerów multi-gzip o sygnaturze `10 00 00 00` przeszedł walidację flag (`flags & ~0x0B === 0`), spójności bloku CLUT (`12 + clutW * clutH * 2`) oraz wymiarów bloku obrazu. Żaden inny plik ani człon w archiwum nie ma przypadkowego magic `10 00 00 00`.
+- **Anomalia `34` plików `.tim.gz` (**E3** obserwacja):** Wszystkie `34` pliki mają `flags = 0x08` (`4 bpp + CLUT`), `clutBnum = 44` (`16×1`), `imgW = 24`, `imgH = 96` oraz dokładny rozmiar rozpakowanego bufora `4 672 B = 8 + 44 + (12 + 24 * 96 * 2)`. W polu `img.bnum` zapisano jednak `9 228 = 12 + 2 * 24 * 96 * 2` (podwojony rozmiar danych pikseli, `o +4 608 B` za dużo). Parser M4.3 powinien akceptować ten wariant, gdy `imgOff + 12 + imgW * imgH * 2 === stream.byteLength`.
+
+### 3. Pozostałe rodziny plików w `GT2.VOL` (pełne pokrycie `11 578` wpisów)
+
+| Rozszerzenie (zewn. / wewn.) | Kompresja | Sygnatura magic (hex / ASCII) | Liczba plików | Zakres rozmiaru | Rola / uwagi | Pewność |
+| --- | --- | --- | --- | --- | --- | --- |
+| `.es` | brak | `45 4E 47 4E` (`"ENGN"`) | `2 747` | `4 080–90 080 B` | Dane dźwięku silnika (zakres M11) | **E1** |
+| `.cdo.gz` / `.cno.gz` | gzip (1 człon) | `47 54 02 00` (`"GT\x02\x00"`) | `2 220` (`1 110` + `1 110`) | `11 048–20 000 B` | Modele 3D aut dzień/noc (`100% <= 0x5000`, Załącznik D.1; zakres M6) | **E3** (magic/limit) / **E2** (układ) |
+| `.tro.gz` | gzip (1 człon) | `40 28 23 29 47 54 2D 50` (`"@(#)GT-P"`) | `126` | `77 768–696 792 B` | Geometria torów (zakres M8) | **E1** |
+| `.bso.gz` | gzip (1 człon) | `42 47 00 00` (`"BG\0\0"`) | `34` | `7 232–22 096 B` | Obiekty tła / nieba (zakres M8) | **E1** |
+| `.dat.gz` | gzip (1 człon) | `47 54 44 54` (`"GTDT"`, `22` pliki) i inne (`17`) | `39` | `32–776 504 B` | Pliki bazy danych i konfiguracji gry (zakres M5) | **E1** |
+| `(none)` (pozostałe) | `18` surowych + `3` gzip | m.in. `06 00 0A 00` (`7`), `CAR\0` (`3`), `UCAR` (`3`) | `21` | `2 652–348 160 B` | Różne pliki systemowe/danych bez rozszerzenia | **E0** / **E1** |
+| `.seq` | brak | `53 45 51 47` (`"SEQG"`) | `10` | `4 267–23 755 B` | Sekwencje muzyczne/audio (zakres M11) | **E1** |
+| `.idx` | brak | zmienna (`uint32` LE) | `6` | `1 840–13 552 B` | Indeksy (prawdopodobnie powiązane z kontenerami menu `.dat`) | **E1** |
+| `.ins` | brak | `49 4E 53 54` (`"INST"`) | `5` | `34 600–383 296 B` | Banki instrumentów audio (zakres M11) | **E1** |
+| `.gmr.gz` / `.gmr` | `4` gzip + `1` surowy | `53 43 13 ??` | `5` | `40 960–122 880 B` | Nieznany format (najprawdopodobniej dane powtórek/bazy) | **E0** |
+| `.000` / `.999` | brak | `(pusty)` | `6` (`3` + `3`) | `0 B` | Puste wpisy znacznikowe `0 B` | **E3** |
+| `.dat` (surowy, nie-GTMP), `.tsd.gz`, `.arc`, `.txd`, `(none).gz` | `2` gzip + `3` surowe | różne (`80000000`, `@(#)GT-A`, `Lap\0`, `5A000A00`, `0B000000`) | `5` | `28 760–159 072 B` | Pojedyncze pliki pomocnicze | **E0** |

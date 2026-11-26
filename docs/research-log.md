@@ -183,3 +183,24 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 - **Pewność:** N/A dla narzędzi generycznych M3; zastosowane konwencje sprzętowe PS1 (`LE`, `4.12`/`1.15`, `4 bpp` nibble order, `A1B5G5R5`) mają status **E2** wg Załącznika B (`ROADMAP.md`).
 - **Konsekwencje dla kodu:** Milestone M3 jest w pełni domknięty — kompletny warsztat badawczy (M3.1–M3.8) jest gotowy do przeprowadzenia inwentaryzacji formatów obrazów `GT2.VOL` w M4.1.
 - **Otwarte pytania:** W kolejnej sesji rozpocząć M4.1 (inwentaryzacja formatów obrazów w lokalnym `GT2.VOL` z wpisem do `docs/formats.md`).
+
+## 2026-11-26 — M4.1 — Inwentaryzacja formatów obrazów w `GT2.VOL`
+- **Pytanie:** Jakie formaty obrazów i tekstur faktycznie występują w lokalnym `GT2.VOL` (po rozpakowaniu pojedynczych strumieni gzip oraz zbadaniu członów w 7 wieloczłonowych kontenerach `1F 8B`), czy występują prawdziwe pliki TIM i jaki powinien być dokładny zakres parserów M4.3 (`tim/`) i M4.4 (`gtimg/`)?
+- **Metoda:** Strumieniowy skan wszystkich `11 578` plików w `tests/unit/volImageInventory.test.ts` przez `NodeFileByteSource` + `CachedByteSource` + `VolReader` (zero wczytywania całego VOL do RAM, sekwencyjne okna `1 MiB` dla kontenerów wieloczłonowych `~40 MB`, rygorystyczna walidacja nagłówka TIM `magic 0x10` + flagi + spójność `clut.bnum` i `img.bnum`).
+- **Wynik (zagregowane statystyki bez nazw plików z gry):**
+  - **Prawdziwe obrazy TIM (`3 729` instancji, `0` fałszywych trafień):**
+    - `3 576` surowych plików `.tim` (`3 539` w `4 bpp + CLUT`, `37` w `4 bpp` bez CLUT; `100%` ścisła zgodność `bnum`),
+    - `129` plików `.tim.gz` (`120` w `4 bpp + CLUT`, `7` w `8 bpp + CLUT`, `2` w `4 bpp` bez CLUT), w tym `95` ze ścisłym `img.bnum` oraz `34` pliki `4 672 B` (`24×96`, `4 bpp + CLUT`) z anomalią `img.bnum = 12 + 2·imgW·imgH·2` (`9 228` zamiast `4 620`) przy dokładnym dopasowaniu rozmiaru pliku do `imgOff + 12 + imgW·imgH·2`,
+    - `2` bezrozszerzeniowe kontenery multi-gzip (wyrównanie `2048 B`) zawierające po `12` członów (`24` łącznie) w trybie `16 bpp` bez CLUT (`10 00 00 00 02 00 00 00`, `100%` ścisła zgodność `bnum`).
+  - **Obrazy menu GT2 (`GM` / `GTMP`):**
+    - `5` kontenerów `.dat` multi-gzip (wyrównanie `4 B` i `2048 B`) zawierających `12 658` członów z magic `47 4D 03 00` (`"GM\x03\x00"`), `0` TIM,
+    - `1` surowy plik `.dat` (`44 724 224 B`) z magic `47 54 4D 50` (`"GTMP"`).
+  - **Tekstury modeli aut i kandydaci badawczy:**
+    - `2 220` plików `.cdp.gz` / `.cnp.gz` (`1 110 + 1 110`): `100%` dokładny rozmiar `45 984 B` (`0x43A0 + 0x7000`, Załącznik D.7),
+    - `160` plików `.trp.gz` (`126`) + `.bsp.gz` (`34`): `100%` ma `uint32[1] === 0x10` (nie są standardowym TIM),
+    - `261` plików z powtarzalnym magic `00 00 02 01` (`180` `.lgf.gz` o stałym rozmiarze `36 956 B` + `81` pojedynczych plików gzip bez rozszerzenia).
+- **Pewność:** **E3** dla występowania i statystyk `.tim`, `.tim.gz` (w tym anomalii `img.bnum` w 34 plikach), `2` kontenerów multi-gzip TIM `16 bpp`, magic `GM\x03\x00` / `GTMP` oraz stałego rozmiaru `.cdp/.cnp`; **E2** dla wewnętrznej struktury `GM`/`GTMP` i `.cdp/.cnp`; **E1** dla `.trp/.bsp` oraz `00 00 02 01` (`.lgf.gz`).
+- **Konsekwencje i rekomendacje dla M4.3 / M4.4:**
+  - **M4.3 (`tim/`) jest ZDECYDOWANIE POTRZEBNE:** w archiwum znajduje się `3 729` pełnoprawnych obrazów TIM we wszystkich 3 trybach indeksowanych/direct (`4 bpp`, `8 bpp`, `16 bpp`). Parser `tim/` powinien też obsługiwać udokumentowaną anomalię `img.bnum = 12 + 2·imgW·imgH·2`, gdy `imgOff + 12 + imgW·imgH·2 === fileLength`.
+  - **M4.4 (`gtimg/`) — dokładny zakres:** skupić się na formatach menu `GM\x03\x00` (w tym rozpakowaniu wieloczłonowych kontenerów `.dat` + indeksów `.idx`) oraz kontenerze `GTMP` wg `GTVolTools`. Tekstury aut `.cdp/.cnp` zostają w M6.7, tekstury torów `.trp/.bsp` w M8, a format `00 00 02 01` (`.lgf.gz`) pozostaje jako E1 poza zakresem M4.4 do czasu niezależnego potwierdzenia.
+- **Otwarte pytania:** W kolejnej sesji (M4.3–M4.4) zweryfikować nagłówek `GM\x03\x00` i `GTMP` względem `GTVolTools` (`GMImage.cs`, `Image.cs`) oraz zaimplementować czytnik wieloczłonowych kontenerów gzip.
