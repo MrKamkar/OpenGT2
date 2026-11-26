@@ -8,6 +8,7 @@ import { parseHexHash } from '../../tools/hexview';
 import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
 import { type ScanEntryFn, mountScannerPanel } from '../tools/scannerPanel';
 import { mountAnalyzerPanel } from '../tools/analyzerPanel';
+import { mountEvidencePackPanel } from '../tools/evidencePackPanel';
 import { mountStructViewPanel } from '../tools/structViewPanel';
 import {
   ALL_FILES_SCOPE,
@@ -630,6 +631,7 @@ function mountExplorer(
     scannerPanel?.setEntry(currentSnapshot);
     analyzerPanel.setEntry(currentSnapshot);
     structViewPanel.setEntry(currentSnapshot);
+    evidencePackPanel.setEntry(currentSnapshot);
     renderDetails();
     void statCache.ensure(path).then(
       () => {
@@ -643,6 +645,7 @@ function mountExplorer(
             scannerPanel?.setEntry(refreshedSnapshot);
             analyzerPanel.setEntry(refreshedSnapshot);
             structViewPanel.setEntry(refreshedSnapshot);
+            evidencePackPanel.setEntry(refreshedSnapshot);
           }
           renderDetails();
         }
@@ -690,6 +693,9 @@ function mountExplorer(
       }
       renderDetails();
     },
+    onAddEvidence(draft): void {
+      evidencePackPanel.addEntryQuick(draft);
+    },
   });
 
   const scannerPanel =
@@ -707,6 +713,9 @@ function mountExplorer(
               renderDetails();
             }
           },
+          onAddEvidence(draft): void {
+            evidencePackPanel.addEntryQuick(draft);
+          },
         })
       : null;
 
@@ -718,6 +727,11 @@ function mountExplorer(
   const structViewPanel = mountStructViewPanel({
     container: workbench,
     source,
+  });
+
+  const evidencePackPanel = mountEvidencePackPanel({
+    container: workbench,
+    archiveFingerprint: info.fingerprint,
   });
 
   const applyHashRoute = (): void => {
@@ -791,6 +805,7 @@ function mountExplorer(
       scannerPanel?.dispose();
       analyzerPanel.dispose();
       structViewPanel.dispose();
+      evidencePackPanel.dispose();
       list.removeEventListener('scroll', onScroll);
       rowsLayer.removeEventListener('click', onRowsClick);
       searchInput.removeEventListener('input', onSearchInput);

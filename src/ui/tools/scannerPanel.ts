@@ -1,5 +1,9 @@
 import { isAbortLikeError } from '../../app/volArchiveSession';
 import type { VolEntry } from '../../formats/vol';
+import {
+  type CreateEvidenceEntryInput,
+  EVIDENCE_MAX_HEX_SAMPLE_BYTES,
+} from '../../tools/evidence';
 import { buildHexHash, formatHexBytesPreview, formatHexOffset } from '../../tools/hexview';
 import {
   SIGNATURE_PRESETS,
@@ -23,6 +27,7 @@ export interface ScannerPanelOptions {
   readonly container: HTMLElement;
   readonly scanEntry: ScanEntryFn;
   readonly onJumpToHit?: (hash: string) => void;
+  readonly onAddEvidence?: (draft: CreateEvidenceEntryInput) => void;
 }
 
 export interface ScannerPanelHandle {
@@ -184,7 +189,26 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
       });
 
       const ctx = el('code', 'ogt2-scanner-context', formatHexBytesPreview(hit.context, 64));
-      li.append(jumpBtn, ctx);
+      if (options.onAddEvidence !== undefined) {
+        const evBtn = el('button', 'ogt2-button ogt2-button-subtle', '+ Evidence');
+        evBtn.type = 'button';
+        evBtn.dataset['testid'] = 'scanner-hit-evidence';
+        evBtn.addEventListener('click', () => {
+          options.onAddEvidence?.({
+            path: entry.path,
+            mode,
+            offset: hit.offset,
+            length: patternLen,
+            signature: patternInput.value.trim(),
+            hypothesis: '',
+            evidence: 'E1',
+            hexSample: hit.context.subarray(0, EVIDENCE_MAX_HEX_SAMPLE_BYTES),
+          });
+        });
+        li.append(jumpBtn, evBtn, ctx);
+      } else {
+        li.append(jumpBtn, ctx);
+      }
       hitsList.append(li);
     }
   };

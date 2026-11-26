@@ -5,6 +5,10 @@ import {
   stripGzipExtension,
 } from '../../formats/registry';
 import {
+  type CreateEvidenceEntryInput,
+  EVIDENCE_MAX_HEX_SAMPLE_BYTES,
+} from '../../tools/evidence';
+import {
   type ByteInterpretation,
   HEX_BYTES_PER_ROW,
   type HexHashRoute,
@@ -57,6 +61,7 @@ export interface HexViewPanelOptions {
   readonly source: HexDataSource;
   readonly onNavigateHash?: (hash: string) => void;
   readonly onClose?: () => void;
+  readonly onAddEvidence?: (draft: CreateEvidenceEntryInput) => void;
 }
 
 export interface HexViewPanelHandle {
@@ -207,7 +212,12 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
     fixed1_15: addInspField('fixed 1.15', 'hex-interp-q115'),
   };
 
-  inspector.append(inspTitle, inspSelection, inspList);
+  const addEvidenceBtn = el('button', 'ogt2-button ogt2-button-subtle', '+ Evidence Pack (≤ 64 B)');
+  addEvidenceBtn.type = 'button';
+  addEvidenceBtn.dataset['testid'] = 'hex-add-evidence';
+  addEvidenceBtn.disabled = options.onAddEvidence === undefined;
+
+  inspector.append(inspTitle, inspSelection, inspList, addEvidenceBtn);
   body.append(tableWrap, inspector);
 
   panel.append(header, toolbar, errorBanner, body);
@@ -744,6 +754,42 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
     closePanel();
     options.onClose?.();
   };
+  const onAddEvidenceClick = (): void => {
+    if (options.onAddEvidence === undefined || currentRoute === null || !isLoaded || totalSize === 0) {
+      return;
+    }
+    const route = currentRoute;
+    const start = Math.max(0, Math.min(selection?.start ?? route.offset, totalSize - 1));
+    const fullLen = Math.max(1, selection?.length ?? route.length ?? 1);
+    const sampleLen = Math.min(EVIDENCE_MAX_HEX_SAMPLE_BYTES, totalSize - start, fullLen);
+    const gen = sessionGeneration;
+
+    void ensureRangeLoaded(start, start + sampleLen, gen)
+      .then(() => {
+        if (disposed || gen !== sessionGeneration || currentRoute === null) {
+          return;
+        }
+        const sample = new Uint8Array(sampleLen);
+        for (let i = 0; i < sampleLen; i += 1) {
+          sample[i] = getByteAt(start + i) ?? 0;
+        }
+        options.onAddEvidence?.({
+          path: route.path,
+          mode: route.mode,
+          offset: start,
+          length: fullLen,
+          signature: '',
+          hypothesis: '',
+          evidence: 'E0',
+          hexSample: sample,
+        });
+      })
+      .catch((error: unknown) => {
+        if (!disposed && gen === sessionGeneration && !isAbortLikeError(error)) {
+          setError(describeFileActionError(error));
+        }
+      });
+  };
 
   list.addEventListener('scroll', onListScroll, { passive: true });
   rowsLayer.addEventListener('mousedown', onRowsMouseDown);
@@ -751,6 +797,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
   rawModeBtn.addEventListener('click', onRawClick);
   gunzipModeBtn.addEventListener('click', onGunzipClick);
   closeBtn.addEventListener('click', onCloseClick);
+  addEvidenceBtn.addEventListener('click', onAddEvidenceClick);
 
   return {
     open(route: HexHashRoute): void {
@@ -778,6 +825,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
       rawModeBtn.removeEventListener('click', onRawClick);
       gunzipModeBtn.removeEventListener('click', onGunzipClick);
       closeBtn.removeEventListener('click', onCloseClick);
+      addEvidenceBtn.removeEventListener('click', onAddEvidenceClick);
       panel.remove();
     },
   };
