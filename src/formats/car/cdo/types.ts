@@ -70,6 +70,18 @@ export const CDO_NORMAL_SCALE = 500;
 export const CDO_NORMAL_LENGTH_MIN = 0.95;
 export const CDO_NORMAL_LENGTH_MAX = 1.05;
 
+/** @evidence E3 — Byte sizes of untextured (`16 B`) and UV-textured (`28 B`) CDO polygon records. */
+export const CDO_POLYGON_UNTEX_BYTES = 16;
+export const CDO_POLYGON_UV_BYTES = 28;
+
+/** @evidence E3 — Polygon face type codes (`uint8` at `0x0F`, bits `24..31` of `0x0C` word). */
+export const CDO_FACE_TYPE_TRI = 32;
+export const CDO_FACE_TYPE_UV_TRI = 37;
+export const CDO_FACE_TYPE_QUAD = 40;
+/** @evidence E3 — Modulated UV quad (`0x2C`, PS1 GP0 textured quad without raw-texture bit) observed in 8 quads across 2 models. */
+export const CDO_FACE_TYPE_UV_QUAD_MODULATED = 44;
+export const CDO_FACE_TYPE_UV_QUAD = 45;
+
 export type CdoErrorCode =
   | 'TruncatedHeader'
   | 'InvalidMagic'
@@ -231,5 +243,78 @@ export interface CdoNormalBlock {
   /** Interleaved `[nx, ny, nz, ...]` unpacked vectors scaled by `/ 500` (`length = count * 3`). */
   readonly vectors: Float32Array;
   readonly nonZeroLow2BitsCount: number;
+  readonly nextOffset: number;
+}
+
+/**
+ * 24-bit BGR888 face color (`0xBBGGRR` in LE `uint32` bits `0..23`) (**E3**).
+ */
+export interface CdoColorBgr888 {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+  readonly raw24: number;
+}
+
+/**
+ * Unsigned `uint8` texture coordinates in texel units (`0..255 × 0..223`) (**E3**).
+ */
+export interface CdoUvCoord {
+  readonly u: number;
+  readonly v: number;
+}
+
+/**
+ * Untextured 16-byte CDO polygon record (**E3** layout, **E1** `renderOrder`/`renderFlags`, **E0** unused bitfields).
+ */
+export interface CdoPolygon {
+  readonly vertices: readonly [number, number, number, number];
+  /** @evidence E1 — 5-bit `renderOrder` (`w04 & 0x1F`). */
+  readonly renderOrder: number;
+  /** @evidence E1 — 4-bit `renderFlags` (`(w06 >>> 12) & 0x0F`), observed `{0, 4, 8, 12}`. */
+  readonly renderFlags: number;
+  /** 9-bit normal indices `n0..n3` (`n0` from `w04` bits `5..13`, `n1..n3` from `d08` bits `1..27`). */
+  readonly normals: readonly [number, number, number, number];
+  readonly faceType: number;
+  readonly color: CdoColorBgr888;
+  /** @evidence E0 — Bits `14..15` of `0x04` `uint16`, observed `0` across 842,731/842,731 polygons. */
+  readonly unk_w04_bits14_15: number;
+  /** @evidence E0 — Bits `0..11` of `0x06` `uint16`, observed `0` across 842,731/842,731 polygons. */
+  readonly unk_w06_bits0_11: number;
+  /** @evidence E0 — Bit `0` of `0x08` `uint32`, observed `0` across 842,731/842,731 polygons. */
+  readonly unk_d08_bit0: number;
+  /** @evidence E0 — Bits `28..31` of `0x08` `uint32`, observed `0` across 842,731/842,731 polygons. */
+  readonly unk_d08_bits28_31: number;
+}
+
+/**
+ * Textured 28-byte CDO polygon record (`16 B` base + `12 B` UV/palette block) (**E3**).
+ */
+export interface CdoTexturedPolygon extends CdoPolygon {
+  readonly uvs: readonly [CdoUvCoord, CdoUvCoord, CdoUvCoord, CdoUvCoord];
+  /** @evidence E1 — Raw `uint16` LE at `0x12` preserved for M6.9 palette-formula verification. */
+  readonly paletteRaw: number;
+  /** @evidence E3 — `uint16` LE at `0x16..0x17`, verified `0` across all UV polygons. */
+  readonly pad0x16: number;
+}
+
+/**
+ * Polygon list counts taken from a LOD header (`0x04, 0x06, 0x0C, 0x0E`).
+ */
+export interface CdoPolygonCounts {
+  readonly triCount: number;
+  readonly quadCount: number;
+  readonly uvTriCount: number;
+  readonly uvQuadCount: number;
+}
+
+/**
+ * All 4 polygon lists of a LOD parsed in strict file order (**E3**).
+ */
+export interface CdoPolygonLists {
+  readonly triangles: readonly CdoPolygon[];
+  readonly quads: readonly CdoPolygon[];
+  readonly uvTriangles: readonly CdoTexturedPolygon[];
+  readonly uvQuads: readonly CdoTexturedPolygon[];
   readonly nextOffset: number;
 }
