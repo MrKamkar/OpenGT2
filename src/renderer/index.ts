@@ -18,3 +18,15 @@ export {
   prepareIndexedTextureData,
   uploadIndexedTexture,
 } from './indexedTexture';
+export {
+  EMPTY_GPU_RESOURCE_COUNTS,
+  type GpuResourceCounts,
+  addResourceCounts,
+} from './types';
+export {
+  ShaderCompileError,
+  type ShaderFailureStage,
+  ShaderProgram,
+  type WebGL2ShaderContext,
+  formatShaderSourceWithLineNumbers,
+} from './shaderProgram';
