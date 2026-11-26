@@ -1279,6 +1279,41 @@ body {
   gap: 8px;
 }
 
+/* ----- M3.7: Blind raw image viewer ------------------------------------------------------- */
+
+.ogt2-blind-zoom-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ogt2-blind-zoom-bar .is-active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: var(--ogt2-accent);
+  color: var(--ogt2-accent);
+}
+
+.ogt2-blind-canvas-wrap {
+  overflow: auto;
+  max-height: 460px;
+  padding: 10px;
+  border: 1px solid var(--ogt2-border);
+  border-radius: 6px;
+  background: rgba(10, 14, 24, 0.85);
+}
+
+.ogt2-blind-canvas-wrap[hidden] {
+  display: none;
+}
+
+.ogt2-blind-canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
 @media (max-width: 1320px) {
   .ogt2-hex-body {
     grid-template-columns: minmax(0, 1fr);

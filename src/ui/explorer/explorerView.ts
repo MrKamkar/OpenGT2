@@ -8,6 +8,7 @@ import { parseHexHash } from '../../tools/hexview';
 import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
 import { type ScanEntryFn, mountScannerPanel } from '../tools/scannerPanel';
 import { mountAnalyzerPanel } from '../tools/analyzerPanel';
+import { mountBlindImagePanel } from '../tools/blindImagePanel';
 import { mountEvidencePackPanel } from '../tools/evidencePackPanel';
 import { mountStructViewPanel } from '../tools/structViewPanel';
 import {
@@ -631,6 +632,7 @@ function mountExplorer(
     scannerPanel?.setEntry(currentSnapshot);
     analyzerPanel.setEntry(currentSnapshot);
     structViewPanel.setEntry(currentSnapshot);
+    blindImagePanel.setEntry(currentSnapshot);
     evidencePackPanel.setEntry(currentSnapshot);
     renderDetails();
     void statCache.ensure(path).then(
@@ -645,6 +647,7 @@ function mountExplorer(
             scannerPanel?.setEntry(refreshedSnapshot);
             analyzerPanel.setEntry(refreshedSnapshot);
             structViewPanel.setEntry(refreshedSnapshot);
+            blindImagePanel.setEntry(refreshedSnapshot);
             evidencePackPanel.setEntry(refreshedSnapshot);
           }
           renderDetails();
@@ -729,6 +732,11 @@ function mountExplorer(
     source,
   });
 
+  const blindImagePanel = mountBlindImagePanel({
+    container: workbench,
+    source,
+  });
+
   const evidencePackPanel = mountEvidencePackPanel({
     container: workbench,
     archiveFingerprint: info.fingerprint,
@@ -805,6 +813,7 @@ function mountExplorer(
       scannerPanel?.dispose();
       analyzerPanel.dispose();
       structViewPanel.dispose();
+      blindImagePanel.dispose();
       evidencePackPanel.dispose();
       list.removeEventListener('scroll', onScroll);
       rowsLayer.removeEventListener('click', onRowsClick);
