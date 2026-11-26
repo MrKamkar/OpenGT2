@@ -108,6 +108,21 @@ function buildResearchFixturePayload(): Uint8Array {
   return buf;
 }
 
+function buildBlindTexturePayload(): Uint8Array {
+  // 32 B 16-entry 15-bit LE CLUT at 0x00 + 16x8 4 bpp pixels (64 B) at 0x20 = 96 B total.
+  const buf = new Uint8Array(0x20 + 64);
+  const view = new DataView(buf.buffer);
+  view.setUint16(0x00, 0x0000, true); // 0: transparent black
+  view.setUint16(0x02, 0x001f, true); // 1: pure red (bits 0..4)
+  view.setUint16(0x04, 0x7c00, true); // 2: pure blue (bits 10..14)
+  view.setUint16(0x06, 0x03e0, true); // 3: pure green (bits 5..9)
+
+  buf.fill(0x33, 0x20);
+  // First byte at 0x20: even pixel (0,0) = 1 (red), odd pixel (1,0) = 2 (blue)
+  buf[0x20] = 0x21;
+  return buf;
+}
+
 function createExplorerFixtureArchive() {
   const packedPlain = deterministicPayload(640, 3);
   const packedGz = gzipSync(packedPlain, { mtime: 0 });
@@ -122,6 +137,7 @@ function createExplorerFixtureArchive() {
     deterministicPayload(128, 13),
     deterministicPayload(96, 17),
   );
+  const blindTexBytes = buildBlindTexturePayload();
 
   // 11,600 zero-byte entries in bulk/ to verify >11k virtualization without large payloads.
   const bulkFiles = Array.from({ length: 11_600 }, (_, i) => ({
@@ -143,6 +159,7 @@ function createExplorerFixtureArchive() {
         { kind: 'file', name: 'hidden_gz.bin', data: hiddenGz, unixTime: 945_000_030 },
         { kind: 'file', name: 'fake.gz', data: fakeGzBytes, unixTime: 945_000_040 },
         { kind: 'file', name: 'multi_gz.bin', data: multiGzBytes, unixTime: 945_000_050 },
+        { kind: 'file', name: 'blind_tex.bin', data: blindTexBytes, unixTime: 945_000_055 },
         {
           kind: 'dir',
           name: 'sub',
@@ -172,7 +189,8 @@ function createExplorerFixtureArchive() {
     hiddenGz,
     fakeGzBytes,
     multiGzBytes,
-    totalFiles: 7 + bulkFiles.length,
+    blindTexBytes,
+    totalFiles: 8 + bulkFiles.length,
   };
 }
 
@@ -461,6 +479,166 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
       .boundingBox();
     expect(nameBox).not.toBeNull();
     expect(nameBox!.width).toBeGreaterThanOrEqual(120);
+
+    assertCleanMonitors(monitors);
+  });
+
+  test('supports M3.5–M3.7 research tools (structview, evidence pack <= 64 B, blindimage 1x/2x/4x) and full Hex ASCII column without console.error', async ({
+    page,
+    baseURL,
+  }) => {
+    expect(baseURL).toBeTruthy();
+    const monitors = attachErrorMonitors(page);
+    const fixture = createExplorerFixtureArchive();
+
+    await page.goto(buildPageUrl(baseURL ?? 'http://127.0.0.1:4173/', 'debug=1'), {
+      waitUntil: 'load',
+    });
+
+    const appRoot = page.locator('#app');
+    await expect(appRoot).toHaveAttribute('data-worker', 'ready', { timeout: 10_000 });
+
+    await page.locator('[data-testid="file-input"]').setInputFiles({
+      name: 'SYNTHETIC_GT2.VOL',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from(fixture.built.bytes),
+    });
+
+    const archivePanel = page.locator('[data-testid="archive-panel"]');
+    await expect(archivePanel).toHaveAttribute('data-vol-state', 'ready', { timeout: 15_000 });
+
+    // Every <input>, <select>, and <textarea> has non-empty id & name
+    const missingIds = await page.evaluate(() => {
+      const nodes = [...document.querySelectorAll('input, select, textarea')];
+      return nodes
+        .filter((node) => !node.id || !node.getAttribute('name'))
+        .map((node) => node.outerHTML);
+    });
+    expect(missingIds).toEqual([]);
+
+    await page.locator('[data-testid="tree-dir"][data-path="cars"]').click();
+    await page.locator('[data-testid="explorer-row"][data-path="cars/research.dat.gz"]').click();
+
+    // 1. Hex Viewer ASCII column check (all 16 chars inside list viewport)
+    await page.locator('[data-testid="action-hex-preview"]').click();
+    await page.locator('[data-testid="hex-mode-gunzip"]').click();
+    const firstHexRow = page.locator('[data-testid="hex-row"]').first();
+    await expect(firstHexRow).toBeVisible();
+    const asciiVisible = await page.evaluate(() => {
+      const list = document.querySelector('[data-testid="hex-list"]');
+      const row = document.querySelector('[data-testid="hex-row"]');
+      if (!list || !row) return false;
+      const listRect = list.getBoundingClientRect();
+      const chars = [...row.querySelectorAll('.ogt2-hex-char')];
+      return (
+        chars.length === 16 &&
+        chars.every((ch) => {
+          const r = ch.getBoundingClientRect();
+          return r.width > 0 && r.left >= listRect.left - 1 && r.right <= listRect.right + 1;
+        })
+      );
+    });
+    expect(asciiVisible).toBe(true);
+
+    // 2. M3.5 Struct Array Viewer: decode 32 records of 0x20 B and export JSON
+    await page.locator('[data-testid="struct-mode-select"]').selectOption('gunzip');
+    await page.locator('[data-testid="struct-offset-input"]').fill('0x0');
+    await page.locator('[data-testid="struct-stride-input"]').fill('0x20');
+    await page.locator('[data-testid="struct-count-input"]').fill('32');
+    await page.locator('[data-testid="struct-decode-button"]').click();
+
+    await expect(page.locator('[data-testid="struct-row"]')).toHaveCount(32, { timeout: 10_000 });
+
+    const structDownloadPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="struct-download-json"]').click();
+    const structDownload = await structDownloadPromise;
+    const structPath = await structDownload.path();
+    expect(structPath).toBeTruthy();
+    const structJson = JSON.parse(await readFile(structPath as string, 'utf8')) as Record<string, unknown>;
+    expect(structJson['schemaVersion']).toBe(1);
+    expect(structJson['stride']).toBe(32);
+    expect(structJson['count']).toBe(32);
+
+    // 3. M3.6 Evidence Pack: quick-add from Hex Viewer & Scanner + hard 64 B rejection + JSON export
+    await page.locator('[data-testid="hex-offset-input"]').fill('0x60');
+    await page.locator('[data-testid="hex-length-input"]').fill('4');
+    await page.locator('[data-testid="hex-jump-button"]').click();
+    await expect(page.locator('[data-testid="hex-interp-s16"]')).toHaveText('4096');
+    await page.locator('[data-testid="hex-add-evidence"]').click();
+    await expect(page.locator('[data-testid="evidence-item"]')).toHaveCount(1);
+
+    await page.locator('[data-testid="scanner-preset-tim"]').click();
+    await page.locator('[data-testid="scanner-mode-select"]').selectOption('gunzip');
+    await page.locator('[data-testid="scanner-run-button"]').click();
+    const firstHit = page.locator('[data-testid="scanner-hit"]').first();
+    await expect(firstHit).toBeVisible({ timeout: 10_000 });
+    await firstHit.locator('[data-testid="scanner-hit-evidence"]').click();
+    await expect(page.locator('[data-testid="evidence-item"]')).toHaveCount(2);
+
+    // Reject > 64 B hex sample
+    const tooLongHex = Array.from({ length: 65 }, () => 'AA').join(' ');
+    await page.locator('[data-testid="evidence-sample-input"]').fill(tooLongHex);
+    await page.locator('[data-testid="evidence-add-button"]').click();
+    await expect(page.locator('[data-testid="evidence-error"]')).toContainText('64 B');
+    await expect(page.locator('[data-testid="evidence-item"]')).toHaveCount(2);
+
+    const evidenceDownloadPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="evidence-download-json"]').click();
+    const evidenceDownload = await evidenceDownloadPromise;
+    const evidencePath = await evidenceDownload.path();
+    expect(evidencePath).toBeTruthy();
+    const evidenceJson = JSON.parse(await readFile(evidencePath as string, 'utf8')) as {
+      maxHexSampleBytes: number;
+      entries: Array<{ hexSample?: string }>;
+    };
+    expect(evidenceJson.maxHexSampleBytes).toBe(64);
+    expect(evidenceJson.entries).toHaveLength(2);
+    for (const entry of evidenceJson.entries) {
+      if (entry.hexSample !== undefined) {
+        expect(entry.hexSample.split(' ').length).toBeLessThanOrEqual(64);
+      }
+    }
+
+    // 4. M3.7 Blind Image Viewer: render 16x8 4 bpp with CLUT, verify pixel colors, zoom 2x/4x, main WebGL2 untouched
+    await page.locator('[data-testid="explorer-row"][data-path="cars/blind_tex.bin"]').click();
+    await expect(page.locator('[data-testid="blind-panel"]')).toBeVisible();
+    await page.locator('[data-testid="blind-offset-input"]').fill('0x20');
+    await page.locator('[data-testid="blind-width-input"]').fill('16');
+    await page.locator('[data-testid="blind-height-input"]').fill('8');
+    await page.locator('[data-testid="blind-bpp-select"]').selectOption('4');
+    await page.locator('[data-testid="blind-palette-input"]').fill('0x0');
+    await page.locator('[data-testid="blind-render-button"]').click();
+
+    const blindCanvas = page.locator('[data-testid="blind-canvas"]');
+    await expect(blindCanvas).toHaveAttribute('data-rendered-width', '16', { timeout: 5_000 });
+    await expect(blindCanvas).toHaveAttribute('data-rendered-height', '8');
+
+    const firstPixels = await blindCanvas.evaluate((node) => {
+      const c = node as HTMLCanvasElement;
+      const ctx = c.getContext('2d');
+      if (!ctx) return null;
+      const data = ctx.getImageData(0, 0, 2, 1).data;
+      return Array.from(data);
+    });
+    expect(firstPixels).toEqual([255, 0, 0, 255, 0, 0, 255, 255]);
+
+    await page.locator('[data-testid="blind-zoom-2"]').click();
+    await expect(blindCanvas).toHaveAttribute('data-zoom', '2');
+    await expect(blindCanvas).toHaveCSS('width', '32px');
+    await expect(blindCanvas).toHaveCSS('height', '16px');
+
+    await page.locator('[data-testid="blind-zoom-4"]').click();
+    await expect(blindCanvas).toHaveAttribute('data-zoom', '4');
+    await expect(blindCanvas).toHaveCSS('width', '64px');
+    await expect(blindCanvas).toHaveCSS('height', '32px');
+
+    const imageRendering = await blindCanvas.evaluate(
+      (node) => window.getComputedStyle(node).imageRendering,
+    );
+    expect(imageRendering).toBe('pixelated');
+
+    // Main WebGL2 canvas remains untouched (ready and empty)
+    await expect(appRoot).toHaveAttribute('data-webgl2', 'ready');
 
     assertCleanMonitors(monitors);
   });

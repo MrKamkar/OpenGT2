@@ -136,3 +136,50 @@ Chronological log of binary format investigations, reverse-engineering findings,
 - **Pewność:** **E3** dla `GTFS`/`gzip`, **E2** dla `TIM`/`CDO`/`CDP` (oczekują na weryfikację inwentaryzacyjną w M4.1), **E0** dla nierozpoznanych plików (`unknown`).
 - **Konsekwencje dla kodu:** Pierwsza połowa M3 (M3.1–M3.4) jest kompletna i przetestowana na syntetycznych danych; narzędzia badawcze są gotowe do dokończenia M3.5–M3.8 oraz inwentaryzacji formatów GT2 w M4–M5.
 - **Otwarte pytania:** W kolejnej sesji zrealizować M3.5–M3.8 (podgląd tablic struktur, eksport Evidence Pack, podgląd obrazu „na ślepo”, metodyka badań) oraz przejść do M4.1 na prawdziwym `GT2.VOL`.
+
+---
+
+## Metodyka badania nieznanego formatu binarnego (M3.8)
+
+Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.VOL` (M4–M8) przy użyciu narzędzi z M3.1–M3.7 oraz reguł `ROADMAP.md` (§1.2, §2.3, §2.4, §3):
+
+1. **Rozpoznanie wstępne i tryb strumienia (`registry.ts` + Hex Viewer M3.1):**
+   - Sprawdź wynik klasyfikatora w szczegółach Eksploratora (`src/formats/registry.ts`, odczyt wyłącznie pierwszych 16 B) oraz flagę `gzip` (`1F 8B`).
+   - Dla plików skompresowanych przełącz Hex Viewer w tryb `gunzip` (`#hex=<path>&off=0x0&mode=gunzip`), aby badać właściwy ładunek po dekompresji bez ładowania całego archiwum do RAM.
+2. **Skanowanie sygnatur (`scannerPanel.ts` / Worker M3.2):**
+   - Przeskanuj plik w Workerze presetami (`gzip`, `TIM 10 00 00 00`, `GTFS`) lub własnym wzorcem z maską `??`.
+   - Trafienia skanera pozwalają jednym kliknięciem skoczyć do offsetu w Hex Viewerze i zlokalizować osadzone kontenery lub nagłówki sekcji.
+3. **Analiza entropii i histogramu bajtów (`analyzerPanel.ts` M3.3):**
+   - **Entropia bliska `8.0 bit/B`** + płaski histogram → dane skompresowane lub zaszyfrowane (sprawdź kolejne człony `gzip` lub inne strumienie).
+   - **Entropia `0.0–2.0 bit/B`** + dominacja `0x00`/`0xFF` → padding, puste tablice lub maski.
+   - **Entropia `3.5–6.5 bit/B`** ze skokami na wykresie okien → wyraźne granice między nagłówkiem, tablicami struktur i danymi pikseli/geometrii.
+4. **Wykrywanie powtarzalnych `stride`'ów (autokorelacja M3.3):**
+   - Odczytaj sugerowany fundamentalny `stride` (tłumienie harmonicznych wskazuje najmniejszy okres powtarzalności, np. `0x20` przed `0x40`).
+   - Zweryfikuj granice sekcji w Hex Viewerze (`off + count * stride`).
+5. **Podgląd jako tablica struktur i wartości kandydujące (`structViewPanel.ts` M3.5 + Inspektor M3.1):**
+   - Zaznacz podejrzane bajty w Hex Viewerze i porównaj interpretacje LE (`u8/s8/u16/s16/u32/s32`, `float32`, PS1 fixed-point `4.12` i `1.15`).
+   - Przełącz się do podglądu struktury „jako tablica”, podaj `baseOffset`, `stride` i `count` oraz nazwij znane lub hipotetyczne pola (nieznane pozostaw jako `unk_<offset>`).
+   - Zapisz definicję schematu jako JSON (`Kopiuj JSON` / `Pobierz JSON`) na potrzeby dalszych testów lub dokumentacji.
+6. **Podgląd obrazu „na ślepo” (`blindImagePanel.ts` M3.7):**
+   - Jeśli sekcja ma regularny rozmiar lub niską/średnią entropię pasującą do bitmapy, przetestuj parametry w podglądzie „na ślepo” (`4 bpp` parzysty=młodszy nibble, `8 bpp`, `15-bit A1B5G5R5 LE`, opcjonalny offset palety CLUT 15-bit, skala `1×/2×/4×`).
+   - Zmieniaj szerokość (np. `64`, `128`, `256`) i offset aż do uzyskania czytelnych kafelków lub atlasu tekstur — bez zgadywania dedykowanego nagłówka.
+7. **Hipoteza, niezmienniki i weryfikacja na wielu plikach:**
+   - Sprawdź niezmienniki arytmetyczne (np. `baseOffset + count * stride == fileSize` lub początek kolejnej sekcji, indeksy `< count`, długości normalnych `≈ 1.0`).
+   - Zweryfikuj tę samą hipotezę na **wielu plikach** tego samego katalogu/typu w `GT2.VOL`. Jeśli warunek zawodzi lub dwa źródła są sprzeczne — **STOP** (§2.3).
+8. **Ocena poziomu pewności (`E0–E3`) i eksport Evidence Pack (`evidencePackPanel.ts` M3.6):**
+   - Nadaj rygorystyczny poziom: `E0` (nieznane), `E1` (obserwacja z danych), `E2` (potwierdzone w źródle referencyjnym/dokumentacji), `E3` (potwierdzone źródłem + testem na realnym pliku).
+   - Zbierz kluczowe trafienia z Hex Viewera / Skanera do **Evidence Pack** (twardy limit **≤ 64 B** próbki hex na wpis wg §1.2), pobierz lokalny JSON jako załącznik do analizy i opisz fakty w `docs/formats.md` oraz `docs/research-log.md`.
+
+## 2026-11-26 — M3.5–M3.8 — Podgląd tablic struktur, Evidence Pack, Blind Image i metodyka badań
+- **Pytanie:** Jak domknąć zestaw narzędzi badawczych M3 (tablice struktur z eksportem schematu JSON, bezpieczny eksport odkryć Evidence Pack ≤ 64 B, generyczny podgląd surowych bitmap PS1 oraz udokumentowana metodyka badań) przy zachowaniu pełnej separacji od danych Sony i bez pisania dedykowanych parserów M4?
+- **Metoda:**
+  - M3.5: czysta logika `src/tools/structview/` (`types.ts`, `decoder.ts`, `schemaJson.ts`, `index.ts`) z `DataView(..., true)` LE i stronicowaniem, panel `src/ui/tools/structViewPanel.ts`, testy `tests/unit/structView.test.ts` oraz poprawka CSS siatki Hex Viewera (pełna szerokość 16 znaków `ASCII` bez ucinania przy inspektorze LE).
+  - M3.6: czysta logika `src/tools/evidence/` (`types.ts`, `evidencePack.ts`, `index.ts`) z twardą walidacją limitu `EVIDENCE_MAX_HEX_SAMPLE_BYTES = 64` przy tworzeniu i serializacji, panel `src/ui/tools/evidencePackPanel.ts`, szybkie przechwytywanie z `hexViewPanel.ts` i `scannerPanel.ts`, testy `tests/unit/evidencePack.test.ts`.
+  - M3.7: czysta logika `src/tools/blindimage/` (`types.ts`, `decoder.ts`, `index.ts`) dla trybów `4 bpp` (parzysty piksel = młodszy nibble), `8 bpp`, `15-bit A1B5G5R5` LE (Załącznik B.1) i opcjonalnego CLUT 15-bit LE, panel `src/ui/tools/blindImagePanel.ts` z własnym `<canvas>` 2D (`image-rendering: pixelated`, przełącznik skali `1× / 2× / 4×`, główny canvas WebGL2 nietknięty) oraz testy `tests/unit/blindImage.test.ts`.
+  - M3.8: ustrukturyzowana dokumentacja metodyki badań w `docs/research-log.md` i rozszerzenie testów Playwright `tests/e2e/explorer.spec.ts` na syntetycznych danych VOL.
+- **Wynik:**
+  - Wszystkie trzy narzędzia działają wyłącznie na strumieniowych odczytach potrzebnego zakresu bajtów (`readRange` / `readDecompressedRange`), używają `id`/`name` na polach formularzy i nie kolidują z `InputManager`.
+  - Testy jednostkowe i e2e potwierdzają m.in. poprawność kolejności nibbli `4 bpp`, brak zamiany `R↔B` w `A1B5G5R5` LE, skalowanie `1×/2×/4×`, twardą blokadę eksportu próbek `> 64 B` w Evidence Pack oraz pełną widoczność 16 znaków `ASCII` w Hex Viewerze.
+- **Pewność:** N/A dla narzędzi generycznych M3; zastosowane konwencje sprzętowe PS1 (`LE`, `4.12`/`1.15`, `4 bpp` nibble order, `A1B5G5R5`) mają status **E2** wg Załącznika B (`ROADMAP.md`).
+- **Konsekwencje dla kodu:** Milestone M3 jest w pełni domknięty — kompletny warsztat badawczy (M3.1–M3.8) jest gotowy do przeprowadzenia inwentaryzacji formatów obrazów `GT2.VOL` w M4.1.
+- **Otwarte pytania:** W kolejnej sesji rozpocząć M4.1 (inwentaryzacja formatów obrazów w lokalnym `GT2.VOL` z wpisem do `docs/formats.md`).
