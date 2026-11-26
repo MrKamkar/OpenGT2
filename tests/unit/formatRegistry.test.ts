@@ -97,7 +97,7 @@ describe('file format classifier registry (M3.4)', () => {
       headBytes: new Uint8Array([0x04, 0x00, 0x01, 0x02]),
     });
     expect(cdp.id).toBe('cdp');
-    expect(cdp.evidence).toBe('E2');
+    expect(cdp.evidence).toBe('E3');
     expect(cdp.matchedBy).toBe('ext');
 
     const unknown = classifyFile({

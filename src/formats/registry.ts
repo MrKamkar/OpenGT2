@@ -103,8 +103,9 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     ext: ['.cdp', '.cnp'],
     magic: null,
     formatName: 'GT2 Car Texture (CDP/CNP)',
-    evidence: 'E2',
-    notes: 'Tekstura i palety auta GT2 (dzień/noc) bez stałego magic — rozpoznawana po rozszerzeniu.',
+    evidence: 'E3',
+    notes:
+      'Tekstura i palety auta GT2 (dzień/noc, 256x224 4 bpp, bez stałego magic) — zweryfikowano 2 220 plików w GT2.VOL (M6.7).',
   },
 ];
 
