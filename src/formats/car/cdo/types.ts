@@ -82,6 +82,15 @@ export const CDO_FACE_TYPE_QUAD = 40;
 export const CDO_FACE_TYPE_UV_QUAD_MODULATED = 44;
 export const CDO_FACE_TYPE_UV_QUAD = 45;
 
+/** @evidence E3 — Fixed byte length of the shadow block header (`28 B` / `0x1C`) following the last LOD. */
+export const CDO_SHADOW_HEADER_BYTES = 28;
+
+/** @evidence E1 — Clean-room shadow vertex record (`4 B`: `int16 x, int16 z` LE, `1/4096 m`), 100% EOF match across 2,220/2,220 models. */
+export const CDO_SHADOW_VERTEX_BYTES = 4;
+
+/** @evidence E1 — Clean-room shadow face record (`4 B`: `uint32` LE with `4×6-bit` vertex indices + `8-bit` `flagsRaw`), 100% EOF match across 2,220/2,220 models. */
+export const CDO_SHADOW_FACE_BYTES = 4;
+
 export type CdoErrorCode =
   | 'TruncatedHeader'
   | 'InvalidMagic'
@@ -317,4 +326,44 @@ export interface CdoPolygonLists {
   readonly uvTriangles: readonly CdoTexturedPolygon[];
   readonly uvQuads: readonly CdoTexturedPolygon[];
   readonly nextOffset: number;
+}
+
+/**
+ * Parsed 28-byte shadow block header (**E3** header layout per D.5 & 2,220 real models; **E1** scale; **E0** `unk_0x06`/`unk_0x1a`).
+ */
+export interface CdoShadowHeader {
+  readonly headerOffset: number;
+  readonly dataOffset: number;
+  readonly vertexCount: number;
+  readonly triangleCount: number;
+  readonly quadCount: number;
+  /** @evidence E0 — `uint16` LE at `0x06`, observed `0` across 2,220/2,220 models. */
+  readonly unk_0x06: number;
+  readonly boundingBox: CdoBoundingBox;
+  /** @evidence E1 — `uint16` LE at `0x18`, observed `15..17`. */
+  readonly scale: number;
+  /** @evidence E0 — `uint16` LE at `0x1A`, scale-related field. */
+  readonly unk_0x1a: number;
+}
+
+/**
+ * Single packed 4-byte shadow triangle or quad (**E1** clean-room empirical layout).
+ */
+export interface CdoShadowFace {
+  /** 6-bit vertex indices `[v0, v1, v2, v3]` (`v3 === 0` for triangles). */
+  readonly vertices: readonly [number, number, number, number];
+  /** @evidence E1 — Top 8 bits (`bits 24..31`), diagnostic only (never controls runtime behavior). */
+  readonly flagsRaw: number;
+}
+
+/**
+ * Parsed shadow block (`28 B` header + `vertexCount×4 B` XZ vertices + `(triangleCount+quadCount)×4 B` faces).
+ */
+export interface CdoShadowBlock {
+  readonly header: CdoShadowHeader;
+  /** Interleaved `[x0, z0, x1, z1, ...]` raw `int16` coordinates (`length = vertexCount * 2`, `1/4096 m`) (**E1**). */
+  readonly rawVerticesXZ: Int16Array;
+  readonly triangles: readonly CdoShadowFace[];
+  readonly quads: readonly CdoShadowFace[];
+  readonly endOffset: number;
 }
