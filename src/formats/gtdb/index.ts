@@ -57,3 +57,14 @@ export {
   decodeCarSuspensionTable,
   type CarSuspension,
 } from './carSuspension';
+
+export {
+  CAR_REAR_TYRES_SIZE,
+  CAR_TYRES_SIZE,
+  decodeCarRearTyres,
+  decodeCarRearTyresTable,
+  decodeCarTyres,
+  decodeCarTyresTable,
+  type CarRearTyres,
+  type CarTyres,
+} from './carTyres';

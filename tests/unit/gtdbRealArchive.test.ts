@@ -14,7 +14,9 @@ import {
   decodeCarDimensionsTable,
   decodeCarEngineDataTable,
   decodeCarGearboxTable,
+  decodeCarRearTyresTable,
   decodeCarSuspensionTable,
+  decodeCarTyresTable,
   findGtdbEntries,
   getGtdbTable,
   isGtdtMagic,
@@ -191,6 +193,27 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         expect(row.stage).toBeGreaterThanOrEqual(0);
         expect(row.stage).toBeLessThanOrEqual(3);
         expect(row.unk_0x0c.byteLength).toBe(CAR_SUSPENSION_UNK_0X0C_LENGTH);
+      }
+
+      if (frontTyres === undefined || rearTyres === undefined) {
+        throw new Error('Missing CarTyres or CarRearTyres table slice');
+      }
+      const decodedFrontTyres = decodeCarTyresTable(unpacked, frontTyres);
+      const decodedRearTyres = decodeCarRearTyresTable(unpacked, rearTyres);
+      expect(decodedFrontTyres).toHaveLength(frontTyres.count ?? 0);
+      expect(decodedRearTyres).toHaveLength(decodedFrontTyres.length);
+      expect(new Set(decodedFrontTyres.map((row) => row.carId))).toEqual(dimIds);
+      expect(new Set(decodedRearTyres.map((row) => row.carId))).toEqual(dimIds);
+      for (const row of decodedFrontTyres) {
+        expect(row.price).toBeGreaterThanOrEqual(0);
+        expect(row.type).toBeGreaterThanOrEqual(0);
+        expect(row.type).toBeLessThanOrEqual(7);
+        expect(row.unk_0x09).toBe(0);
+      }
+      for (const row of decodedRearTyres) {
+        expect(row.type).toBeGreaterThanOrEqual(0);
+        expect(row.type).toBeLessThanOrEqual(7);
+        expect(row.unk_0x05).toBe(0);
       }
     }
 
