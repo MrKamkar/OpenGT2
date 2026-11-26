@@ -7,6 +7,7 @@ import {
   GTMODE_DATA_TABLE_COUNT,
   GTMODE_RACE_TABLE_COUNT,
   GTMODE_RACE_TABLE_SPECS,
+  decodeCarDimensionsTable,
   findGtdbEntries,
   getGtdbTable,
   isGtdtMagic,
@@ -116,6 +117,25 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
       expect(frontTyres?.count).toBeGreaterThan(0);
       expect(rearTyres?.count).toBe(frontTyres?.count);
       expect((carData?.offset ?? 0) + (carData?.size ?? 0)).toBe(unpacked.byteLength);
+
+      if (dimensions === undefined) {
+        throw new Error('Missing CarDimensions table slice');
+      }
+      const decodedDimensions = decodeCarDimensionsTable(unpacked, dimensions);
+      expect(decodedDimensions).toHaveLength(dimensions.count ?? 0);
+      const dimIds = new Set(decodedDimensions.map((row) => row.carId));
+      expect(dimIds.size).toBe(decodedDimensions.length);
+      for (const row of decodedDimensions) {
+        expect(row.carId).toBeGreaterThan(0);
+        expect(row.length).toBeGreaterThanOrEqual(2000);
+        expect(row.length).toBeLessThanOrEqual(6500);
+        expect(row.height).toBeGreaterThanOrEqual(800);
+        expect(row.height).toBeLessThanOrEqual(2500);
+        expect(row.weightKg).toBeGreaterThanOrEqual(300);
+        expect(row.weightKg).toBeLessThanOrEqual(3000);
+        expect(row.rmWeightMultiplier).toBeGreaterThanOrEqual(1);
+        expect(row.rmWeightMultiplier).toBeLessThanOrEqual(255);
+      }
     }
 
     for (const match of discovered.gtmodeRace) {

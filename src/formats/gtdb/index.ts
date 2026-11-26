@@ -25,3 +25,10 @@ export {
   isGtdtMagic,
   parseGtdbLayout,
 } from './layout';
+
+export {
+  CAR_DIMENSIONS_SIZE,
+  decodeCarDimensions,
+  decodeCarDimensionsTable,
+  type CarDimensions,
+} from './carDimensions';
