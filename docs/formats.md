@@ -132,7 +132,7 @@ TOC entries appear in directory-grouped "first encounter" order:
 | `.cdo.gz` / `.cno.gz` | gzip (1 człon) | `47 54 02 00` (`"GT\x02\x00"`) | `2 220` (`1 110` + `1 110`) | `11 048–20 000 B` | Modele 3D aut dzień/noc (`100% <= 0x5000`, Załącznik D.1; zakres M6) | **E3** (magic/limit) / **E2** (układ) |
 | `.tro.gz` | gzip (1 człon) | `40 28 23 29 47 54 2D 50` (`"@(#)GT-P"`) | `126` | `77 768–696 792 B` | Geometria torów (zakres M8) | **E1** |
 | `.bso.gz` | gzip (1 człon) | `42 47 00 00` (`"BG\0\0"`) | `34` | `7 232–22 096 B` | Obiekty tła / nieba (zakres M8) | **E1** |
-| `.dat.gz` | gzip (1 człon) | `47 54 44 54` (`"GTDT"`, `22` pliki) i inne (`17`) | `39` | `32–776 504 B` | Pliki bazy danych i konfiguracji gry (zakres M5) | **E1** |
+| `.dat.gz` | gzip (1 człon) | `47 54 44 54` (`"GTDT"`, `22` pliki), `WSDB` pod `0x04` (`7` plików) i inne (`10`) | `39` | `32–776 504 B` | Pliki bazy danych (`GTDT`, `WSDB` — **E3** w M5.1) oraz pliki menu (`10`, **E0**/**E1**) | **E3** (`GTDT`/`WSDB`) / **E1** (pozostałe) |
 | `(none)` (pozostałe) | `18` surowych + `3` gzip | m.in. `06 00 0A 00` (`7`), `CAR\0` (`3`), `UCAR` (`3`) | `21` | `2 652–348 160 B` | Różne pliki systemowe/danych bez rozszerzenia | **E0** / **E1** |
 | `.seq` | brak | `53 45 51 47` (`"SEQG"`) | `10` | `4 267–23 755 B` | Sekwencje muzyczne/audio (zakres M11) | **E1** |
 | `.idx` | brak | `uint32` LE `count` + `uint32[count + 1]` | `6` | `1 840–13 552 B` | Tablice offsetów kontenerów menu (`1` × `aligned-2048` dla `GTMP` = `458` bloków; `5` × `mangled-4` dla `.dat` `GM\x03\x00` = `16 914` członów) | **E3** |
@@ -207,3 +207,92 @@ TOC entries appear in directory-grouped "first encounter" order:
 | `0x4000` | `N * 4096` B | `uint8[]` | `8 bpp` tile sheet (`512` px wide, `N >= 1` rows of `32` tiles × `16×8` px, `100%` multiple of `4096 B`) | **E3** |
 
 - **`GTMP` Color Rule (`gtmpColor15ToRgba`, **E3**):** Palette entries decode opaque when bit 15 is set (`(word & 0x8000) !== 0 ? 255 : 0`); solid-color tile placements (`solidFlags !== 0`, `609,537` instances with bit 15 = 0) are forced opaque (`a = 255`). Canvas base initializes to opaque black `(0, 0, 0, 255)`.
+
+---
+
+## GT2 Game Database Formats: `GTDT` and `WSDB` (`src/formats/gtdb/`)
+
+- **Confidence:** **E3** (`GTDT` container header, 31-slot `gtmode_data` table layout, 4-slot `gtmode_race` layout, and 24 `structs.h` element sizes verified across all `7/7` standard car-DB and `7/7` race-DB variants in `local_assets/GT2.VOL`; `WSDB` header verified across `7/7` string DBs); **E1** (`formatFlag` semantics and `arcade_data`/`license_data` trailing tables); **E0** (`unk_section_02`, `unk_section_24..29`).
+- **Reference Source:** `adeyblue/GTVolTools` (`GT2DataExploder/structs.h`, `GT2DataExploder/main.cpp`, MIT License).
+- **Endianness:** Little-endian (`DataView(..., true)`) (**E3**).
+
+### 1. Archive Distribution & Compression (**E3**)
+
+All `29 / 29` entries in the database directory of verified `GT2.VOL` are single-member RFC 1952 gzip streams (`1F 8B 08`) that decompress cleanly with valid CRC-32 and ISIZE:
+
+| Pattern (`(<region>_)?...`) | Detected Regional Prefixes | Count | Unpacked Size Range | Container Magic | Confidence |
+| --- | --- | --- | --- | --- | --- |
+| `(<region>_)?gtmode_data.dat.gz` | `(none)` (JP), `usa`, `eng`, `fra`, `ger`, `ita`, `spa` | `7` | `765,516–776,504 B` (`5` PAL variants byte-identical) | `"GTDT"` (`pairCount = 62`) | **E3** |
+| `(<region>_)?gtmode_race.dat.gz` | `(none)` (JP), `usa`, `eng`, `fra`, `ger`, `ita`, `spa` | `7` | `169,606–171,334 B` (`5` PAL variants byte-identical) | `"GTDT"` (`pairCount = 6`) | **E3** |
+| `(<region>_)?arcade_data.dat.gz` | `(none)`, `eng`, `usa` | `3` | `41,250 B` | `"GTDT"` (`pairCount = 68`) | **E3** (header) / **E1** (extra tables) |
+| `(<region>_)?license_data.dat.gz` | `(none)`, `eng`, `usa` | `3` | `36,432 B` | `"GTDT"` (`pairCount = 64`) | **E3** (header) / **E2** (`LicenseTestInfo`) |
+| `*_dev.dat.gz` (`gtmode_data_dev`, `gtmode_race_dev`) | `(none)` | `2` | `32–315,006 B` | `"GTDT"` (`pairCount = 31` / `3`) | **E1** (ASCII dev part names / empty stub) |
+| `(<region>_)unistrdb.dat.gz` | `eng`, `fra`, `ger`, `ita`, `jpn`, `spa`, `usa` | `7` | `16,128–22,020 B` | `"WSDB"` at `0x04` | **E3** (header) / **E2** (records, M5.4) |
+
+### 2. `GTDT` Container Header & Directory (**E3**)
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `char[4]` | Magic `"GTDT"` (`47 54 44 54`) | **E3** |
+| `0x04` | 2 B | `uint16` LE | `formatFlag`: observed `0x006C` (`'l', '\0'`) across `22/22` `GTDT` files (`GT2DataExploder/main.cpp` comment misread `'l'` as `'1'`) | **E3** (value) / **E1** (meaning) |
+| `0x06` | 2 B | `uint16` LE | `pairCount`: number of 8-byte `(offset, size)` pairs in the directory (`8 + pairCount * 8 === firstNonEmptyOffset` on `21/21` non-empty `GTDT` files and `8 + 3 * 8 === 32 === unpackedSize` on empty `gtmode_race_dev`). Note: `GT2DataExploder/main.cpp` halved this field (`numShorts / 2`), which only worked on `gtmode_data` because trailing pairs `31..61` are all `(0, 0)`. | **E3** |
+| `0x08` | `pairCount * 8` B | `GtdtPair[]` | Sequential `{ uint32 LE offset, uint32 LE size }` records; unused slots store `(0, 0)` | **E3** |
+
+### 3. `(<region>_)?gtmode_data.dat.gz` 31-Table Layout (`pairCount = 62`, **E3**)
+
+Slots `0..30` are packed contiguously (`gap = 0` between adjacent tables, `finalEnd === unpackedSize` for `7/7` variants), while slots `31..61` are `(0, 0)` across all `7/7` variants. Every named `structs.h` table passes `size % elementSize === 0` with `0` remainder mismatches across all `7` regional variants (`621` PAL / `618` USA / `613` JP cars; `CarDimensions`, `CarEngineData`, `CarDrivetrain`, and `CarData` match car counts `1:1`; `CarTyres` and `CarRearTyres` match `4720` / `4696` / `4661`):
+
+| Index | Table Name (`structs.h`) | Element Size | Record Count (PAL / USA / JP) | Confidence |
+| --- | --- | --- | --- | --- |
+| `0` | `CarBrakes` | `0x0C` (12 B) | `1149` / `1142` / `1133` | **E3** |
+| `1` | `CarBrakeBalanceController` | `0x10` (16 B) | `534` / `531` / `526` | **E3** |
+| `2` | `unk_section_02` (`ParseNothing`) | `null` (24 B total) | `null` | **E0** (`steering` hint in `structs.h` **E1**) |
+| `3` | `CarDimensions` | `0x14` (20 B) | `621` / `618` / `613` | **E3** |
+| `4` | `CarWeightReduction` | `0x0C` (12 B) | `1606` / `1597` / `1582` | **E3** |
+| `5` | `CarRacingModification` | `0x1C` (28 B) | `1056` / `1051` / `1041` | **E3** |
+| `6` | `CarEngineData` | `0x4C` (76 B) | `621` / `618` / `613` | **E3** |
+| `7` | `CarPortGrinding` | `0x0C` (12 B) | `529` / `526` / `521` | **E3** |
+| `8` | `CarEngineBalancing` | `0x0C` (12 B) | `529` / `526` / `521` | **E3** |
+| `9` | `CarDisplacementIncrease` | `0x0C` (12 B) | `29` / `29` / `29` | **E3** |
+| `10` | `CarChip` | `0x0C` (12 B) | `529` / `526` / `521` | **E3** |
+| `11` | `CarNATuning` | `0x0C` (12 B) | `615` / `612` / `600` | **E3** |
+| `12` | `CarTurboTuning` | `0x14` (20 B) | `1166` / `1158` / `1153` | **E3** |
+| `13` | `CarDrivetrain` | `0x10` (16 B) | `621` / `618` / `613` | **E3** |
+| `14` | `CarFlywheel` | `0x0C` (12 B) | `1579` / `1570` / `1555` | **E3** |
+| `15` | `CarClutch` | `0x10` (16 B) | `2199` / `2187` / `2167` | **E3** |
+| `16` | `CarPropShaft` | `0x0C` (12 B) | `308` / `306` / `301` | **E3** |
+| `17` | `CarGearbox` | `0x24` (36 B) | `2217` / `2205` / `2185` | **E3** |
+| `18` | `CarSuspension` | `0x4C` (76 B) | `2211` / `2199` / `2179` | **E3** |
+| `19` | `CarIntercooler` | `0x0C` (12 B) | `397` / `393` / `391` | **E3** |
+| `20` | `CarMuffler` | `0x0C` (12 B) | `1579` / `1570` / `1555` | **E3** |
+| `21` | `CarLSD` | `0x20` (32 B) | `2346` / `2331` / `2306` | **E3** |
+| `22` | `CarTyres` | `0x10` (16 B) | `4720` / `4696` / `4661` | **E3** |
+| `23` | `CarRearTyres` | `0x0C` (12 B) | `4720` / `4696` / `4661` | **E3** |
+| `24` | `unk_section_24` (`ParseNothing`) | `null` (868 B) | `null` | **E0** |
+| `25` | `unk_section_25` (`ParseNothing`) | `null` (1,280 B) | `null` | **E0** |
+| `26` | `unk_section_26` (`ParseNothing`) | `null` (8 B) | `null` | **E0** |
+| `27` | `unk_section_27` (`ParseNothing`) | `null` (48 B) | `null` | **E0** |
+| `28` | `unk_section_28` (`ParseNothing`) | `null` (48 B) | `null` | **E0** |
+| `29` | `unk_section_29` (`ParseNothing`) | `null` (1,576 B) | `null` | **E0** |
+| `30` | `CarData` | `0x48` (72 B) | `621` / `618` / `613` | **E3** |
+
+### 4. Other `GTDT` Families (`gtmode_race`, `license_data`, `arcade_data`, `*_dev`)
+
+- **`(<region>_)?gtmode_race.dat.gz` (`pairCount = 6`, **E3**):**
+  - `[0]` `RaceInfo` (`0x9C` / 156 B, `248` races across `7/7` variants).
+  - `[1]` `OpponentInfo` (`0x60` / 96 B, `1,228` PAL / `1,220` USA / `1,210` JP).
+  - `[2]` `RestrictedCars` (`0x80` / 128 B fixed blocks of `int32[32]`, `94` blocks across `7/7` variants).
+  - `[3]` `RaceStrings` (`2,670 B` across `7/7` variants, `offset + size === unpackedSize`; variable-length length-prefixed ASCII strings).
+  - `[4..5]` empty `(0, 0)`.
+- **`(<region>_)?license_data.dat.gz` (`pairCount = 64`):** slots `0..29` match the exact same 30 part struct sizes as `gtmode_data` (`0` mismatches); slot `[30]` is `LicenseTestInfo` (`0x9C` / 156 B, `60` entries), `[31]` is `OpponentInfo` (`0x60` / 96 B, `53` entries), `[62]` is a `876 B` string table ending at exact EOF (`36,432 B`), all other slots `(0, 0)`.
+- **`(<region>_)?arcade_data.dat.gz` (`pairCount = 68`):** slots `0..29` match the exact same 30 part struct sizes (`0` mismatches); slots `[30..33]` hold arcade tables (`2,340 B`, `3,648 B`, `3,780 B`, `3,780 B`), `[64]` holds an `86 B` string table ending at exact EOF (`41,250 B`).
+- **`*_dev.dat.gz` (`2` files):** single-half `pairCount` (`31` / `3`) storing developer ASCII part codes (e.g., length-prefixed part name strings) rather than binary car structs.
+
+### 5. `WSDB` (`(<region>_)unistrdb.dat.gz`) Header Summary (**E3** header / M5.4 deferred)
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `fileSize`: exact unpacked byte length (`7/7` verified) | **E3** |
+| `0x04` | 4 B | `char[4]` | Magic `"WSDB"` (`57 53 44 42`) | **E3** |
+| `0x08` | 2 B | `uint16` LE | `numStrings` (`846` PAL, `851` USA, `764` JP) | **E3** |
+| `0x0A` | variable | `uint16 len + UTF-16LE chars + 0x0000` | Wide-string records (exact decoder & encoding verification deferred to M5.4) | **E2** |
