@@ -11,7 +11,14 @@ import {
   type Ps1RenderOptions,
   type WebGL2Ps1Context,
 } from './ps1Pipeline';
-import { type GpuResourceCounts, addResourceCounts } from './types';
+import {
+  EMPTY_GPU_RESOURCE_COUNTS,
+  type GlErrorStatus,
+  type GpuResourceCounts,
+  type WebGL2ErrorContext,
+  addResourceCounts,
+  pollGlError,
+} from './types';
 
 export type RenderMode = 'hd' | 'ps1';
 
@@ -312,34 +319,20 @@ export class CarRenderer {
     this.hdTextureDirty = false;
   }
 
+  public pollGlError(): GlErrorStatus {
+    return pollGlError(this.gl as unknown as WebGL2ErrorContext);
+  }
+
   public getResourceCounts(): GpuResourceCounts {
+    if (this.disposed) {
+      return EMPTY_GPU_RESOURCE_COUNTS;
+    }
     return addResourceCounts(
       this.ps1Pipeline.getResourceCounts(),
       this.hdPipeline.getResourceCounts(),
-      this.mesh?.getResourceCounts() ?? {
-        programs: 0,
-        vaos: 0,
-        buffers: 0,
-        textures: 0,
-        framebuffers: 0,
-        renderbuffers: 0,
-      },
-      {
-        programs: 0,
-        vaos: 0,
-        buffers: 0,
-        textures: this.ps1Texture !== null ? 2 : 0,
-        framebuffers: 0,
-        renderbuffers: 0,
-      },
-      this.hdTexture?.getResourceCounts() ?? {
-        programs: 0,
-        vaos: 0,
-        buffers: 0,
-        textures: 0,
-        framebuffers: 0,
-        renderbuffers: 0,
-      },
+      this.mesh?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
+      this.ps1Texture?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
+      this.hdTexture?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
     );
   }
 

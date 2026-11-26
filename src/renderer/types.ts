@@ -48,3 +48,64 @@ export function addResourceCounts(...counts: readonly GpuResourceCounts[]): GpuR
     renderbuffers,
   };
 }
+
+export interface WebGL2ErrorContext {
+  readonly NO_ERROR?: number;
+  getError?(): number;
+}
+
+export interface GlErrorStatus {
+  readonly code: number;
+  readonly name: string;
+  readonly hasError: boolean;
+}
+
+export const GL_NO_ERROR_CODE = 0x0000;
+
+const GL_ERROR_NAMES: Readonly<Record<number, string>> = {
+  0x0000: 'NO_ERROR',
+  0x0500: 'INVALID_ENUM',
+  0x0501: 'INVALID_VALUE',
+  0x0502: 'INVALID_OPERATION',
+  0x0505: 'OUT_OF_MEMORY',
+  0x0506: 'INVALID_FRAMEBUFFER_OPERATION',
+  0x9242: 'CONTEXT_LOST_WEBGL',
+};
+
+export function formatGlErrorCode(code: number): string {
+  return GL_ERROR_NAMES[code] ?? `0x${code.toString(16).toUpperCase().padStart(4, '0')}`;
+}
+
+/**
+ * Polls `gl.getError()` safely (draining up to 8 queued flags and returning the first error,
+ * or `NO_ERROR` when `getError` is absent on minimal unit-test mocks).
+ */
+export function pollGlError(gl: WebGL2ErrorContext): GlErrorStatus {
+  if (typeof gl.getError !== 'function') {
+    return {
+      code: GL_NO_ERROR_CODE,
+      name: 'NO_ERROR',
+      hasError: false,
+    };
+  }
+  const noError = gl.NO_ERROR ?? GL_NO_ERROR_CODE;
+  const firstCode = gl.getError();
+  if (firstCode === noError) {
+    return {
+      code: noError,
+      name: formatGlErrorCode(noError),
+      hasError: false,
+    };
+  }
+  // Drain remaining queued errors so subsequent frames start clean (capped to avoid infinite loop on mock).
+  for (let i = 0; i < 7; i += 1) {
+    if (gl.getError() === noError) {
+      break;
+    }
+  }
+  return {
+    code: firstCode,
+    name: formatGlErrorCode(firstCode),
+    hasError: true,
+  };
+}

@@ -20,8 +20,13 @@ export {
 } from './indexedTexture';
 export {
   EMPTY_GPU_RESOURCE_COUNTS,
+  GL_NO_ERROR_CODE,
+  type GlErrorStatus,
   type GpuResourceCounts,
+  type WebGL2ErrorContext,
   addResourceCounts,
+  formatGlErrorCode,
+  pollGlError,
 } from './types';
 export {
   ShaderCompileError,

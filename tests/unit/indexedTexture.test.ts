@@ -251,8 +251,18 @@ describe('uploadIndexedTexture (M4.9)', () => {
       expect(params?.[mock.gl.TEXTURE_WRAP_T]).toBe(mock.gl.CLAMP_TO_EDGE);
     }
 
+    expect(handle.getResourceCounts()).toEqual({
+      programs: 0,
+      vaos: 0,
+      buffers: 0,
+      textures: 2,
+      framebuffers: 0,
+      renderbuffers: 0,
+    });
+
     handle.dispose();
     expect(mock.deletedTextures).toEqual([handle.indexTex, handle.paletteTex]);
+    expect(handle.getResourceCounts().textures).toBe(0);
     handle.dispose(); // idempotent
     expect(mock.deletedTextures).toHaveLength(2);
   });

@@ -14,7 +14,12 @@ import {
   DEFAULT_PS1_HEIGHT,
   DEFAULT_PS1_WIDTH,
 } from './ps1Math';
-import { EMPTY_GPU_RESOURCE_COUNTS, type GpuResourceCounts } from './types';
+import {
+  EMPTY_GPU_RESOURCE_COUNTS,
+  GL_NO_ERROR_CODE,
+  type GlErrorStatus,
+  type GpuResourceCounts,
+} from './types';
 
 export type CarLodSelection = 'auto' | 0 | 1 | 2;
 
@@ -53,6 +58,8 @@ export interface CarViewerRafScheduler {
 export interface CarViewerDebugStats {
   readonly fps: number;
   readonly gpuResources: GpuResourceCounts;
+  readonly glError: GlErrorStatus;
+  readonly glErrorCount: number;
   readonly cacheStats: AssetRepositoryCacheStats;
 }
 
@@ -188,6 +195,12 @@ export class CarViewerSession {
   private fpsWindowStartMs = 0;
   private fpsFrameCount = 0;
   private currentFps = 0;
+  private lastGlError: GlErrorStatus = {
+    code: GL_NO_ERROR_CODE,
+    name: 'NO_ERROR',
+    hasError: false,
+  };
+  private glErrorCount = 0;
 
   private readonly activePointers = new Map<number, { x: number; y: number }>();
 
@@ -513,6 +526,15 @@ export class CarViewerSession {
         drawOrderMode: this.ps1OrderingTable ? 'ordering-table-experimental' : 'zbuffer',
       },
     });
+
+    const polledError = this.renderer.pollGlError();
+    if (polledError.hasError && !(this.contextLost && polledError.code === 0x9242)) {
+      this.lastGlError = polledError;
+      this.glErrorCount += 1;
+      this.emitDebugStats();
+    } else if (this.lastGlError.hasError && !polledError.hasError) {
+      this.lastGlError = polledError;
+    }
   }
 
   public getGpuResourceCounts(): GpuResourceCounts {
@@ -550,6 +572,8 @@ export class CarViewerSession {
     return {
       fps: this.currentFps,
       gpuResources: this.getGpuResourceCounts(),
+      glError: this.lastGlError,
+      glErrorCount: this.glErrorCount,
       cacheStats: this.assetRepository.getCacheStats(),
     };
   }

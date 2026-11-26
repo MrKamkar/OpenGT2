@@ -361,6 +361,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   let wireframeCheck: HTMLInputElement | null = null;
   let debugFpsEl: HTMLElement | null = null;
   let debugGpuEl: HTMLElement | null = null;
+  let debugGlErrorEl: HTMLElement | null = null;
   let debugCacheEl: HTMLElement | null = null;
 
   if (debugMode) {
@@ -385,6 +386,9 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     debugGpuEl = el('dd', undefined, '0');
     debugGpuEl.dataset['testid'] = 'viewer-debug-gpu';
 
+    debugGlErrorEl = el('dd', undefined, 'NO_ERROR (0x0000)');
+    debugGlErrorEl.dataset['testid'] = 'viewer-debug-gl-error';
+
     debugCacheEl = el('dd', undefined, '0/16 (0 hits)');
     debugCacheEl.dataset['testid'] = 'viewer-debug-cache';
 
@@ -393,6 +397,8 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
       debugFpsEl,
       el('dt', undefined, 'GPU'),
       debugGpuEl,
+      el('dt', undefined, 'gl.getError()'),
+      debugGlErrorEl,
       el('dt', undefined, 'Cache'),
       debugCacheEl,
     );
@@ -609,6 +615,14 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     if (debugGpuEl !== null) {
       const g = stats.gpuResources;
       debugGpuEl.textContent = `P:${String(g.programs)} V:${String(g.vaos)} B:${String(g.buffers)} T:${String(g.textures)} F:${String(g.framebuffers)} R:${String(g.renderbuffers)}`;
+    }
+    if (debugGlErrorEl !== null) {
+      const hex = `0x${stats.glError.code.toString(16).toUpperCase().padStart(4, '0')}`;
+      debugGlErrorEl.textContent =
+        stats.glErrorCount > 0
+          ? `${stats.glError.name} (${hex}) [${String(stats.glErrorCount)}]`
+          : `${stats.glError.name} (${hex})`;
+      debugGlErrorEl.classList.toggle('is-error', stats.glError.hasError);
     }
     if (debugCacheEl !== null) {
       const c = stats.cacheStats;

@@ -5,6 +5,7 @@ import {
   type Ps1ColorDecodeOptions,
   ps1Color15ToRgba,
 } from '../formats/ps1';
+import { EMPTY_GPU_RESOURCE_COUNTS, type GpuResourceCounts } from './types';
 
 /** @evidence E2 — WebGL2 `paletteTex` width per ROADMAP Appendix B.3. */
 export const INDEXED_TEXTURE_PALETTE_WIDTH = 256;
@@ -60,6 +61,7 @@ export interface IndexedTextureHandle {
   readonly width: number;
   readonly height: number;
   readonly paletteCount: number;
+  getResourceCounts(): GpuResourceCounts;
   dispose(): void;
 }
 
@@ -243,6 +245,19 @@ export function uploadIndexedTexture(
     width: prepared.width,
     height: prepared.height,
     paletteCount: prepared.paletteCount,
+    getResourceCounts(): GpuResourceCounts {
+      if (disposed) {
+        return EMPTY_GPU_RESOURCE_COUNTS;
+      }
+      return {
+        programs: 0,
+        vaos: 0,
+        buffers: 0,
+        textures: 2,
+        framebuffers: 0,
+        renderbuffers: 0,
+      };
+    },
     dispose(): void {
       if (disposed) {
         return;
