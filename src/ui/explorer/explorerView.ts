@@ -3,6 +3,7 @@ import type { VolEntry, VolInfo } from '../../formats/vol';
 import { parseHexHash } from '../../tools/hexview';
 import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
 import { type ScanEntryFn, mountScannerPanel } from '../tools/scannerPanel';
+import { mountAnalyzerPanel } from '../tools/analyzerPanel';
 import {
   ALL_FILES_SCOPE,
   type ExplorerIndex,
@@ -603,16 +604,19 @@ function mountExplorer(
         ? { ...item.entry, isGzip: statCache.getGzipState(path) === 'gzip' }
         : null;
     scannerPanel?.setEntry(currentSnapshot);
+    analyzerPanel.setEntry(currentSnapshot);
     renderDetails();
     void statCache.ensure(path).then(
       () => {
         if (selectedPath === path) {
           const refreshed = entryByPath.get(path);
           if (refreshed !== undefined && refreshed.entry.kind === 'file') {
-            scannerPanel?.setEntry({
+            const refreshedSnapshot: VolEntry = {
               ...refreshed.entry,
               isGzip: statCache.getGzipState(path) === 'gzip',
-            });
+            };
+            scannerPanel?.setEntry(refreshedSnapshot);
+            analyzerPanel.setEntry(refreshedSnapshot);
           }
           renderDetails();
         }
@@ -659,6 +663,11 @@ function mountExplorer(
           },
         })
       : null;
+
+  const analyzerPanel = mountAnalyzerPanel({
+    container: workbench,
+    source,
+  });
 
   const applyHashRoute = (): void => {
     const parsed = parseHexHash(window.location.hash);
@@ -729,6 +738,7 @@ function mountExplorer(
       statCache.dispose();
       hexPanel.dispose();
       scannerPanel?.dispose();
+      analyzerPanel.dispose();
       list.removeEventListener('scroll', onScroll);
       rowsLayer.removeEventListener('click', onRowsClick);
       searchInput.removeEventListener('input', onSearchInput);
