@@ -2,6 +2,8 @@ import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Download, type Page } from '@playwright/test';
 import { gzipSync } from 'fflate';
+import { buildGm, buildIdxContainer } from '../fixtures/buildGtimg';
+import { buildTim } from '../fixtures/buildTim';
 import { buildSyntheticVol, deterministicPayload } from '../fixtures/buildVol';
 
 function buildPageUrl(baseURL: string, query?: string): string {
@@ -636,6 +638,174 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
       (node) => window.getComputedStyle(node).imageRendering,
     );
     expect(imageRendering).toBe('pixelated');
+
+    // Main WebGL2 canvas remains untouched (ready and empty)
+    await expect(appRoot).toHaveAttribute('data-webgl2', 'ready');
+
+    assertCleanMonitors(monitors);
+  });
+
+  test('supports M4.6–M4.8 2D image viewer, CLUT switch, GM container, lazy thumbnail gallery, and PNG export without console.error', async ({
+    page,
+    baseURL,
+  }) => {
+    expect(baseURL).toBeTruthy();
+    const monitors = attachErrorMonitors(page);
+
+    // 1. 4 bpp TIM (4x2) with 2 CLUT palettes: pal0[1]=red, pal1[1]=green
+    const timMultiClut = buildTim({
+      pixelMode: 0,
+      clutPalettes: [
+        [0x0000, 0x001f],
+        [0x0000, 0x03e0],
+      ],
+      imageVramWidth: 1,
+      imageHeight: 2,
+      pixelData: new Uint8Array([0x01, 0x00, 0x00, 0x00]),
+    });
+
+    // 2. .tim.gz with doubled img.bnum quirk
+    const timQuirkGz = gzipSync(
+      buildTim({
+        pixelMode: 0,
+        clutPalettes: [[0x8000, 0x7c00]],
+        imageVramWidth: 1,
+        imageHeight: 2,
+        pixelData: new Uint8Array([0x11, 0x00, 0x00, 0x00]),
+        doubleImgBnumQuirk: true,
+      }),
+      { mtime: 0 },
+    );
+
+    // 3. Synthetic GM .idx + .dat container (2 entries, mangled-4)
+    const gmSheet = new Uint8Array(2048);
+    gmSheet[0] = 0x11;
+    const gm0 = buildGm({
+      positions: [{ kind: 'solid', tileX: 0, tileY: 0, tileIndexOrColor: 0x001f, solidFlags: 1 }],
+      palettes: [
+        [0x0000, 0x001f],
+        [0x0000, 0x03e0],
+      ],
+      tileCount: 1,
+      packedPixelBytes: gmSheet,
+    });
+    const gm1 = buildGm({
+      positions: [{ kind: 'solid', tileX: 0, tileY: 0, tileIndexOrColor: 0x7c00, solidFlags: 1 }],
+      palettes: [[0x0000, 0x7c00]],
+      tileCount: 1,
+    });
+    const gmBundle = buildIdxContainer([gm0, gm1], 'mangled-4', { gzipMembers: true });
+
+    const m4Vol = buildSyntheticVol([
+      {
+        kind: 'dir',
+        name: 'ui',
+        unixTime: 945_000_010,
+        children: [
+          { kind: 'file', name: 'multi_clut.tim', data: timMultiClut, unixTime: 945_000_020 },
+          { kind: 'file', name: 'quirk.tim.gz', data: timQuirkGz, unixTime: 945_000_030 },
+          { kind: 'file', name: 'menu_table.idx', data: gmBundle.idx, unixTime: 945_000_040 },
+          { kind: 'file', name: 'menu_fg.dat', data: gmBundle.dat, unixTime: 945_000_050 },
+        ],
+      },
+      { kind: 'dir', name: 'empty', unixTime: 945_000_060, children: [] },
+    ]);
+
+    await page.goto(buildPageUrl(baseURL ?? 'http://127.0.0.1:4173/'), {
+      waitUntil: 'load',
+    });
+
+    const appRoot = page.locator('#app');
+    await expect(appRoot).toHaveAttribute('data-worker', 'ready', { timeout: 10_000 });
+
+    await page.locator('[data-testid="file-input"]').setInputFiles({
+      name: 'SYNTHETIC_M4.VOL',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from(m4Vol.bytes),
+    });
+
+    const archivePanel = page.locator('[data-testid="archive-panel"]');
+    await expect(archivePanel).toHaveAttribute('data-vol-state', 'ready', { timeout: 15_000 });
+
+    await page.locator('[data-testid="tree-dir"][data-path="ui"]').click();
+
+    // Open multi_clut.tim in M4.6 viewer
+    await page.locator('[data-testid="explorer-row"][data-path="ui/multi_clut.tim"]').click();
+    const viewerCanvas = page.locator('[data-testid="image-viewer-canvas"]');
+    await expect(viewerCanvas).toHaveAttribute('data-rendered-width', '4', { timeout: 10_000 });
+    await expect(viewerCanvas).toHaveAttribute('data-rendered-height', '2');
+
+    const imgRendering = await viewerCanvas.evaluate(
+      (node) => window.getComputedStyle(node).imageRendering,
+    );
+    expect(imgRendering).toBe('pixelated');
+
+    const readFirstPixel = () =>
+      viewerCanvas.evaluate((node) => {
+        const c = node as HTMLCanvasElement;
+        const ctx = c.getContext('2d');
+        return ctx ? Array.from(ctx.getImageData(0, 0, 1, 1).data) : null;
+      });
+
+    expect(await readFirstPixel()).toEqual([255, 0, 0, 255]);
+
+    // Switch CLUT palette 0 -> 1 and verify rendered pixels update
+    await page.locator('[data-testid="image-palette-select"]').selectOption('1');
+    await expect(viewerCanvas).toHaveAttribute('data-palette-index', '1', { timeout: 5_000 });
+    expect(await readFirstPixel()).toEqual([0, 255, 0, 255]);
+
+    // M4.8 local PNG export
+    const pngDownloadPromise = page.waitForEvent('download');
+    await page.locator('[data-testid="image-export-png"]').click();
+    const pngDownload = await pngDownloadPromise;
+    expect(pngDownload.suggestedFilename()).toBe('multi_clut_pal01.png');
+    const pngPath = await pngDownload.path();
+    expect(pngPath).toBeTruthy();
+    const pngBytes = new Uint8Array(await readFile(pngPath as string));
+    expect(Array.from(pngBytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
+
+    // Verify .tim.gz quirk warning
+    await page.locator('[data-testid="explorer-row"][data-path="ui/quirk.tim.gz"]').click();
+    await expect(page.locator('[data-testid="image-viewer-warnings"]')).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(page.locator('[data-testid="image-viewer-warnings"]')).toContainText('bnum');
+
+    // Open GM .dat container, verify auto-paired .idx, entry navigation #0 -> #1, and tileSheet mode
+    await page.locator('[data-testid="explorer-row"][data-path="ui/menu_fg.dat"]').click();
+    await expect(viewerCanvas).toHaveAttribute('data-rendered-width', '512', { timeout: 10_000 });
+    await expect(viewerCanvas).toHaveAttribute('data-rendered-height', '504');
+    await expect(page.locator('[data-testid="image-meta-container"]')).toContainText(
+      'menu_table.idx',
+    );
+    expect(await readFirstPixel()).toEqual([255, 0, 0, 255]);
+
+    await page.locator('[data-testid="image-entry-next"]').click();
+    await expect(viewerCanvas).toHaveAttribute('data-entry-index', '1', { timeout: 5_000 });
+    expect(await readFirstPixel()).toEqual([0, 0, 255, 255]);
+
+    await page.locator('[data-testid="image-entry-prev"]').click();
+    await expect(viewerCanvas).toHaveAttribute('data-entry-index', '0', { timeout: 5_000 });
+    await page.locator('[data-testid="image-view-mode-select"]').selectOption('tileSheet');
+    await expect(viewerCanvas).toHaveAttribute('data-rendered-height', '8', { timeout: 5_000 });
+    await expect(page.locator('[data-testid="image-palette-select"]')).toBeEnabled();
+
+    // M4.7 lazy thumbnail gallery
+    await page.locator('[data-testid="explorer-view-gallery"]').click();
+    await expect(page.locator('[data-testid="thumbnail-gallery"]')).toBeVisible();
+    const timCard = page.locator('[data-testid="gallery-card"][data-path="ui/multi_clut.tim"]');
+    await expect(timCard).toHaveAttribute('data-thumb-state', 'ready', { timeout: 10_000 });
+    await timCard.click();
+    await expect(viewerCanvas).toHaveAttribute('data-rendered-width', '4', { timeout: 5_000 });
+
+    // All <input>, <select>, and <textarea> have non-empty id & name
+    const missingIds = await page.evaluate(() => {
+      const nodes = [...document.querySelectorAll('input, select, textarea')];
+      return nodes
+        .filter((node) => !node.id || !node.getAttribute('name'))
+        .map((node) => node.outerHTML);
+    });
+    expect(missingIds).toEqual([]);
 
     // Main WebGL2 canvas remains untouched (ready and empty)
     await expect(appRoot).toHaveAttribute('data-webgl2', 'ready');
