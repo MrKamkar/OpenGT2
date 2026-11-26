@@ -41,3 +41,11 @@ export {
   decodeCarEngineDataTable,
   type CarEngineData,
 } from './carEngineData';
+
+export {
+  CAR_GEARBOX_SIZE,
+  CAR_GEARBOX_UNK_0X0A_LENGTH,
+  decodeCarGearbox,
+  decodeCarGearboxTable,
+  type CarGearbox,
+} from './carGearbox';

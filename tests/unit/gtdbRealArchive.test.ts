@@ -6,11 +6,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   CAR_ENGINE_BAND_COUNT,
   CAR_ENGINE_BASE_UNITS_LENGTH,
+  CAR_GEARBOX_UNK_0X0A_LENGTH,
   GTMODE_DATA_TABLE_COUNT,
   GTMODE_RACE_TABLE_COUNT,
   GTMODE_RACE_TABLE_SPECS,
   decodeCarDimensionsTable,
   decodeCarEngineDataTable,
+  decodeCarGearboxTable,
   findGtdbEntries,
   getGtdbTable,
   isGtdtMagic,
@@ -110,6 +112,7 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
       const dimensions = getGtdbTable(layout, 'CarDimensions');
       const engines = getGtdbTable(layout, 'CarEngineData');
       const drivetrains = getGtdbTable(layout, 'CarDrivetrain');
+      const gearboxes = getGtdbTable(layout, 'CarGearbox');
       const frontTyres = getGtdbTable(layout, 'CarTyres');
       const rearTyres = getGtdbTable(layout, 'CarRearTyres');
 
@@ -158,6 +161,21 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         expect(row.bandPointCount).toBeGreaterThanOrEqual(1);
         expect(row.bandPointCount).toBeLessThanOrEqual(CAR_ENGINE_BAND_COUNT);
       }
+
+      if (gearboxes === undefined) {
+        throw new Error('Missing CarGearbox table slice');
+      }
+      const decodedGearboxes = decodeCarGearboxTable(unpacked, gearboxes);
+      expect(decodedGearboxes).toHaveLength(gearboxes.count ?? 0);
+      expect(new Set(decodedGearboxes.map((row) => row.carId))).toEqual(dimIds);
+      for (const row of decodedGearboxes) {
+        expect(row.price).toBeGreaterThanOrEqual(0);
+        expect(row.type).toBeGreaterThanOrEqual(0);
+        expect(row.type).toBeLessThanOrEqual(3);
+        expect(row.finalGear).toBeGreaterThanOrEqual(1000);
+        expect(row.finalGear).toBeLessThanOrEqual(10000);
+        expect(row.unk_0x0a.byteLength).toBe(CAR_GEARBOX_UNK_0X0A_LENGTH);
+      }
     }
 
     for (const match of discovered.gtmodeRace) {
@@ -179,5 +197,5 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
       const raceStrings = getGtdbTable(layout, 'RaceStrings');
       expect((raceStrings?.offset ?? 0) + (raceStrings?.size ?? 0)).toBe(unpacked.byteLength);
     }
-  });
+  }, 60_000);
 });
