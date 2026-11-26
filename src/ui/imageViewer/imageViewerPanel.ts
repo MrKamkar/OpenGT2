@@ -9,6 +9,7 @@ import type {
 import { TaskPriority } from '../../workers/WorkerPool';
 import { describeFileActionError } from '../explorer/fileActions';
 import { type ImageViewerZoom, clampEntryIndex, selectIdxCandidates } from './imageViewerModel';
+import { buildPngExportFilename, exportCanvasToPng } from './pngExport';
 
 export interface ImageDecodeRequestOptions {
   readonly entryIndex?: number;
@@ -184,7 +185,13 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
     zoomBar.append(btn);
   }
 
-  controls.append(entryNav, viewModeGroup, paletteGroup, transpGroup, zoomBar);
+  const exportBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Eksportuj PNG');
+  exportBtn.type = 'button';
+  exportBtn.dataset['testid'] = 'image-export-png';
+  exportBtn.disabled = true;
+  exportBtn.title = 'Zapisz aktualnie wyświetlany obraz w oryginalnej rozdzielczości 1:1 jako PNG';
+
+  controls.append(entryNav, viewModeGroup, paletteGroup, transpGroup, zoomBar, exportBtn);
 
   // Metadata list
   const metaList = el('dl', 'ogt2-meta-list ogt2-imgviewer-meta');
@@ -232,9 +239,11 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   let currentPaletteIndex = 0;
   let currentPaletteCount = 0;
   let currentViewMode: ImageViewMode = 'composed';
+  let currentSupportsTileSheet = false;
   let currentTransparency: TransparencyMode = 'transparent-zero';
   let renderedWidth = 0;
   let renderedHeight = 0;
+  let exportBusy = false;
   let disposed = false;
 
   const cancelActive = (): void => {
@@ -309,12 +318,14 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   const clearRenderedOutput = (): void => {
     renderedWidth = 0;
     renderedHeight = 0;
+    currentSupportsTileSheet = false;
     previewCanvas.width = 0;
     previewCanvas.height = 0;
     delete previewCanvas.dataset['renderedWidth'];
     delete previewCanvas.dataset['renderedHeight'];
     delete previewCanvas.dataset['paletteIndex'];
     delete previewCanvas.dataset['entryIndex'];
+    exportBtn.disabled = true;
     canvasBox.hidden = true;
     metaList.hidden = true;
     warningsList.hidden = true;
@@ -377,6 +388,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
         currentPaletteCount = result.paletteCount;
         currentPaletteIndex = result.paletteIndex;
         currentViewMode = result.viewMode;
+        currentSupportsTileSheet = result.supportsTileSheet;
 
         const ctx = previewCanvas.getContext('2d');
         if (ctx === null) {
@@ -395,6 +407,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
         previewCanvas.dataset['renderedHeight'] = String(result.height);
         previewCanvas.dataset['paletteIndex'] = String(result.paletteIndex);
         previewCanvas.dataset['entryIndex'] = String(result.entryIndex);
+        exportBtn.disabled = exportBusy;
         canvasBox.hidden = false;
         updateZoomUi();
 
@@ -542,6 +555,54 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
     onStateChange?.();
   };
 
+  const onExportPngClick = (): void => {
+    if (
+      disposed ||
+      exportBusy ||
+      currentEntry === null ||
+      renderedWidth <= 0 ||
+      renderedHeight <= 0
+    ) {
+      return;
+    }
+
+    const exportPath = currentEntry.path;
+    const filename = buildPngExportFilename({
+      entryPath: exportPath,
+      entryIndex: currentEntryIndex,
+      entryCount: currentEntryCount,
+      viewMode: currentViewMode,
+      paletteIndex: currentPaletteIndex,
+      paletteCount: currentPaletteCount,
+      supportsTileSheet: currentSupportsTileSheet,
+      transparencyMode: currentTransparency,
+    });
+
+    exportBusy = true;
+    exportBtn.disabled = true;
+    setError(null);
+
+    void exportCanvasToPng(previewCanvas, filename)
+      .then(() => {
+        if (!disposed && currentEntry?.path === exportPath) {
+          setStatus(
+            `Wyeksportowano lokalnie PNG 1:1 (${String(renderedWidth)}×${String(renderedHeight)} px): ${filename}`,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setError(describeFileActionError(error));
+        }
+      })
+      .finally(() => {
+        exportBusy = false;
+        if (!disposed) {
+          exportBtn.disabled = renderedWidth <= 0 || renderedHeight <= 0;
+        }
+      });
+  };
+
   const zoomHandlers: Array<readonly [HTMLButtonElement, () => void]> = [];
   for (const [factor, btn] of zoomButtons.entries()) {
     const handler = (): void => {
@@ -558,6 +619,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   viewModeSelect.addEventListener('change', onViewModeChange);
   paletteSelect.addEventListener('change', onPaletteChange);
   transpSelect.addEventListener('change', onTransparencyChange);
+  exportBtn.addEventListener('click', onExportPngClick);
   closeBtn.addEventListener('click', onCloseClick);
   updateZoomUi();
 
@@ -596,6 +658,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
       viewModeSelect.removeEventListener('change', onViewModeChange);
       paletteSelect.removeEventListener('change', onPaletteChange);
       transpSelect.removeEventListener('change', onTransparencyChange);
+      exportBtn.removeEventListener('click', onExportPngClick);
       closeBtn.removeEventListener('click', onCloseClick);
       for (const [btn, handler] of zoomHandlers) {
         btn.removeEventListener('click', handler);

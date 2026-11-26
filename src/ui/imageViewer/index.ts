@@ -33,3 +33,9 @@ export {
   type ThumbnailGalleryOptions,
   mountThumbnailGalleryPanel,
 } from './thumbnailGalleryPanel';
+export {
+  type PngCanvasSource,
+  type PngExportFilenameOptions,
+  buildPngExportFilename,
+  exportCanvasToPng,
+} from './pngExport';
