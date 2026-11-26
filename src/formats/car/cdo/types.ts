@@ -35,7 +35,33 @@ export const CDO_UNKNOWN_GAP_BYTES = 0x828;
 /** @evidence E2 — Fixed-point coordinate scale: 4096 raw units = 1 meter. */
 export const CDO_FIXED_POINT_SCALE = 4096;
 
-export type CdoErrorCode = 'TruncatedHeader' | 'InvalidMagic' | 'TruncatedBuffer';
+/** @evidence E3 — Offset of the LOD count (`uint32` LE) and subsequent LOD entries (`0x86C..`). */
+export const CDO_LOD_TABLE_OFFSET = 0x868;
+export const CDO_LOD_TABLE_ENTRIES_OFFSET = 0x86c;
+
+/** @evidence E3 — Standard LOD count in GT2 CDO/CNO files (`2,220 / 2,220` observed). */
+export const CDO_EXPECTED_LOD_COUNT = 3;
+
+/** @evidence E3 — Byte size of a single LOD directory entry (`zero` + `maxDistance` + `offset`). */
+export const CDO_LOD_TABLE_ENTRY_BYTES = 8;
+
+/** @evidence E3 — Default byte offset of LOD 0 immediately following a 3-entry LOD table (`0x86C + 3*8`). */
+export const CDO_LOD0_DEFAULT_OFFSET = 0x884;
+
+/** @evidence E3 — Fixed byte length of each LOD header (`0x50` bytes). */
+export const CDO_LOD_HEADER_BYTES = 0x50;
+
+/** @evidence E3 — Expected `sectionOffsets[0]` (`verticesOffset`) inside every LOD header (`0x50`). */
+export const CDO_EXPECTED_VERTICES_OFFSET = 0x50;
+
+/** @evidence E3 — Number of `uint32` LE RAM-pointer placeholders in each LOD header (`0x14..0x3B`). */
+export const CDO_LOD_SECTION_OFFSET_COUNT = 10;
+
+export type CdoErrorCode =
+  | 'TruncatedHeader'
+  | 'InvalidMagic'
+  | 'TruncatedBuffer'
+  | 'InvalidVerticesOffset';
 
 /**
  * Typed error raised when parsing or validating a CDO/CNO car model buffer.
@@ -44,6 +70,7 @@ export class CdoError extends Error {
   static readonly TruncatedHeader = 'TruncatedHeader' as const;
   static readonly InvalidMagic = 'InvalidMagic' as const;
   static readonly TruncatedBuffer = 'TruncatedBuffer' as const;
+  static readonly InvalidVerticesOffset = 'InvalidVerticesOffset' as const;
 
   readonly code: CdoErrorCode;
 
@@ -94,4 +121,67 @@ export interface CdoHeader {
     CdoWheelPosition,
     CdoWheelPosition,
   ];
+}
+
+/**
+ * Signed 4D `int16` coordinate vector (`x, y, z, w`) used for LOD/shadow bounding boxes (**E3**).
+ */
+export interface CdoVec4Int16 {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly w: number;
+}
+
+/**
+ * Axis-aligned 4D `int16` bounding box (`low` and `high` corners) (**E3**).
+ */
+export interface CdoBoundingBox {
+  readonly low: CdoVec4Int16;
+  readonly high: CdoVec4Int16;
+}
+
+/**
+ * Single 8-byte entry in the LOD table at `0x86C` (**E3**).
+ */
+export interface CdoLodTableEntry {
+  readonly zero: number;
+  readonly maxDistance: number;
+  /** @evidence E1 — Runtime RAM pointer placeholder in original files; ignored when reading sequentially. */
+  readonly offset: number;
+}
+
+/**
+ * Parsed LOD directory at `0x868` (`lodCount` + entries) (**E3**).
+ */
+export interface CdoLodTable {
+  readonly lodCount: number;
+  readonly entries: readonly CdoLodTableEntry[];
+  readonly nextOffset: number;
+}
+
+/**
+ * Parsed `0x50`-byte header of a single LOD block (**E3** counts/offsets/bbox, **E1** scale/zeroes, **E0** `unk_0x4e`).
+ */
+export interface CdoLodHeader {
+  readonly headerOffset: number;
+  readonly dataOffset: number;
+  readonly vertexCount: number;
+  readonly normalCount: number;
+  readonly triCount: number;
+  readonly quadCount: number;
+  /** @evidence E1 — Two `uint16` counters at `0x08..0x0B`, observed `0` across 6,660/6,660 LODs. */
+  readonly unk_0x08: readonly [number, number];
+  readonly uvTriCount: number;
+  readonly uvQuadCount: number;
+  /** @evidence E1 — `uint32` LE at `0x10..0x13`, observed `0` across 6,660/6,660 LODs. */
+  readonly unk_0x10: number;
+  /** @evidence E2 — 10 `uint32` RAM pointer slots (`0x14..0x3B`); do not rely on `[1..9]` for file seeking. */
+  readonly sectionOffsets: readonly number[];
+  readonly verticesOffset: number;
+  readonly boundingBox: CdoBoundingBox;
+  /** @evidence E1 — `uint16` LE at `0x4C`, observed `14..23`. */
+  readonly scale: number;
+  /** @evidence E0 — `uint16` LE at `0x4E`, scale-related value. */
+  readonly unk_0x4e: number;
 }
