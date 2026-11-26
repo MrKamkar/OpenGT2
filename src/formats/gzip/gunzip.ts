@@ -64,7 +64,7 @@ function buildCrc32Table(): Uint32Array {
   return table;
 }
 
-function computeCrc32(bytes: Uint8Array): number {
+export function computeCrc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
   for (let i = 0; i < bytes.byteLength; i += 1) {
     const byte = bytes[i] ?? 0;

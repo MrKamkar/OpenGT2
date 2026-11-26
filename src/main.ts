@@ -23,10 +23,13 @@ import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
 import { type ArchivePanelHandle, mountArchivePanel } from './ui/explorer/explorerView';
 import { describeVolOpenError, loadAllVolEntries } from './app/volArchiveSession';
 import { createHealthWorker } from './workers/createHealthWorker';
+import { createImageDecoderWorker } from './workers/createImageDecoderWorker';
 import { createScannerWorker } from './workers/createScannerWorker';
 import { createVolReaderWorker } from './workers/createVolReaderWorker';
+import type { ImageDecoderRpcSchema } from './workers/imageDecoderProtocol';
 import { ScannerRpcClient } from './workers/scannerProtocol';
 import { VolReaderRpcClient } from './workers/volReaderProtocol';
+import { TaskPriority, WorkerPool } from './workers/WorkerPool';
 import type { HealthPingMessage, HealthPongMessage } from './workers/health.worker';
 
 const MAX_INPUT_DT_SECONDS = 0.1;
@@ -106,6 +109,7 @@ export function initApp(): void {
   let selectionGeneration = 0;
   let volSession: VolReaderRpcClient | null = null;
   let scannerSession: ScannerRpcClient | null = null;
+  let imageDecoderPool: WorkerPool<ImageDecoderRpcSchema> | null = null;
   let archivePanel: ArchivePanelHandle | null = null;
 
   const closeVolSession = (): void => {
@@ -117,6 +121,10 @@ export function initApp(): void {
       scannerSession.dispose(true);
       scannerSession = null;
     }
+    if (imageDecoderPool !== null) {
+      imageDecoderPool.dispose();
+      imageDecoderPool = null;
+    }
   };
 
   const ensureScannerSession = (): ScannerRpcClient => {
@@ -124,6 +132,15 @@ export function initApp(): void {
       scannerSession = new ScannerRpcClient(createScannerWorker());
     }
     return scannerSession;
+  };
+
+  const ensureImageDecoderPool = (): WorkerPool<ImageDecoderRpcSchema> => {
+    if (imageDecoderPool === null) {
+      imageDecoderPool = new WorkerPool<ImageDecoderRpcSchema>({
+        createWorker: createImageDecoderWorker,
+      });
+    }
+    return imageDecoderPool;
   };
 
   /**
@@ -193,6 +210,42 @@ export function initApp(): void {
                   : {}),
               },
             );
+          },
+          imageDecoder: {
+            decodeImage: (entry, idxCandidates, decodeOptions) => {
+              if (typeof Worker === 'undefined') {
+                return Promise.reject(new Error('Przeglądarka nie obsługuje Web Workerów.'));
+              }
+              return ensureImageDecoderPool().exec(
+                'decodeImage',
+                {
+                  blob: file,
+                  entry: { path: entry.path, address: entry.address, size: entry.size },
+                  idxCandidates,
+                  ...(decodeOptions?.entryIndex !== undefined
+                    ? { entryIndex: decodeOptions.entryIndex }
+                    : {}),
+                  ...(decodeOptions?.paletteIndex !== undefined
+                    ? { paletteIndex: decodeOptions.paletteIndex }
+                    : {}),
+                  ...(decodeOptions?.transparencyMode !== undefined
+                    ? { transparencyMode: decodeOptions.transparencyMode }
+                    : {}),
+                  ...(decodeOptions?.viewMode !== undefined
+                    ? { viewMode: decodeOptions.viewMode }
+                    : {}),
+                  ...(decodeOptions?.maxThumbDimension !== undefined
+                    ? { maxThumbDimension: decodeOptions.maxThumbDimension }
+                    : {}),
+                },
+                {
+                  priority: decodeOptions?.priority ?? TaskPriority.Normal,
+                  ...(decodeOptions?.signal !== undefined
+                    ? { signal: decodeOptions.signal }
+                    : {}),
+                },
+              );
+            },
           },
         });
       })

@@ -60,3 +60,18 @@ export {
   ScannerRpcClient,
   type ScannerRpcSchema,
 } from './scannerProtocol';
+export { createImageDecoderWorker } from './createImageDecoderWorker';
+export {
+  type BindImageDecoderRpcOptions,
+  bindImageDecoderRpcServer,
+  type DecodeImageParams,
+  type DecodeImageResult,
+  type ImageDecoderRpcSchema,
+  ImageDecoderRpcClient,
+  type ImageFileSpan,
+  type ImageFormatKind,
+  type ImageViewMode,
+  MAX_IDX_FILE_BYTES,
+  MAX_MULTI_GZIP_CONTAINER_BYTES,
+  MAX_SINGLE_IMAGE_BYTES,
+} from './imageDecoderProtocol';

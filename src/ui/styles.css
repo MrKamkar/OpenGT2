@@ -1313,6 +1313,41 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.28);
 }
 
+/* ----- M4.6: 2D Image Viewer -------------------------------------------------------------- */
+
+.ogt2-imgviewer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.ogt2-imgviewer-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ogt2-imgviewer-group[hidden] {
+  display: none;
+}
+
+.ogt2-imgviewer-meta {
+  font-size: 0.8rem;
+  gap: 4px 12px;
+}
+
+.ogt2-imgviewer-meta[hidden] {
+  display: none;
+}
+
+.ogt2-imgviewer-canvas {
+  display: block;
+  image-rendering: pixelated;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
 @media (max-width: 1320px) {
   .ogt2-hex-body {
     grid-template-columns: minmax(0, 1fr);

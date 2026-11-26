@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync as zlibGunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { isGzipMagic } from '../../src/formats/gzip';
+import { extractMultiMemberGzip, isGzipMagic } from '../../src/formats/gzip';
 import { decodeTimToRgba, isTimMagic, parseTim, timToIndexedImage } from '../../src/formats/tim';
 import { VolReader } from '../../src/formats/vol';
 import {
@@ -227,6 +227,13 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL TIM parser verification (M4.3)', ()
 
             membersInContainer += 1;
             fileOffset += memberRes.engine.bytesWritten;
+          }
+
+          const browserMembers = extractMultiMemberGzip(compressed, { alignment: 2048 });
+          expect(browserMembers).toHaveLength(membersInContainer);
+          for (const member of browserMembers) {
+            const tim = parseTim(member.data);
+            expect(tim.bpp).toBe(16);
           }
         }
       }

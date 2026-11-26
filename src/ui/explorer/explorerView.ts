@@ -5,6 +5,11 @@ import {
 } from '../../formats/registry';
 import type { VolEntry, VolInfo } from '../../formats/vol';
 import { parseHexHash } from '../../tools/hexview';
+import {
+  type ImageDecoderService,
+  mountImageViewerPanel,
+  shouldAutoPreviewEntry,
+} from '../imageViewer';
 import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
 import { type ScanEntryFn, mountScannerPanel } from '../tools/scannerPanel';
 import { mountAnalyzerPanel } from '../tools/analyzerPanel';
@@ -49,6 +54,7 @@ export interface ArchiveExplorerSource extends HexDataSource {
   readonly readRaw: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
   readonly readDecompressed: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
   readonly scanEntry?: ScanEntryFn;
+  readonly imageDecoder?: ImageDecoderService;
 }
 
 export interface ArchivePanelHandle {
@@ -521,6 +527,22 @@ function mountExplorer(
     const actions = el('div', 'ogt2-details-actions');
     actions.dataset['testid'] = 'details-actions';
 
+    if (imageViewerPanel !== null) {
+      const imageBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Podgląd obrazu');
+      imageBtn.type = 'button';
+      imageBtn.dataset['testid'] = 'action-image-preview';
+      imageBtn.setAttribute('aria-expanded', String(imageViewerPanel.isOpenFor(entry.path)));
+      imageBtn.addEventListener('click', () => {
+        if (imageViewerPanel.isOpenFor(entry.path)) {
+          imageViewerPanel.close();
+        } else {
+          imageViewerPanel.openEntry(entry);
+        }
+        renderDetails();
+      });
+      actions.append(imageBtn);
+    }
+
     const hexButton = el('button', 'ogt2-button ogt2-button-subtle', 'Podgląd hex');
     hexButton.type = 'button';
     hexButton.dataset['testid'] = 'action-hex-preview';
@@ -634,6 +656,13 @@ function mountExplorer(
     structViewPanel.setEntry(currentSnapshot);
     blindImagePanel.setEntry(currentSnapshot);
     evidencePackPanel.setEntry(currentSnapshot);
+    if (imageViewerPanel !== null) {
+      if (currentSnapshot !== null && shouldAutoPreviewEntry(currentSnapshot)) {
+        imageViewerPanel.setEntry(currentSnapshot, false);
+      } else {
+        imageViewerPanel.setEntry(null);
+      }
+    }
     renderDetails();
     void statCache.ensure(path).then(
       () => {
@@ -649,6 +678,13 @@ function mountExplorer(
             structViewPanel.setEntry(refreshedSnapshot);
             blindImagePanel.setEntry(refreshedSnapshot);
             evidencePackPanel.setEntry(refreshedSnapshot);
+            if (
+              imageViewerPanel !== null &&
+              shouldAutoPreviewEntry(refreshedSnapshot) &&
+              !imageViewerPanel.isOpenFor(path)
+            ) {
+              imageViewerPanel.setEntry(refreshedSnapshot, false);
+            }
           }
           renderDetails();
         }
@@ -681,7 +717,21 @@ function mountExplorer(
     }
   };
 
-  // ----- Hex viewer, scanner & hash routing ----------------------------------------------------
+  // ----- Image viewer, hex viewer, scanner & hash routing -------------------------------------
+  const imageViewerPanel =
+    source.imageDecoder !== undefined
+      ? mountImageViewerPanel({
+          container: workbench,
+          decoder: source.imageDecoder,
+          allEntries: entries,
+          onStateChange(): void {
+            if (!disposed) {
+              renderDetails();
+            }
+          },
+        })
+      : null;
+
   const hexPanel = mountHexViewPanel({
     container: workbench,
     source,
@@ -809,6 +859,7 @@ function mountExplorer(
         statTimer = null;
       }
       statCache.dispose();
+      imageViewerPanel?.dispose();
       hexPanel.dispose();
       scannerPanel?.dispose();
       analyzerPanel.dispose();

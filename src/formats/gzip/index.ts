@@ -7,6 +7,14 @@ export {
   type GunzipOptions,
   GzipError,
   type GzipErrorCode,
+  computeCrc32,
   gunzip,
   isGzipMagic,
 } from './gunzip';
+export {
+  DEFAULT_MULTI_GZIP_ALIGNMENT,
+  DEFAULT_MULTI_GZIP_MAX_MEMBERS,
+  type GzipMember,
+  type MultiMemberGzipOptions,
+  extractMultiMemberGzip,
+} from './multiMember';
