@@ -57,6 +57,19 @@ export const CDO_EXPECTED_VERTICES_OFFSET = 0x50;
 /** @evidence E3 — Number of `uint32` LE RAM-pointer placeholders in each LOD header (`0x14..0x3B`). */
 export const CDO_LOD_SECTION_OFFSET_COUNT = 10;
 
+/** @evidence E3 — Byte size of a single CDO vertex (`int16 x, y, z, w`). */
+export const CDO_VERTEX_BYTES = 8;
+
+/** @evidence E3 — Byte size of a single packed CDO normal (`uint32`: 3×10-bit signed + 2 low bits). */
+export const CDO_NORMAL_BYTES = 4;
+
+/** @evidence E3 — Scale divisor for 10-bit signed packed normal components (`/ 500`). */
+export const CDO_NORMAL_SCALE = 500;
+
+/** @evidence E3 — Allowed unit-normal length range (`±5%`) for D.6 validation. */
+export const CDO_NORMAL_LENGTH_MIN = 0.95;
+export const CDO_NORMAL_LENGTH_MAX = 1.05;
+
 export type CdoErrorCode =
   | 'TruncatedHeader'
   | 'InvalidMagic'
@@ -184,4 +197,39 @@ export interface CdoLodHeader {
   readonly scale: number;
   /** @evidence E0 — `uint16` LE at `0x4E`, scale-related value. */
   readonly unk_0x4e: number;
+}
+
+/**
+ * Decoded vertex array for one LOD (`int16` raw precision for M7.2 `gl.SHORT` + meter conversion) (**E3**).
+ */
+export interface CdoVertexBlock {
+  readonly count: number;
+  /** Interleaved `[x, y, z, w, ...]` raw `int16` coordinates (`length = count * 4`). */
+  readonly rawInt16: Int16Array;
+  /** Interleaved `[x, y, z, ...]` positions converted to meters (`raw / 4096`, `length = count * 3`). */
+  readonly positionsMeters: Float32Array;
+  readonly nextOffset: number;
+}
+
+/**
+ * Single unpacked 10-bit signed normal vector scaled by `/ 500` (**E3**).
+ */
+export interface CdoUnpackedNormal {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** @evidence E0 — Low 2 bits (`bits 0..1`) of packed normal word, observed `0` across 945,187/945,187 normals. */
+  readonly rawLow2Bits: number;
+}
+
+/**
+ * Decoded normal array for one LOD (`3×10-bit` signed packed `uint32` words) (**E3**).
+ */
+export interface CdoNormalBlock {
+  readonly count: number;
+  readonly rawWords: Uint32Array;
+  /** Interleaved `[nx, ny, nz, ...]` unpacked vectors scaled by `/ 500` (`length = count * 3`). */
+  readonly vectors: Float32Array;
+  readonly nonZeroLow2BitsCount: number;
+  readonly nextOffset: number;
 }
