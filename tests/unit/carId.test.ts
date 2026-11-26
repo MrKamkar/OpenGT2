@@ -73,12 +73,29 @@ describe('carId <-> 5-char asset code mapping (M5.7)', () => {
     ];
 
     const index = buildCarAssetIndex(entries);
+    expect(index.indexedBodyCount).toBe(2);
+    expect(index.listCodes()).toEqual([codeA, codeB]);
+
     const resolvedA = index.resolve(idA);
     expect(resolvedA.code).toBe(codeA);
     expect(resolvedA.dayModel?.path).toBe(`carobj/${codeA}.cdo.gz`);
     expect(resolvedA.nightModel?.path).toBe(`carobj/${codeA}.cno.gz`);
     expect(resolvedA.dayTexture?.path).toBe(`carobj/${codeA}.cdp.gz`);
     expect(resolvedA.nightTexture?.path).toBe(`carobj/${codeA}.cnp.gz`);
+
+    const byCodeB = index.resolveByCode(codeB.toUpperCase());
+    expect(byCodeB.carId).toBe(idB);
+    expect(byCodeB.dayModel?.path).toBe(`carobj/${codeB.toUpperCase()}.CDO`);
+
+    const withBodies = index.resolveCarWithBodies(idA, [
+      { carId: idA, price: 0, rmBodyId: idA, unk_0x0c: new Uint8Array(16) },
+      { carId: idA, price: 75000, rmBodyId: idB, unk_0x0c: new Uint8Array(16) },
+      { carId: idA, price: 75000, rmBodyId: idB, unk_0x0c: new Uint8Array(16) },
+    ]);
+    expect(withBodies.stock.code).toBe(codeA);
+    expect(withBodies.racingBodies).toHaveLength(1);
+    expect(withBodies.racingBodies[0]?.code).toBe(codeB);
+    expect(withBodies.racingBodies[0]?.dayModel?.path).toBe(`carobj/${codeB.toUpperCase()}.CDO`);
 
     const resolvedB = resolveCarAssets(idB, entries);
     expect(resolvedB.code).toBe(codeB);

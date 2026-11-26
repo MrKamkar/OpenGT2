@@ -77,6 +77,14 @@ export {
 } from './carData';
 
 export {
+  CAR_RACING_MODIFICATION_SIZE,
+  CAR_RACING_MODIFICATION_UNK_0X0C_LENGTH,
+  decodeCarRacingModification,
+  decodeCarRacingModificationTable,
+  type CarRacingModification,
+} from './carRacingModification';
+
+export {
   WSDB_HEADER_SIZE,
   WSDB_MAGIC_BYTES,
   WSDB_MAGIC_LE,
@@ -112,4 +120,5 @@ export {
   resolveCarAssets,
   tryDecodeCarId,
   type ResolvedCarAssets,
+  type ResolvedCarWithBodies,
 } from './carId';

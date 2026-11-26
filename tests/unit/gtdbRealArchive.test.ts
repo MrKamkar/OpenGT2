@@ -18,6 +18,7 @@ import {
   decodeCarEngineDataTable,
   decodeCarGearboxTable,
   decodeCarId,
+  decodeCarRacingModificationTable,
   decodeCarRearTyresTable,
   decodeCarSuspensionTable,
   decodeCarTyresTable,
@@ -310,6 +311,9 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
     }
 
     const assetIndex = buildCarAssetIndex(reader.getAllEntries());
+    expect(assetIndex.indexedBodyCount).toBe(1110);
+    expect(assetIndex.listCodes()).toHaveLength(1110);
+
     const variants = pairGtdbRegionVariants(discovered);
     expect(variants).toHaveLength(7);
     expect(selectDefaultGtdbVariant(variants)?.id).toBe('eng');
@@ -321,6 +325,19 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         variant.gtmodeData.address + variant.gtmodeData.size,
       );
       const unpackedData = await gunzip(rawData);
+      const racingModSlice = getGtdbTable(parseGtdbLayout(unpackedData), 'CarRacingModification');
+      expect(racingModSlice?.count).toBeGreaterThan(0);
+      if (racingModSlice !== undefined) {
+        const rmRows = decodeCarRacingModificationTable(unpackedData, racingModSlice);
+        for (const rm of rmRows) {
+          const rmAssets = assetIndex.resolve(rm.rmBodyId);
+          expect(rmAssets.dayModel).not.toBeNull();
+          expect(rmAssets.nightModel).not.toBeNull();
+          expect(rmAssets.dayTexture).not.toBeNull();
+          expect(rmAssets.nightTexture).not.toBeNull();
+        }
+      }
+
       const unpackedStrings =
         variant.unistrdb !== null
           ? await gunzip(
@@ -353,6 +370,13 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         expect(assets.nightModel).not.toBeNull();
         expect(assets.dayTexture).not.toBeNull();
         expect(assets.nightTexture).not.toBeNull();
+
+        const withBodies = assetIndex.resolveCarWithBodies(car.carId, car.racingModifications);
+        expect(withBodies.stock.dayModel).toBe(assets.dayModel);
+        for (const rmBody of withBodies.racingBodies) {
+          expect(rmBody.dayModel).not.toBeNull();
+          expect(rmBody.dayTexture).not.toBeNull();
+        }
       }
     }
   }, 60_000);

@@ -5,6 +5,8 @@ import {
   CAR_ENGINE_BASE_UNITS_LENGTH,
   CAR_ENGINE_DATA_SIZE,
   CAR_GEARBOX_SIZE,
+  CAR_RACING_MODIFICATION_SIZE,
+  CAR_RACING_MODIFICATION_UNK_0X0C_LENGTH,
   CAR_REAR_TYRES_SIZE,
   CAR_SUSPENSION_SIZE,
   CAR_TYRES_SIZE,
@@ -198,6 +200,7 @@ export interface SyntheticGtmodeDataInput {
   readonly suspensions?: readonly import('../../src/formats/gtdb').CarSuspension[];
   readonly frontTyres?: readonly import('../../src/formats/gtdb').CarTyres[];
   readonly rearTyres?: readonly import('../../src/formats/gtdb').CarRearTyres[];
+  readonly racingModifications?: readonly import('../../src/formats/gtdb').CarRacingModification[];
 }
 
 /**
@@ -212,11 +215,33 @@ export function buildSyntheticGtmodeData(input: SyntheticGtmodeDataInput): Uint8
   const suspensions = input.suspensions ?? [];
   const frontTyres = input.frontTyres ?? [];
   const rearTyres = input.rearTyres ?? [];
+  const racingModifications = input.racingModifications ?? [];
+
+  const emptyTableNames = [
+    'CarBrakes',
+    'CarBrakeBalanceController',
+    'CarWeightReduction',
+    ...(racingModifications.length === 0 ? ['CarRacingModification'] : []),
+    'CarPortGrinding',
+    'CarEngineBalancing',
+    'CarDisplacementIncrease',
+    'CarChip',
+    'CarNATuning',
+    'CarTurboTuning',
+    'CarDrivetrain',
+    'CarFlywheel',
+    'CarClutch',
+    'CarPropShaft',
+    'CarIntercooler',
+    'CarMuffler',
+    'CarLSD',
+  ];
 
   const buf = buildValidGtdbForSpecs(
     GTMODE_DATA_TABLE_SPECS,
     {
       CarDimensions: dimensions.length,
+      CarRacingModification: racingModifications.length,
       CarEngineData: engines.length,
       CarGearbox: gearboxes.length,
       CarSuspension: suspensions.length,
@@ -226,25 +251,7 @@ export function buildSyntheticGtmodeData(input: SyntheticGtmodeDataInput): Uint8
     },
     {
       trailingEmptyPairs: 31,
-      emptyTableNames: [
-        'CarBrakes',
-        'CarBrakeBalanceController',
-        'CarWeightReduction',
-        'CarRacingModification',
-        'CarPortGrinding',
-        'CarEngineBalancing',
-        'CarDisplacementIncrease',
-        'CarChip',
-        'CarNATuning',
-        'CarTurboTuning',
-        'CarDrivetrain',
-        'CarFlywheel',
-        'CarClutch',
-        'CarPropShaft',
-        'CarIntercooler',
-        'CarMuffler',
-        'CarLSD',
-      ],
+      emptyTableNames,
     },
   );
 
@@ -268,6 +275,22 @@ export function buildSyntheticGtmodeData(input: SyntheticGtmodeDataInput): Uint8
     view.setUint8(base + 0x10, rec.rmWeightMultiplier);
     view.setUint8(base + 0x11, rec.unk_0x11);
     view.setUint16(base + 0x12, rec.unk_0x12, true);
+  }
+
+  const rmOff = readSlotOffset(5);
+  for (let i = 0; i < racingModifications.length; i += 1) {
+    const rec = racingModifications[i];
+    if (rec === undefined) {
+      continue;
+    }
+    const base = rmOff + i * CAR_RACING_MODIFICATION_SIZE;
+    view.setUint32(base + 0x00, rec.carId, true);
+    view.setInt32(base + 0x04, rec.price, true);
+    view.setUint32(base + 0x08, rec.rmBodyId, true);
+    buf.set(
+      rec.unk_0x0c.subarray(0, CAR_RACING_MODIFICATION_UNK_0X0C_LENGTH),
+      base + 0x0c,
+    );
   }
 
   const engOff = readSlotOffset(6);

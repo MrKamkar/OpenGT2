@@ -406,6 +406,15 @@ Important `structs.h` discrepancies resolved during M5.3:
 | `0x42` | 2 B | `uint16` LE | `unk_0x42` | `unk14` in `structs.h` (observed `0`) | **E0** |
 | `0x44` | 4 B | `uint32` LE | `newPrice` | New car price (`2800–2000000`) | **E3** |
 
+#### 5.7 `CarRacingModification` (`0x1C` / 28 B, slot `5`, **E3** structure)
+
+| Offset | Size | Type | Field | Notes / Meaning | Confidence |
+| --- | --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `carId` | Base car identifier (`1,049 / 1,056` match `CarData.carId` in PAL) | **E3** |
+| `0x04` | 4 B | `int32` LE | `price` | Racing modification price (`0–85000`; `621` rows with `0`) | **E3** |
+| `0x08` | 4 B | `uint32` LE | `rmBodyId` | 30-bit body asset identifier (`1,056 / 1,056` resolve in `carobj/`; `428` distinct from `carId`) | **E3** |
+| `0x0C` | 16 B | `uint8[16]` | `unk_0x0c` | Unverified trailing fields preserved raw | **E0** |
+
 ### 6. `WSDB` (`(<region>_)unistrdb.dat.gz`, **E3**)
 
 Verified in M5.4 against `GT2DataExploder/main.cpp` (`ExtractUniStrDb`, `adeyblue/GTVolTools`, MIT License) and all `7/7` unpacked `unistrdb` files (`eng`, `fra`, `ger`, `ita`, `jpn`, `spa`, `usa`) in `local_assets/GT2.VOL`:
@@ -445,15 +454,21 @@ encodeCarId(code):
   carId = Σ_{i=0..4} (charset.indexOf(code[i]) << ((4 - i) * 6))
 ```
 
-#### 7.2 VOL Asset Coverage (`local_assets/GT2.VOL`, **E3** models/textures, **E1** audio)
+#### 7.2 VOL Car & Parameter Linkage Table (`local_assets/GT2.VOL`, M6.11)
 
-| Asset Role | Extensions in `GT2.VOL` | Total Entries | Coverage on `CarData.carId` (PAL `621` / USA `618` / JP `613`) | Coverage on `CarRacingModification.rmBodyId` (`1,056`) | Confidence |
-| --- | --- | --- | --- | --- | --- |
-| Day 3D model | `.cdo.gz` (`.cdo`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
-| Night 3D model | `.cno.gz` (`.cno`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
-| Day texture + CLUTs | `.cdp.gz` (`.cdp`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
-| Night texture + CLUTs | `.cnp.gz` (`.cnp`) | `1,110` | `621/621` / `618/618` / `613/613` (`100.0%`) | `1,056/1,056` (`100.0%`) | **E3** |
-| Engine sound bank | `.es` | `2,747` | `0` direct 5-char `carId` matches; stems match `DDDDD` (`305`), `DDDDD_LD` (`2,440`), `LLL_L` (`2`) | — | **E1** (M11) |
+| Directory / Path Pattern | Entries | Format / Compression | DB Linkage & Coverage (`PAL` / `USA` / `JP`) | Confidence |
+| --- | --- | --- | --- | --- |
+| `carparam/(<region>_)?gtmode_data.dat.gz` (+ `gtmode_race`, `unistrdb`, `arcade_data`, `license_data`, `*_dev`) | `29` | `GTDT` / `WSDB` (`gzip`) | Primary car/part/race tables (`621` / `618` / `613` cars, `1,056` / `1,051` / `1,041` `CarRacingModification` rows) | **E3** |
+| `carobj/<5char>.cdo.gz` & `.cno.gz` | `1,110` + `1,110` | `CDO`/`CNO` (`gzip`) | `CarData.carId` `100.0%` (`621`/`618`/`613`), `CarRacingModification.rmBodyId` `100.0%` (`1,056`/`1,051`/`1,041`); union across all DBs covers `1,072/1,110` stems (`38` unused) | **E3** |
+| `carobj/<5char>.cdp.gz` & `.cnp.gz` | `1,110` + `1,110` | `CDP`/`CNP` (`gzip`) | `1:1` stem match with `.cdo.gz`/`.cno.gz` (`100.0%`); `.cdp` header `0x02` stores `1..16` ASCII `[0-9a-z]` paint `colorIds` (`36` symbols) matching `.cnp` `1,110/1,110` | **E3** |
+| `.carinfoa`, `.carinfoe`, `.carinfoj` | `3` | `"CAR\0"` + `uint32` count (`1,110`) | Index table of `1,110` `(uint32 carId, uint32 offset)` pairs in strictly ascending `carId` order matching sorted `carobj/` (`1,110/1,110`) | **E1** |
+| `.carcolor` | `1` | `"CCOL00\0\0"` + `uint16[1110]` offsets | `1,110` variable-length records in `.carinfo` order; `1,110/1,110` have `recordBytes === cdp.colorCount * 2` (`4,629` `uint16` indices in `0..1163`) | **E1** |
+| `.cclatain` & `.ccjapanese` | `2` | `uint16[1164]` offset table + strings | `1,164` null-terminated paint name strings (`1,164/1,164`); `.carcolor` `uint16` values fall strictly in `[0, 1163]` | **E1** |
+| `carwheel/<pat>.tim` | `192` | PS1 `TIM` (raw) | Filename patterns `LLDDD--L.tim` (`38`), `LLDDD-DL.tim` (`154`); linkage to `CarData.rimsCode3` unverified | **E1** |
+| `carlogo/<pat>.tim` | `3,346` | PS1 `TIM` (raw) | Manufacturer/car logo badges; DB linkage unverified | **E1** |
+| `engine/*.es` | `2,747` | `"ENGN"` (raw) | `0` direct 5-char `carId` matches; stems match `DDDDD` (`305`), `DDDDD_LD` (`2,440`), `LLL_L` (`2`) (deferred to M11) | **E1** |
+
+- **Production Rule (§3):** Only **E3**-verified `carparam/*.dat.gz` (`CarData`, `CarRacingModification`, etc.) and `carobj/*.{cdo,cno,cdp,cnp}.gz` paths are used in `CarCatalog` and `CarAssetIndex`. **E1** auxiliary root files (`.carcolor`, `.cclatain`, `.ccjapanese`, `.carinfo*`) are documented for reference only without production coupling.
 
 ---
 

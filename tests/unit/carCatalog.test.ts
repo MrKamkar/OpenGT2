@@ -5,10 +5,12 @@ import {
   type CarDimensions,
   type CarEngineData,
   type CarGearbox,
+  type CarRacingModification,
   type CarRearTyres,
   type CarSuspension,
   type CarTyres,
   buildCarCatalogFromBuffers,
+  encodeCarId,
   formatCarIdHex,
   pairGtdbRegionVariants,
   parseUnistrdb,
@@ -144,6 +146,15 @@ function makeRearTyres(carId: number, type: number): CarRearTyres {
   };
 }
 
+function makeRacingMod(carId: number, rmBodyId: number, price = 50000): CarRacingModification {
+  return {
+    carId,
+    price,
+    rmBodyId,
+    unk_0x0c: new Uint8Array(16),
+  };
+}
+
 describe('CarCatalog (M5.5)', () => {
   it('joins CarData, dimensions, engine, and multiple part variants by carId with O(1) lookup', () => {
     const strings = parseUnistrdb(
@@ -268,14 +279,17 @@ describe('CarCatalog (M5.5)', () => {
   });
 
   it('builds a CarCatalog directly from synthetic gtmode_data and unistrdb binary buffers', () => {
+    const stockId = encodeCarId('p1a0z');
+    const rmBodyId = encodeCarId('r1a0z');
     const gtmodeBuf = buildSyntheticGtmodeData({
-      cars: [makeCarData({ carId: 0x11223344, nameFirstPartIndex: 0, nameSecondPartIndex: 1 })],
-      dimensions: [makeDimensions(0x11223344, 980)],
-      engines: [makeEngine(0x11223344, 185)],
-      gearboxes: [makeGearbox(0x11223344, 0, 0), makeGearbox(0x11223344, 3, 9500)],
-      suspensions: [makeSuspension(0x11223344, 1, 3200)],
-      frontTyres: [makeFrontTyres(0x11223344, 1, 2500)],
-      rearTyres: [makeRearTyres(0x11223344, 1)],
+      cars: [makeCarData({ carId: stockId, nameFirstPartIndex: 0, nameSecondPartIndex: 1 })],
+      dimensions: [makeDimensions(stockId, 980)],
+      engines: [makeEngine(stockId, 185)],
+      gearboxes: [makeGearbox(stockId, 0, 0), makeGearbox(stockId, 3, 9500)],
+      suspensions: [makeSuspension(stockId, 1, 3200)],
+      frontTyres: [makeFrontTyres(stockId, 1, 2500)],
+      rearTyres: [makeRearTyres(stockId, 1)],
+      racingModifications: [makeRacingMod(stockId, rmBodyId, 65000)],
     });
     const unistrBuf = buildSyntheticUnistrdb([
       'Concept',
@@ -288,7 +302,7 @@ describe('CarCatalog (M5.5)', () => {
     const catalog = buildCarCatalogFromBuffers(gtmodeBuf, unistrBuf, 'usa');
     expect(catalog.region).toBe('usa');
     expect(catalog.size).toBe(1);
-    const car = catalog.getCar(0x11223344);
+    const car = catalog.getCar(stockId);
     expect(car?.name.displayName).toBe('Concept Roadster');
     expect(car?.dimensions?.weightKg).toBe(980);
     expect(car?.engine?.ps).toBe(185);
@@ -296,6 +310,9 @@ describe('CarCatalog (M5.5)', () => {
     expect(car?.suspensions).toHaveLength(1);
     expect(car?.frontTyres).toHaveLength(1);
     expect(car?.rearTyres).toHaveLength(1);
+    expect(car?.racingModifications).toHaveLength(1);
+    expect(car?.racingModifications[0]?.rmBodyId).toBe(rmBodyId);
+    expect(car?.racingModifications[0]?.price).toBe(65000);
   });
 
   it('pairs regional gtmode_data and unistrdb entries (including unprefixed JP -> jpn) and selects default', () => {

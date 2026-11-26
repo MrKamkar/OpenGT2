@@ -5,6 +5,7 @@
  */
 
 import type { VolEntry } from '../vol';
+import type { CarRacingModification } from './carRacingModification';
 import { GtdbError } from './types';
 
 /** @evidence E3 — 37-character 6-bit alphabet (`-`, `0..9`, `a..z`) used for 5-char car asset stems in `GT2.VOL`. */
@@ -30,6 +31,15 @@ export interface ResolvedCarAssets {
   readonly nightModel: VolEntry | null;
   readonly dayTexture: VolEntry | null;
   readonly nightTexture: VolEntry | null;
+}
+
+/**
+ * Resolved stock car assets paired with any distinct racing-modification bodies (`rmBodyId !== carId`).
+ */
+export interface ResolvedCarWithBodies {
+  readonly carId: number;
+  readonly stock: ResolvedCarAssets;
+  readonly racingBodies: readonly ResolvedCarAssets[];
 }
 
 /**
@@ -133,6 +143,7 @@ function classifyCarAssetFilename(
  */
 export class CarAssetIndex {
   private readonly buckets: ReadonlyMap<string, MutableCarAssetBucket>;
+  readonly indexedBodyCount: number;
 
   constructor(entries: readonly VolEntry[]) {
     const buckets = new Map<string, MutableCarAssetBucket>();
@@ -159,6 +170,46 @@ export class CarAssetIndex {
       }
     }
     this.buckets = buckets;
+    this.indexedBodyCount = buckets.size;
+  }
+
+  /**
+   * Lists all indexed 5-character car body stems in sorted lowercase order.
+   */
+  listCodes(): readonly string[] {
+    return Array.from(this.buckets.keys()).sort();
+  }
+
+  /**
+   * Resolves day/night model and texture entries directly by 5-character stem.
+   */
+  resolveByCode(code: string): ResolvedCarAssets {
+    const normalized = code.trim().toLowerCase();
+    const bucket = this.buckets.get(normalized);
+    let carId = 0;
+    let validCode: string | null = bucket !== undefined ? normalized : null;
+    if (normalized.length === CAR_ID_CODE_LENGTH) {
+      let valid = true;
+      for (let i = 0; i < CAR_ID_CODE_LENGTH; i += 1) {
+        if (!CAR_ID_CHARSET.includes(normalized[i] ?? '')) {
+          valid = false;
+          break;
+        }
+      }
+      if (valid) {
+        carId = encodeCarId(normalized);
+        validCode = normalized;
+      }
+    }
+
+    return {
+      carId,
+      code: validCode,
+      dayModel: bucket?.dayModel ?? null,
+      nightModel: bucket?.nightModel ?? null,
+      dayTexture: bucket?.dayTexture ?? null,
+      nightTexture: bucket?.nightTexture ?? null,
+    };
   }
 
   /**
@@ -174,6 +225,36 @@ export class CarAssetIndex {
       nightModel: bucket?.nightModel ?? null,
       dayTexture: bucket?.dayTexture ?? null,
       nightTexture: bucket?.nightTexture ?? null,
+    };
+  }
+
+  /**
+   * Resolves the stock body for `carId` plus all distinct `rmBodyId` racing-modification bodies.
+   *
+   * @evidence E3
+   */
+  resolveCarWithBodies(
+    carId: number,
+    racingModifications: readonly CarRacingModification[] = [],
+  ): ResolvedCarWithBodies {
+    const unsignedId = carId >>> 0;
+    const stock = this.resolve(unsignedId);
+    const seenBodyIds = new Set<number>([unsignedId]);
+    const racingBodies: ResolvedCarAssets[] = [];
+
+    for (const mod of racingModifications) {
+      const bodyId = mod.rmBodyId >>> 0;
+      if (seenBodyIds.has(bodyId)) {
+        continue;
+      }
+      seenBodyIds.add(bodyId);
+      racingBodies.push(this.resolve(bodyId));
+    }
+
+    return {
+      carId: unsignedId,
+      stock,
+      racingBodies,
     };
   }
 }

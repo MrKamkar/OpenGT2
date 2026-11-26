@@ -2,6 +2,10 @@ import { type CarData, decodeCarDataTable } from './carData';
 import { type CarDimensions, decodeCarDimensionsTable } from './carDimensions';
 import { type CarEngineData, decodeCarEngineDataTable } from './carEngineData';
 import { type CarGearbox, decodeCarGearboxTable } from './carGearbox';
+import {
+  type CarRacingModification,
+  decodeCarRacingModificationTable,
+} from './carRacingModification';
 import { type CarSuspension, decodeCarSuspensionTable } from './carSuspension';
 import {
   type CarRearTyres,
@@ -63,6 +67,7 @@ export interface CarCatalogEntry {
   readonly suspensions: readonly CarSuspension[];
   readonly frontTyres: readonly CarTyres[];
   readonly rearTyres: readonly CarRearTyres[];
+  readonly racingModifications: readonly CarRacingModification[];
 }
 
 /**
@@ -77,6 +82,7 @@ export interface CarCatalogInput {
   readonly suspensions: readonly CarSuspension[];
   readonly frontTyres: readonly CarTyres[];
   readonly rearTyres: readonly CarRearTyres[];
+  readonly racingModifications?: readonly CarRacingModification[];
   readonly strings?: UnistrdbTable | null;
 }
 
@@ -211,6 +217,7 @@ export class CarCatalog {
     const suspensionsById = indexManyByCarId(input.suspensions);
     const frontTyresById = indexManyByCarId(input.frontTyres);
     const rearTyresById = indexManyByCarId(input.rearTyres);
+    const racingModsById = indexManyByCarId(input.racingModifications ?? []);
 
     const entries: CarCatalogEntry[] = [];
     const entriesById = new Map<number, CarCatalogEntry>();
@@ -236,6 +243,7 @@ export class CarCatalog {
         suspensions: suspensionsById.get(carId) ?? [],
         frontTyres: frontTyresById.get(carId) ?? [],
         rearTyres: rearTyresById.get(carId) ?? [],
+        racingModifications: racingModsById.get(carId) ?? [],
       };
       entries.push(entry);
       if (!entriesById.has(carId)) {
@@ -294,6 +302,7 @@ export function buildCarCatalogFromBuffers(
   const suspensionSlice = getGtdbTable(layout, 'CarSuspension');
   const frontTyresSlice = getGtdbTable(layout, 'CarTyres');
   const rearTyresSlice = getGtdbTable(layout, 'CarRearTyres');
+  const racingModSlice = getGtdbTable(layout, 'CarRacingModification');
 
   if (
     carDataSlice === undefined ||
@@ -321,6 +330,10 @@ export function buildCarCatalogFromBuffers(
     suspensions: decodeCarSuspensionTable(gtmodeDataBytes, suspensionSlice),
     frontTyres: decodeCarTyresTable(gtmodeDataBytes, frontTyresSlice),
     rearTyres: decodeCarRearTyresTable(gtmodeDataBytes, rearTyresSlice),
+    racingModifications:
+      racingModSlice !== undefined && racingModSlice.size > 0
+        ? decodeCarRacingModificationTable(gtmodeDataBytes, racingModSlice)
+        : [],
     strings,
   });
 }
