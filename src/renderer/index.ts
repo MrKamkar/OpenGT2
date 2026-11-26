@@ -75,3 +75,31 @@ export {
   type OrbitCameraPreset,
   type OrbitCameraState,
 } from './camera';
+export {
+  DEFAULT_PS1_DISPLAY_ASPECT,
+  DEFAULT_PS1_HEIGHT,
+  DEFAULT_PS1_WIDTH,
+  PS1_DITHER_MATRIX_4X4,
+  PS1_INTERNAL_RESOLUTIONS,
+  type Ps1BlendMode,
+  type Ps1BlendStateDescriptor,
+  type Ps1ResolutionPreset,
+  type ViewportRect,
+  type WebGL2BlendStateContext,
+  applyPs1BlendMode,
+  applyPs1DitherAndQuantize15,
+  buildStackedCarPaletteImage,
+  computeLetterboxViewport,
+  getPaletteRowOffsetForSlot,
+  getPs1BlendStateDescriptor,
+  interpolateAffineUv,
+  packAffineUv,
+  snapClipPosition,
+} from './ps1Math';
+export {
+  Ps1Pipeline,
+  type Ps1DrawOrderMode,
+  type Ps1PipelineOptions,
+  type Ps1RenderOptions,
+  type WebGL2Ps1Context,
+} from './ps1Pipeline';
