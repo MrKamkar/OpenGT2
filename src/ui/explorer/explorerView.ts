@@ -8,6 +8,7 @@ import { parseHexHash } from '../../tools/hexview';
 import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
 import { type ScanEntryFn, mountScannerPanel } from '../tools/scannerPanel';
 import { mountAnalyzerPanel } from '../tools/analyzerPanel';
+import { mountStructViewPanel } from '../tools/structViewPanel';
 import {
   ALL_FILES_SCOPE,
   type ExplorerIndex,
@@ -628,6 +629,7 @@ function mountExplorer(
         : null;
     scannerPanel?.setEntry(currentSnapshot);
     analyzerPanel.setEntry(currentSnapshot);
+    structViewPanel.setEntry(currentSnapshot);
     renderDetails();
     void statCache.ensure(path).then(
       () => {
@@ -640,6 +642,7 @@ function mountExplorer(
             };
             scannerPanel?.setEntry(refreshedSnapshot);
             analyzerPanel.setEntry(refreshedSnapshot);
+            structViewPanel.setEntry(refreshedSnapshot);
           }
           renderDetails();
         }
@@ -708,6 +711,11 @@ function mountExplorer(
       : null;
 
   const analyzerPanel = mountAnalyzerPanel({
+    container: workbench,
+    source,
+  });
+
+  const structViewPanel = mountStructViewPanel({
     container: workbench,
     source,
   });
@@ -782,6 +790,7 @@ function mountExplorer(
       hexPanel.dispose();
       scannerPanel?.dispose();
       analyzerPanel.dispose();
+      structViewPanel.dispose();
       list.removeEventListener('scroll', onScroll);
       rowsLayer.removeEventListener('click', onRowsClick);
       searchInput.removeEventListener('input', onSearchInput);
