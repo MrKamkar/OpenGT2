@@ -36,7 +36,7 @@ describe('file format classifier registry (M3.4)', () => {
       headBytes: new Uint8Array([0x10, 0x00, 0x00, 0x00, 0x08, 0x00]),
     });
     expect(tim.id).toBe('tim');
-    expect(tim.evidence).toBe('E2');
+    expect(tim.evidence).toBe('E3');
     expect(tim.matchedBy).toBe('magic');
 
     const cdo = classifyFile({

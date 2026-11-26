@@ -54,8 +54,8 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     ext: ['.tim'],
     magic: [0x10, 0x00, 0x00, 0x00],
     formatName: 'PS1 TIM image',
-    evidence: 'E2',
-    notes: 'Standardowy format tekstury PS1 (PSX-SPX); obecność w GT2.VOL do weryfikacji w M4.1.',
+    evidence: 'E3',
+    notes: 'Standardowy format tekstury PS1 (PSX-SPX); zweryfikowano 3 729 obrazów w GT2.VOL (M4.1/M4.3).',
   },
   {
     id: 'cdo',
