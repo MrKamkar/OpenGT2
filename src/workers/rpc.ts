@@ -65,6 +65,12 @@ export interface RpcCancelMessage {
   readonly id: number;
 }
 
+export interface RpcProgressMessage {
+  readonly kind: 'rpc:progress';
+  readonly id: number;
+  readonly progress: unknown;
+}
+
 export interface RpcSuccessResponseMessage {
   readonly kind: 'rpc:response';
   readonly id: number;
@@ -80,15 +86,21 @@ export interface RpcErrorResponseMessage {
 }
 
 export type RpcResponseMessage = RpcSuccessResponseMessage | RpcErrorResponseMessage;
-export type RpcWireMessage = RpcRequestMessage | RpcCancelMessage | RpcResponseMessage;
+export type RpcWireMessage =
+  | RpcRequestMessage
+  | RpcCancelMessage
+  | RpcProgressMessage
+  | RpcResponseMessage;
 
 export interface RpcCallOptions {
   readonly signal?: AbortSignal;
   readonly transfer?: Transferable[];
+  readonly onProgress?: (progress: unknown) => void;
 }
 
 export interface RpcHandlerContext {
   readonly signal: AbortSignal;
+  readonly reportProgress?: (progress: unknown) => void;
 }
 
 const RPC_TRANSFER_BRAND = Symbol('OpenGT2.RpcTransferResult');
@@ -224,9 +236,14 @@ function isRpcCancelMessage(value: unknown): value is RpcCancelMessage {
   return isRecord(value) && value['kind'] === 'rpc:cancel' && typeof value['id'] === 'number';
 }
 
+function isRpcProgressMessage(value: unknown): value is RpcProgressMessage {
+  return isRecord(value) && value['kind'] === 'rpc:progress' && typeof value['id'] === 'number';
+}
+
 interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason: unknown) => void;
+  readonly onProgress: ((progress: unknown) => void) | undefined;
   readonly cleanupAbort: (() => void) | undefined;
 }
 
@@ -241,6 +258,14 @@ export class RpcClient<TSchema extends RpcMethodMap<TSchema>> {
 
   private readonly handleMessage = (event: RpcMessageEventLike): void => {
     const data = event.data;
+    if (isRpcProgressMessage(data)) {
+      const entry = this.pending.get(data.id);
+      if (entry !== undefined) {
+        entry.onProgress?.(data.progress);
+      }
+      return;
+    }
+
     if (!isRpcResponseMessage(data)) {
       return;
     }
@@ -330,6 +355,7 @@ export class RpcClient<TSchema extends RpcMethodMap<TSchema>> {
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,
+        onProgress: options?.onProgress,
         cleanupAbort,
       });
 
@@ -433,8 +459,20 @@ export function bindRpcServer<TSchema extends RpcMethodMap<TSchema>>(
     const controller = new AbortController();
     inFlight.set(id, controller);
 
+    const reportProgress = (progress: unknown): void => {
+      if (disposed || controller.signal.aborted) {
+        return;
+      }
+      const message: RpcProgressMessage = {
+        kind: 'rpc:progress',
+        id,
+        progress,
+      };
+      transport.postMessage(message);
+    };
+
     void Promise.resolve()
-      .then(() => handler(params, { signal: controller.signal }))
+      .then(() => handler(params, { signal: controller.signal, reportProgress }))
       .then(
         (rawResult) => {
           inFlight.delete(id);

@@ -23,7 +23,9 @@ import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
 import { type ArchivePanelHandle, mountArchivePanel } from './ui/explorer/explorerView';
 import { describeVolOpenError, loadAllVolEntries } from './app/volArchiveSession';
 import { createHealthWorker } from './workers/createHealthWorker';
+import { createScannerWorker } from './workers/createScannerWorker';
 import { createVolReaderWorker } from './workers/createVolReaderWorker';
+import { ScannerRpcClient } from './workers/scannerProtocol';
 import { VolReaderRpcClient } from './workers/volReaderProtocol';
 import type { HealthPingMessage, HealthPongMessage } from './workers/health.worker';
 
@@ -103,6 +105,7 @@ export function initApp(): void {
 
   let selectionGeneration = 0;
   let volSession: VolReaderRpcClient | null = null;
+  let scannerSession: ScannerRpcClient | null = null;
   let archivePanel: ArchivePanelHandle | null = null;
 
   const closeVolSession = (): void => {
@@ -110,6 +113,17 @@ export function initApp(): void {
       volSession.dispose(true);
       volSession = null;
     }
+    if (scannerSession !== null) {
+      scannerSession.dispose(true);
+      scannerSession = null;
+    }
+  };
+
+  const ensureScannerSession = (): ScannerRpcClient => {
+    if (scannerSession === null) {
+      scannerSession = new ScannerRpcClient(createScannerWorker());
+    }
+    return scannerSession;
   };
 
   /**
@@ -159,6 +173,27 @@ export function initApp(): void {
             client.readDecompressed(path, signal !== undefined ? { signal } : undefined),
           readDecompressedRange: (path, start, end, signal) =>
             client.readDecompressedRange(path, start, end, signal !== undefined ? { signal } : undefined),
+          scanEntry: (entry, scanOptions) => {
+            if (typeof Worker === 'undefined') {
+              return Promise.reject(new Error('Przeglądarka nie obsługuje Web Workerów.'));
+            }
+            return ensureScannerSession().scanBlobRange(
+              {
+                blob: file,
+                start: entry.address,
+                end: entry.address + entry.size,
+                decompress: scanOptions.decompress,
+                pattern: scanOptions.pattern,
+                ...(scanOptions.maxHits !== undefined ? { maxHits: scanOptions.maxHits } : {}),
+              },
+              {
+                ...(scanOptions.signal !== undefined ? { signal: scanOptions.signal } : {}),
+                ...(scanOptions.onProgress !== undefined
+                  ? { onProgress: scanOptions.onProgress }
+                  : {}),
+              },
+            );
+          },
         });
       })
       .catch((error: unknown) => {

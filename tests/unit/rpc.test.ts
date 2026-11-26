@@ -316,4 +316,49 @@ describe('Worker RPC protocol (M1.3)', () => {
 
     server.dispose();
   });
+
+  it('delivers rpc:progress updates to onProgress and stops reporting after cancellation', async () => {
+    interface ProgressSchema {
+      work: {
+        readonly params: { readonly steps: number };
+        readonly result: number;
+      };
+    }
+
+    const channel = createMockRpcChannel();
+    const server = bindRpcServer<ProgressSchema>(channel.workerTransport, {
+      work: async ({ steps }, context) => {
+        for (let i = 1; i <= steps; i += 1) {
+          if (context.signal.aborted) {
+            throw new Error('aborted');
+          }
+          context.reportProgress?.({ step: i, total: steps });
+          await Promise.resolve();
+        }
+        return steps;
+      },
+    });
+    const client = new RpcClient<ProgressSchema>(channel.mainEndpoint);
+
+    const updates: unknown[] = [];
+    const total = await client.call(
+      'work',
+      { steps: 3 },
+      {
+        onProgress(progress) {
+          updates.push(progress);
+        },
+      },
+    );
+
+    expect(total).toBe(3);
+    expect(updates).toEqual([
+      { step: 1, total: 3 },
+      { step: 2, total: 3 },
+      { step: 3, total: 3 },
+    ]);
+
+    client.dispose();
+    server.dispose();
+  });
 });

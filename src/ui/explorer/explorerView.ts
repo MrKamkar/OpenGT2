@@ -2,6 +2,7 @@ import { isAbortLikeError } from '../../app/volArchiveSession';
 import type { VolEntry, VolInfo } from '../../formats/vol';
 import { parseHexHash } from '../../tools/hexview';
 import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
+import { type ScanEntryFn, mountScannerPanel } from '../tools/scannerPanel';
 import {
   ALL_FILES_SCOPE,
   type ExplorerIndex,
@@ -39,6 +40,7 @@ export interface ArchiveExplorerSource extends HexDataSource {
   readonly stat: StatFn;
   readonly readRaw: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
   readonly readDecompressed: (path: string, signal?: AbortSignal) => Promise<Uint8Array>;
+  readonly scanEntry?: ScanEntryFn;
 }
 
 export interface ArchivePanelHandle {
@@ -595,10 +597,23 @@ function mountExplorer(
       row.classList.toggle('is-selected', isSelected);
       row.setAttribute('aria-selected', String(isSelected));
     }
+    const item = entryByPath.get(path);
+    const currentSnapshot: VolEntry | null =
+      item !== undefined && item.entry.kind === 'file'
+        ? { ...item.entry, isGzip: statCache.getGzipState(path) === 'gzip' }
+        : null;
+    scannerPanel?.setEntry(currentSnapshot);
     renderDetails();
     void statCache.ensure(path).then(
       () => {
         if (selectedPath === path) {
+          const refreshed = entryByPath.get(path);
+          if (refreshed !== undefined && refreshed.entry.kind === 'file') {
+            scannerPanel?.setEntry({
+              ...refreshed.entry,
+              isGzip: statCache.getGzipState(path) === 'gzip',
+            });
+          }
           renderDetails();
         }
       },
@@ -610,7 +625,7 @@ function mountExplorer(
     );
   };
 
-  // ----- Hex viewer & hash routing -------------------------------------------------------------
+  // ----- Hex viewer, scanner & hash routing ----------------------------------------------------
   const hexPanel = mountHexViewPanel({
     container: workbench,
     source,
@@ -626,6 +641,24 @@ function mountExplorer(
       renderDetails();
     },
   });
+
+  const scannerPanel =
+    source.scanEntry !== undefined
+      ? mountScannerPanel({
+          container: workbench,
+          scanEntry: source.scanEntry,
+          onJumpToHit(hash: string): void {
+            if (window.location.hash !== hash) {
+              window.location.hash = hash;
+            }
+            const parsed = parseHexHash(hash);
+            if (parsed !== null) {
+              hexPanel.open(parsed);
+              renderDetails();
+            }
+          },
+        })
+      : null;
 
   const applyHashRoute = (): void => {
     const parsed = parseHexHash(window.location.hash);
@@ -695,6 +728,7 @@ function mountExplorer(
       }
       statCache.dispose();
       hexPanel.dispose();
+      scannerPanel?.dispose();
       list.removeEventListener('scroll', onScroll);
       rowsLayer.removeEventListener('click', onRowsClick);
       searchInput.removeEventListener('input', onSearchInput);

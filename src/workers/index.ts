@@ -51,3 +51,12 @@ export {
   VolReaderRpcClient,
   type VolReaderRpcSchema,
 } from './volReaderProtocol';
+export { createScannerWorker } from './createScannerWorker';
+export {
+  type BindScannerRpcOptions,
+  bindScannerRpcServer,
+  type ScanBlobRangeParams,
+  type ScannerCallOptions,
+  ScannerRpcClient,
+  type ScannerRpcSchema,
+} from './scannerProtocol';
