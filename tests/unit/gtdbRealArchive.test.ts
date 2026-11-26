@@ -11,6 +11,7 @@ import {
   GTMODE_DATA_TABLE_COUNT,
   GTMODE_RACE_TABLE_COUNT,
   GTMODE_RACE_TABLE_SPECS,
+  decodeCarDataTable,
   decodeCarDimensionsTable,
   decodeCarEngineDataTable,
   decodeCarGearboxTable,
@@ -214,6 +215,24 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL GTDB layout verification (M5.2)', (
         expect(row.type).toBeGreaterThanOrEqual(0);
         expect(row.type).toBeLessThanOrEqual(7);
         expect(row.unk_0x05).toBe(0);
+      }
+
+      if (carData === undefined) {
+        throw new Error('Missing CarData table slice');
+      }
+      const decodedCarData = decodeCarDataTable(unpacked, carData);
+      expect(decodedCarData).toHaveLength(decodedDimensions.length);
+      expect(new Set(decodedCarData.map((row) => row.carId))).toEqual(dimIds);
+      for (const row of decodedCarData) {
+        expect(row.specialCar === 0 || row.specialCar === 1).toBe(true);
+        expect(row.year).toBeLessThanOrEqual(99);
+        expect(row.newPrice).toBeGreaterThan(0);
+        expect(row.weightPartId).toBeLessThan(decodedDimensions.length);
+        expect(row.enginePartId).toBeLessThan(decodedEngines.length);
+        expect(row.transmission).toBeLessThan(decodedGearboxes.length);
+        expect(row.suspension).toBeLessThan(decodedSuspensions.length);
+        expect(row.frontTyres).toBeLessThan(decodedFrontTyres.length);
+        expect(row.rearTyres).toBeLessThan(decodedRearTyres.length);
       }
     }
 

@@ -68,3 +68,10 @@ export {
   type CarRearTyres,
   type CarTyres,
 } from './carTyres';
+
+export {
+  CAR_DATA_SIZE,
+  decodeCarData,
+  decodeCarDataTable,
+  type CarData,
+} from './carData';
