@@ -30,3 +30,21 @@ export {
   type WebGL2ShaderContext,
   formatShaderSourceWithLineNumbers,
 } from './shaderProgram';
+export {
+  CAR_DEFAULT_FALLBACK_NORMAL,
+  CAR_FACE_MODE_TEXTURED_MODULATED,
+  CAR_FACE_MODE_TEXTURED_RAW,
+  CAR_FACE_MODE_UNTEXTURED,
+  CAR_MESH_ATTR_COLOR,
+  CAR_MESH_ATTR_MATERIAL,
+  CAR_MESH_ATTR_NORMAL,
+  CAR_MESH_ATTR_POSITION,
+  CAR_MESH_ATTR_UV,
+  type CarFaceMode,
+  type CarMeshBoundsMeters,
+  type CarMeshBufferData,
+  type CarMeshDrawBatch,
+  type CarMeshPrimitive,
+  buildCarMeshData,
+} from './meshData';
+export { CarRenderMesh, type WebGL2MeshContext } from './mesh';
