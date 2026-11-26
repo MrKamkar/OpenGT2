@@ -97,7 +97,7 @@ TOC entries appear in directory-grouped "first encounter" order:
 - **Non-`.gz` entries starting with `1F 8B`:** `91` entries in verified `GT2.VOL` lack the `.gz` extension yet start with `1F 8B 08`:
   - `84/91` are standalone RFC 1952 gzip streams that pass strict single-stream `gunzip` and CRC-32 verification (**E3**).
   - `7/91` are multi-member gzip containers starting with a valid CRC-checked gzip member followed by zero-padding to either a 4-byte boundary or a 2048-byte CD sector boundary where the next `1F 8B` member begins (**E3** for framing and member magic verified in M4.1):
-    - `5` `.dat` containers (`37.55–46.83 MB` compressed) holding `12,658` sequential gzip members (`2,493–2,561` per file), zero-padded to 4-byte or 2048-byte boundaries, every member starting with `47 4D 03 00` (`"GM\x03\x00"`).
+    - `5` `.dat` containers (`37.55–46.83 MB` compressed) holding `16,914` individual gzip members indexed via `5` `.idx` tables (`3,379–3,386` per file; previously counted as `12,658` in M4.1 because `node:zlib` concatenated adjacent members with `tail === 0`), padded to 4-byte boundaries (`tail = raw & 3`), every member starting with `47 4D 03 00` (`"GM\x03\x00"`) (**E3**).
     - `2` extensionless containers (`116,736 B` and `118,784 B` compressed) holding `12` sequential gzip members each (`24` total), zero-padded to 2048-byte sector boundaries, every member being a valid 16-bpp PS1 TIM image (`10 00 00 00 02 00 00 00`).
 
 ---
@@ -113,8 +113,8 @@ TOC entries appear in directory-grouped "first encounter" order:
 | `.tim` | brak (surowy) | `10 00 00 00` | `3 576` plików | `1 216–163 860 B` | Standardowy PS1 TIM: `3 539` w trybie `4 bpp + CLUT` (`flags = 0x08`), `37` w trybie `4 bpp` bez CLUT (`flags = 0x00`); `100%` ścisła zgodność `bnum` | **E3** |
 | `.tim.gz` (`.tim`) | gzip (1 człon) | `10 00 00 00` | `129` plików | `4 672–169 504 B` | PS1 TIM: `120` `4 bpp + CLUT`, `7` `8 bpp + CLUT`, `2` `4 bpp` bez CLUT; `95` ścisłe + `34` z anomalią `img.bnum` (szczegóły poniżej) | **E3** |
 | `(brak)` `[multi-gz]` | multi-gzip (`2048 B`) | `10 00 00 00 02 00 00 00` | `2` pliki (`24` człony) | `7 860–122 900 B` / człon | PS1 TIM `16 bpp` bez CLUT (`flags = 0x02`), `100%` ścisła zgodność `bnum` | **E3** |
-| `.dat` `[multi-gz]` | multi-gzip (`4 B` / `2048 B`) | `47 4D 03 00` (`"GM\x03\x00"`) | `5` plików (`12 658` członów) | `3 184–563 792 B` / człon | Obrazy menu GT2 (`GMImage` wg `GTVolTools`; prawdopodobnie indeksowane przez `6` plików `.idx`); wariant 2. bajtu po magic obserwowany jako `00..03` | **E3** (obecność/magic) / **E2** (układ wg `GTVolTools`) |
-| `.dat` (surowy `GTMP`) | brak (surowy) | `47 54 4D 50` (`"GTMP"`) | `1` plik | `44 724 224 B` | Kontener obrazów menu GT2 (`GTMP` wg `GTVolTools`; kolejne pola LE: `0x00140503`, `16031`, `16030`) | **E3** (obecność/magic) / **E2** (układ wg `GTVolTools`) |
+| `.dat` `[multi-gz]` + `.idx` | multi-gzip (`4 B`, `mangled-4` `.idx`) | `47 4D 03 00` (`"GM\x03\x00"`) | `5` par (`.dat`+`.idx`), `16 914` członów | `3 184–245 000 B` / człon | Obrazy pierwszego planu menu GT2 (`4 bpp`, kafelki `16×8`, `32` palety `16`-kolorowe, sekcja `GMLL`, płótno `512×504`; zweryfikowane `16 914 / 16 914` w M4.4) | **E3** |
+| `.dat` (surowy `GTMP`) + `.idx` | brak (`aligned-2048` `.idx`) | `47 54 4D 50` (`"GTMP"`) | `1` para (`.dat`+`.idx`), `458` bloków (`44 724 224 B` łącznie) | `20 480–266 240 B` / blok | Obrazy tła menu GT2 (`8 bpp`, kafelki `16×8`, `16` palet `256`-kolorowych, `2 016` pozycji, płótno `512×504`; zweryfikowane `458 / 458` w M4.4) | **E3** |
 | `.cdp.gz` / `.cnp.gz` | gzip (1 człon) | brak stałego magic (`uint16` liczba kolorów) | `2 220` (`1 110` + `1 110`) | `45 984 B` (stały, `0xB3A0`) | Tekstury i palety lakierów aut dzień/noc (`0x43A0 + 0x7000 = 45 984 B`, 100% zgodności z Załącznikiem D.7; zakres M6.7) | **E3** (rozmiar/obecność) / **E2** (układ) |
 | `.trp.gz` / `.bsp.gz` | gzip (1 człon) | brak stałego magic (`uint32[1] = 0x10`) | `160` (`126` + `34`) | `7 172–295 620 B` | Kandydaci na pakiety tekstur torów/tła sparowane `1:1` z `.tro.gz` (`126`) i `.bso.gz` (`34`) (zakres M8) | **E1** |
 | `.lgf.gz` + `(brak)` (1-człon. gzip) | gzip (1 człon) | `00 00 02 01` | `261` (`180` + `81`) | `36 956 B` (`.lgf`), `2 063–589 824 B` (`(brak)`) | Powtarzalna niezweryfikowana sygnatura (kandydat badawczy — brak potwierdzenia kodem referencyjnym) | **E1** |
@@ -135,8 +135,75 @@ TOC entries appear in directory-grouped "first encounter" order:
 | `.dat.gz` | gzip (1 człon) | `47 54 44 54` (`"GTDT"`, `22` pliki) i inne (`17`) | `39` | `32–776 504 B` | Pliki bazy danych i konfiguracji gry (zakres M5) | **E1** |
 | `(none)` (pozostałe) | `18` surowych + `3` gzip | m.in. `06 00 0A 00` (`7`), `CAR\0` (`3`), `UCAR` (`3`) | `21` | `2 652–348 160 B` | Różne pliki systemowe/danych bez rozszerzenia | **E0** / **E1** |
 | `.seq` | brak | `53 45 51 47` (`"SEQG"`) | `10` | `4 267–23 755 B` | Sekwencje muzyczne/audio (zakres M11) | **E1** |
-| `.idx` | brak | zmienna (`uint32` LE) | `6` | `1 840–13 552 B` | Indeksy (prawdopodobnie powiązane z kontenerami menu `.dat`) | **E1** |
+| `.idx` | brak | `uint32` LE `count` + `uint32[count + 1]` | `6` | `1 840–13 552 B` | Tablice offsetów kontenerów menu (`1` × `aligned-2048` dla `GTMP` = `458` bloków; `5` × `mangled-4` dla `.dat` `GM\x03\x00` = `16 914` członów) | **E3** |
 | `.ins` | brak | `49 4E 53 54` (`"INST"`) | `5` | `34 600–383 296 B` | Banki instrumentów audio (zakres M11) | **E1** |
 | `.gmr.gz` / `.gmr` | `4` gzip + `1` surowy | `53 43 13 ??` | `5` | `40 960–122 880 B` | Nieznany format (najprawdopodobniej dane powtórek/bazy) | **E0** |
 | `.000` / `.999` | brak | `(pusty)` | `6` (`3` + `3`) | `0 B` | Puste wpisy znacznikowe `0 B` | **E3** |
 | `.dat` (surowy, nie-GTMP), `.tsd.gz`, `.arc`, `.txd`, `(none).gz` | `2` gzip + `3` surowe | różne (`80000000`, `@(#)GT-A`, `Lap\0`, `5A000A00`, `0B000000`) | `5` | `28 760–159 072 B` | Pojedyncze pliki pomocnicze | **E0** |
+
+---
+
+## PS1 TIM Image Format (`src/formats/tim/`)
+
+- **Confidence:** **E3** (`4 bpp`, `8 bpp`, `16 bpp`, CLUT, and doubled-`img.bnum` quirk verified across `3,729 / 3,729` TIM images in `GT2.VOL`, `0` false positives); **E2** (`24 bpp` per PSX-SPX, tested on synthetic buffers).
+- **Endianness:** Little-endian (`DataView(..., true)`).
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `magic`: `0x00000010` (`10 00 00 00`) | **E3** |
+| `0x04` | 4 B | `uint32` LE | `flags`: bits `0..1` = pixel mode (`0` = 4 bpp, `1` = 8 bpp, `2` = 16 bpp, `3` = 24 bpp); bit `3` (`0x08`) = has CLUT; all other bits `0` (`flags & ~0x0B === 0`) | **E3** (`0,1,2`) / **E2** (`3`) |
+| `0x08` | variable | `TimBlock` | Optional CLUT block (`if flags & 0x08`): `uint32 bnum` (`12 + clutW * clutH * 2`), `uint16 vramX, vramY, clutW, clutH`, followed by `clutH` row palettes of `clutW` 15-bit `A1B5G5R5` LE words | **E3** |
+| `0x08` or after CLUT | variable | `TimBlock` | Image block: `uint32 bnum`, `uint16 vramX, vramY, vramW, height`, followed by `vramW * height * 2` pixel bytes | **E3** |
+
+- **VRAM Word Width → Pixel Width (**E3** / **E2**):**
+  - `4 bpp` (`pmode 0`): `pixelWidth = vramW * 4` (low nibble = even pixel, high nibble = odd pixel).
+  - `8 bpp` (`pmode 1`): `pixelWidth = vramW * 2`.
+  - `16 bpp` (`pmode 2`): `pixelWidth = vramW` (`A1B5G5R5` LE).
+  - `24 bpp` (`pmode 3`): `pixelWidth = (vramW * 2) / 3` (**E2**, `RGB888`, requires `(vramW * 2) % 3 === 0`).
+- **GT2 `.tim.gz` Anomaly (**E3**):** `34 / 129` `.tim.gz` files (`4 bpp + CLUT`, `24×96`) record `img.bnum = 12 + 2 * vramW * height * 2` (`9,228`) while the decompressed buffer ends cleanly at `imgOff + 12 + vramW * height * 2` (`4,672 B`). Accepted with an explicit parser warning when `imgOff + expectedImgBnum === byteLength`.
+
+---
+
+## GT2 Menu Image Formats: `.idx`, `GM\x03\x00`, and `GTMP` (`src/formats/gtimg/`)
+
+- **Confidence:** **E3** (reimplemented from `adeyblue/GTVolTools` MIT reference code `GTMP/GMImage.cs`, `GTMP/GTMPImage.cs`, `GTMP/GT2Common.cs`, and verified against `6/6` `.idx` tables, `16,914/16,914` `GM\x03\x00` images, and `458/458` `GTMP` blocks in `GT2.VOL`).
+- **Shared Canvas & Tiling (**E3**):** Canvas is `512 × 504` px composed from `16 × 8` px tiles stored in a 512 px wide row-major sheet (`32` tiles per row).
+
+### 1. `.idx` Offset Tables (`6 / 6`, **E3**)
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `count`: number of entries (`458` for `GTMP`; `3,379–3,386` per `GM` `.dat`) | **E3** |
+| `0x04` | `(count + 1) * 4` B | `uint32[]` LE | `rawOffsets`: `count` entry start offsets + trailing sentinel `datSize` | **E3** |
+
+- **`aligned-2048` mode (`GTMP`):** `offset = rawOffsets[i]`, `tail = 0`, `size = rawOffsets[i + 1] - offset`.
+- **`mangled-4` mode (`GM` gzip containers):** `offset = (rawOffsets[i] & ~3) >>> 0`, `tail = rawOffsets[i] & 3` (trailing zero-padding bytes), `compressedSize = ((rawOffsets[i + 1] & ~3) >>> 0) - offset - tail`.
+
+### 2. `GM\x03\x00` Menu Foreground (`16,914 / 16,914`, **E3**)
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `char[4]` | Magic `"GM\x03\x00"` (`47 4D 03 00`) | **E3** |
+| `0x04` | 4 B | `uint32` LE | `subBlockSets` (observed `0..4`: `4239, 280, 2940, 9330, 125`) | **E3** |
+| `0x08` | variable | `SubBlock[subBlockSets]` | Per group: `uint16 numIcons`, `uint16 numInfoBoxes`, `numIcons × 0x0C` B `IconImageBox` (`unk_0x08` observed `0x000b` **E0**), `numInfoBoxes × 0x4C` B `InfoBox` | **E3** / **E0** (`IconImageBox.unk_0x08`) |
+| after groups | `4 + N * 0x4C` B | `uint32` + `InfoBox[]` | `numMainInfoBoxes` + `InfoBox` array (`group = -1`) | **E3** |
+| after main boxes | 12 B | `GmScreenMetadata` | `int8 manufacturerId`, `uint8 screenBehaviour` (`3` = `backLinkToPreviousScreen`; observed `0, 2, 3`), `int16 music`, `int32 backLink`, `int32 backgroundIndex` (`0..457` into `GTMP`) | **E3** |
+| after metadata | 8 B | `char[4]` + `uint32` | `"GMLL"` (`47 4D 4C 4C`) marker + `numPositionEntries` | **E3** |
+| after `GMLL` hdr | `numPositionEntries * 4` B | `TilePlacement[]` | `uint8 xRaw` (`x = (xRaw & 0x1F) * 16`, `solidFlags = (xRaw & 0xE0) >>> 5`), `uint8 yRaw` (`y = yRaw * 8`), `uint16 tileAndPal` (tile: `tile = & 0x03FF`, `pal = >>> 11` in `0..31`; solid: 15-bit color) | **E3** |
+| after positions | `0x400` B | `uint16[32][16]` LE | `32` 16-color palettes (`A1B5G5R5` LE; non-zero colors have bit `15 === 0` in `1,173,912 / 1,173,912` words) | **E3** |
+| after palettes | 4 B | `uint32` LE | `tileCount` (`> 0`, max `1,016` observed) | **E3** |
+| after `tileCount` | `ceil(tileCount / 32) * 2048` B | `uint8[]` | `4 bpp` packed tile sheet (`512` px wide, even pixel = low nibble, odd = high nibble); `419/16,914` files carry trailing padding bytes after the last tile row | **E3** |
+
+- **`GM` Color Rule (`gmColor15ToRgba`, **E3**):** `0x0000` → transparent `(0,0,0,0)`; `0x8000` → opaque black `(0,0,0,255)`; any non-zero `(word & 0x7FFF) !== 0` toggles bit 15 (`bit 15 === 0` → `a = 255`, `bit 15 === 1` → `a = 0`).
+
+### 3. `GTMP` Menu Background (`458 / 458`, **E3**)
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x0000` | 4 B | `char[4]` | Magic `"GTMP"` (`47 54 4D 50`) | **E3** |
+| `0x0004` | `0x1F80` B | `TilePlacement[2016]` | `2,016` tile placements (`x = (xRaw & 0x1F) * 16`, `solidFlags = (xRaw & 0xE0) >>> 5`, `y = yRaw * 8`, `tileAndPal` tile: `& 0x0FFF`, `pal = >>> 12` in `0..15`; solid: 15-bit color) | **E3** |
+| `0x1F84` | `0x2000` B | `uint16[16][256]` LE | `16` 256-color palettes (`A1B5G5R5` LE; `0 / 1,875,968` non-zero words lack bit 15) | **E3** |
+| `0x3F84` | `0x7C` B | `uint8[124]` | `unk_0x3f84`: ignored by reference decoder; `u32[0x3f84] === u32[0x3f88]` empirically matches non-empty tile count across `458 / 458` blocks (**E1**), remaining bytes **E0** | **E0** / **E1** |
+| `0x4000` | `N * 4096` B | `uint8[]` | `8 bpp` tile sheet (`512` px wide, `N >= 1` rows of `32` tiles × `16×8` px, `100%` multiple of `4096 B`) | **E3** |
+
+- **`GTMP` Color Rule (`gtmpColor15ToRgba`, **E3**):** Palette entries decode opaque when bit 15 is set (`(word & 0x8000) !== 0 ? 255 : 0`); solid-color tile placements (`solidFlags !== 0`, `609,537` instances with bit 15 = 0) are forced opaque (`a = 255`). Canvas base initializes to opaque black `(0, 0, 0, 255)`.
