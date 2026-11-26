@@ -95,7 +95,20 @@ export type CdoErrorCode =
   | 'TruncatedHeader'
   | 'InvalidMagic'
   | 'TruncatedBuffer'
-  | 'InvalidVerticesOffset';
+  | 'InvalidVerticesOffset'
+  | 'FileTooLarge'
+  | 'VertexIndexOutOfBounds'
+  | 'NormalIndexOutOfBounds'
+  | 'InvalidNormalLength'
+  | 'BoundingBoxMismatch'
+  | 'InvalidFaceType'
+  | 'InvalidTriangleVertex3'
+  | 'InvalidTriangleUv3'
+  | 'InvalidUvPadding'
+  | 'ShadowVertexIndexOutOfBounds'
+  | 'ShadowBoundingBoxMismatch'
+  | 'ShadowInvalidTriangleVertex3'
+  | 'TrailingData';
 
 /**
  * Typed error raised when parsing or validating a CDO/CNO car model buffer.
@@ -105,6 +118,19 @@ export class CdoError extends Error {
   static readonly InvalidMagic = 'InvalidMagic' as const;
   static readonly TruncatedBuffer = 'TruncatedBuffer' as const;
   static readonly InvalidVerticesOffset = 'InvalidVerticesOffset' as const;
+  static readonly FileTooLarge = 'FileTooLarge' as const;
+  static readonly VertexIndexOutOfBounds = 'VertexIndexOutOfBounds' as const;
+  static readonly NormalIndexOutOfBounds = 'NormalIndexOutOfBounds' as const;
+  static readonly InvalidNormalLength = 'InvalidNormalLength' as const;
+  static readonly BoundingBoxMismatch = 'BoundingBoxMismatch' as const;
+  static readonly InvalidFaceType = 'InvalidFaceType' as const;
+  static readonly InvalidTriangleVertex3 = 'InvalidTriangleVertex3' as const;
+  static readonly InvalidTriangleUv3 = 'InvalidTriangleUv3' as const;
+  static readonly InvalidUvPadding = 'InvalidUvPadding' as const;
+  static readonly ShadowVertexIndexOutOfBounds = 'ShadowVertexIndexOutOfBounds' as const;
+  static readonly ShadowBoundingBoxMismatch = 'ShadowBoundingBoxMismatch' as const;
+  static readonly ShadowInvalidTriangleVertex3 = 'ShadowInvalidTriangleVertex3' as const;
+  static readonly TrailingData = 'TrailingData' as const;
 
   readonly code: CdoErrorCode;
 
@@ -366,4 +392,36 @@ export interface CdoShadowBlock {
   readonly triangles: readonly CdoShadowFace[];
   readonly quads: readonly CdoShadowFace[];
   readonly endOffset: number;
+}
+
+/**
+ * Single parsed Level of Detail (header, vertices, normals, and 4 polygon lists).
+ */
+export interface CdoLod {
+  readonly index: number;
+  readonly tableEntry: CdoLodTableEntry;
+  readonly header: CdoLodHeader;
+  readonly vertices: CdoVertexBlock;
+  readonly normals: CdoNormalBlock;
+  readonly polygons: CdoPolygonLists;
+  readonly endOffset: number;
+}
+
+/**
+ * Complete parsed and validated CDO/CNO car model.
+ */
+export interface CdoModel {
+  readonly byteLength: number;
+  readonly header: CdoHeader;
+  readonly lodTable: CdoLodTable;
+  readonly lods: readonly CdoLod[];
+  readonly shadow: CdoShadowBlock;
+  readonly warnings: readonly string[];
+}
+
+/**
+ * Result of running D.6 structural and geometric invariants on a parsed CDO model.
+ */
+export interface CdoValidationResult {
+  readonly warnings: readonly string[];
 }

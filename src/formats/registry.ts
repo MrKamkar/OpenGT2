@@ -95,8 +95,8 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     ext: ['.cdo', '.cno'],
     magic: [0x47, 0x54, 0x02],
     formatName: 'GT2 Car Model (CDO/CNO)',
-    evidence: 'E2',
-    notes: 'Model 3D auta GT2 (dzień/noc) wg dokumentacji społeczności i Załącznika D.',
+    evidence: 'E3',
+    notes: 'Model 3D auta GT2 (dzień/noc, "GT\\x02"); zweryfikowano 2 220 plików w GT2.VOL (M6.1–M6.6).',
   },
   {
     id: 'cdp',

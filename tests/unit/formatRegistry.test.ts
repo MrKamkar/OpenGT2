@@ -76,7 +76,7 @@ describe('file format classifier registry (M3.4)', () => {
       headBytes: new Uint8Array([0x47, 0x54, 0x02, 0x00]),
     });
     expect(cdo.id).toBe('cdo');
-    expect(cdo.evidence).toBe('E2');
+    expect(cdo.evidence).toBe('E3');
     expect(cdo.matchedBy).toBe('magic+ext');
   });
 
