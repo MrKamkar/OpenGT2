@@ -119,3 +119,20 @@ Chronological log of binary format investigations, reverse-engineering findings,
 - **Pewność:** N/A (zadania UI i warstwy aplikacji zamykające M2, oparte na kontrakcie `GT2.VOL` zweryfikowanym jako **E3** w M2.10).
 - **Konsekwencje dla kodu:** Milestone M2 jest w pełni domknięty. Kolejnym etapem jest M3.1 (`src/tools/hexview` pod adresem `#hex=<path>&off=0x0`) oraz badanie 7 wieloczęściowych kontenerów gzip bez rozszerzenia `.gz`.
 - **Otwarte pytania:** W M3 zintegrować przycisk „Podgląd hex” z właściwym widokiem hexview oraz dodać obsługę rozpakowywania wieloczłonowych kontenerów gzip.
+
+## 2026-11-26 — M3.1–M3.4 — Narzędzia badawcze: Hex Viewer, Skaner sygnatur, Analizator i Klasyfikator formatów
+- **Pytanie:** Jak dostarczyć strumieniowy, wirtualizowany widok hex (`raw` i `gunzip`), streamingowy skaner sygnatur z maskami działający w osobnym Workerze bez przesyłania surowych danych przez wątek główny, analizator entropii/histogramu/stride'ów oraz deklaratywny klasyfikator formatów bez dodawania zależności zewnętrznych i bez ładowania całych plików do RAM?
+- **Metoda:**
+  - M3.1: `VolReader.readRange`, `VolReaderRpcClient.readRange` / `readDecompressedRange` (z 1-slotowym cache ostatnio rozpakowanego pliku i kopiowaniem wycinków przed `withTransfer`), czysta logika `src/tools/hexview/` (`hashRoute.ts`, `interpreter.ts`, `hexFormat.ts`), wirtualizowany UI `src/ui/tools/hexViewPanel.ts`, integracja z `#hex=...` oraz poprawki UI Eksploratora (`id`/`name` na `<input>`, poziome przewijanie chroniące kolumnę `NAZWA`).
+  - M3.2: rozszerzenie `src/workers/rpc.ts` o komunikaty `rpc:progress`, czysty parser wzorców z maskami (`??`, nibble) i streamingowy `scanByteSource` z nakładką `pattern.length - 1` i kontekstem `≤ 64 B` (`src/tools/scanner/`), dedykowany Worker (`src/workers/scanner.worker.ts`, `scannerProtocol.ts`) owijający bezpośrednio `BlobByteSource` na zakresie `[address, address + size)` oraz panel `src/ui/tools/scannerPanel.ts`.
+  - M3.3: czysta logika `src/tools/analyzer/` (`entropy.ts`, `histogram.ts`, `stride.ts`, `analyze.ts`) i panel SVG `src/ui/tools/analyzerPanel.ts` (okno analizy ograniczone do 1 MiB, canvas WebGL2 nietknięty).
+  - M3.4: deklaratywny rejestr `src/formats/registry.ts` (`FORMAT_REGISTRY`, `classifyFile`, `stripGzipExtension`) podpięty pod szczegóły Eksploratora (odczyt tylko 16 B nagłówka) oraz nagłówek Hex Viewera.
+- **Wynik:**
+  - Widok hex obsługuje skoki przez URL-hash `#hex=<path>&off=0x<hex>[&len=0x<hex>][&mode=raw|gunzip]`, zaznaczenie zakresu i interpretacje LE (`u8`, `s8`, `u16`, `s16`, `u32`, `s32`, `float32`) oraz fixed-point PS1 ze znakiem `4.12` (`int16 / 4096`) i `1.15` (`int16 / 32768`), bez kolizji z `InputManager`.
+  - Skaner sygnatur z presety `gzip (1F 8B 08)`, `TIM (10 00 00 00)`, `GTFS (47 54 46 53 00 00 00 00)` i maskami `??` wykrywa trafienia na granicy okien odczytu z raportowaniem postępu i anulowaniem przez `AbortSignal`.
+  - Analizator wylicza entropię Shannona (`0` dla stałych, `~8` dla równomiernych/losowych), histogram 256 koszyków oraz autokorelację stride'ów z tłumieniem harmonicznych (poprawnie wyróżnia fundamentalny stride `0x20` przed `0x40`).
+  - Klasyfikator `registry.ts` utrzymuje ścisłe poziomy pewności (`GTFS` **E3**, `gzip` **E3**, `TIM` **E2**, `CDO/CNO` **E2**, `CDP/CNP` **E2**) i klasyfikuje nierozpoznane lub fałszywie nazwane pliki jako `unknown` (**E0**).
+  - Bramka końcowa: `tsc --noEmit`, `eslint .`, `vitest` (35/35 plików, 174/174 testów), `vite build` oraz `playwright test` (5/5 testów e2e bez błędów konsoli i sieci).
+- **Pewność:** **E3** dla `GTFS`/`gzip`, **E2** dla `TIM`/`CDO`/`CDP` (oczekują na weryfikację inwentaryzacyjną w M4.1), **E0** dla nierozpoznanych plików (`unknown`).
+- **Konsekwencje dla kodu:** Pierwsza połowa M3 (M3.1–M3.4) jest kompletna i przetestowana na syntetycznych danych; narzędzia badawcze są gotowe do dokończenia M3.5–M3.8 oraz inwentaryzacji formatów GT2 w M4–M5.
+- **Otwarte pytania:** W kolejnej sesji zrealizować M3.5–M3.8 (podgląd tablic struktur, eksport Evidence Pack, podgląd obrazu „na ślepo”, metodyka badań) oraz przejść do M4.1 na prawdziwym `GT2.VOL`.
