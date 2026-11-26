@@ -1,5 +1,10 @@
 import { isAbortLikeError } from '../../app/volArchiveSession';
 import {
+  REGISTRY_HEAD_PROBE_BYTES,
+  classifyFile,
+  stripGzipExtension,
+} from '../../formats/registry';
+import {
   type ByteInterpretation,
   HEX_BYTES_PER_ROW,
   type HexHashRoute,
@@ -91,9 +96,11 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
   const title = el('h3', 'ogt2-hex-title', 'Podgląd hex');
   const pathBadge = el('code', 'ogt2-hex-path');
   pathBadge.dataset['testid'] = 'hex-path';
+  const formatBadge = el('span', 'ogt2-hex-format');
+  formatBadge.dataset['testid'] = 'hex-format';
   const sizeBadge = el('span', 'ogt2-hex-size');
   sizeBadge.dataset['testid'] = 'hex-size';
-  titleGroup.append(title, pathBadge, sizeBadge);
+  titleGroup.append(title, pathBadge, formatBadge, sizeBadge);
 
   const modeGroup = el('div', 'ogt2-hex-mode-group');
   const rawModeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Surowy');
@@ -396,6 +403,23 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
       return;
     }
     pathBadge.textContent = currentRoute.path;
+    if (isLoaded) {
+      const chunk0 = chunks.get(0);
+      const headLen = Math.min(totalSize, REGISTRY_HEAD_PROBE_BYTES, chunk0?.byteLength ?? 0);
+      const headBytes = chunk0 !== undefined ? chunk0.subarray(0, headLen) : new Uint8Array(0);
+      const classifyPath =
+        currentRoute.mode === 'gunzip' ? stripGzipExtension(currentRoute.path) : currentRoute.path;
+      const classification = classifyFile({ path: classifyPath, headBytes });
+      formatBadge.textContent = `${classification.formatName} [${classification.evidence}]`;
+      formatBadge.dataset['formatId'] = classification.id;
+      formatBadge.dataset['evidence'] = classification.evidence;
+      formatBadge.title = classification.notes;
+    } else {
+      formatBadge.textContent = '…';
+      delete formatBadge.dataset['formatId'];
+      delete formatBadge.dataset['evidence'];
+      formatBadge.title = '';
+    }
     sizeBadge.textContent = isLoaded ? `${formatByteSize(totalSize)} (${formatBytesExact(totalSize)})` : 'wczytywanie…';
     rawModeBtn.classList.toggle('is-active', currentRoute.mode === 'raw');
     gunzipModeBtn.classList.toggle('is-active', currentRoute.mode === 'gunzip');

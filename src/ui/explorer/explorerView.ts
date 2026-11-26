@@ -1,4 +1,8 @@
 import { isAbortLikeError } from '../../app/volArchiveSession';
+import {
+  REGISTRY_HEAD_PROBE_BYTES,
+  classifyFile,
+} from '../../formats/registry';
 import type { VolEntry, VolInfo } from '../../formats/vol';
 import { parseHexHash } from '../../tools/hexview';
 import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
@@ -120,6 +124,7 @@ function mountExplorer(
   let actionBusy: 'raw' | 'decompressed' | null = null;
   let actionFeedback: { readonly kind: 'ok' | 'error'; readonly message: string } | null = null;
   let actionController: AbortController | null = null;
+  const headProbeCache = new Map<string, Uint8Array>();
   let renderedPaths = new Set<string>();
   let renderFrame: number | null = null;
   let statTimer: ReturnType<typeof setTimeout> | null = null;
@@ -492,6 +497,24 @@ function mountExplorer(
     const gzipValue = appendMetaRow(meta, 'gzip', gzipLabel, 'details-gzip');
     gzipValue.dataset['gzip'] = gzipState;
 
+    const probedHead = headProbeCache.get(entry.path);
+    const classification =
+      entry.size === 0
+        ? classifyFile({ path: entry.path, headBytes: new Uint8Array(0) })
+        : probedHead !== undefined
+          ? classifyFile({ path: entry.path, headBytes: probedHead })
+          : null;
+    const formatText =
+      classification !== null
+        ? `${classification.formatName} [${classification.evidence}]`
+        : 'sprawdzanie…';
+    const formatValue = appendMetaRow(meta, 'Format', formatText, 'details-format');
+    if (classification !== null) {
+      formatValue.dataset['formatId'] = classification.id;
+      formatValue.dataset['evidence'] = classification.evidence;
+      formatValue.title = classification.notes;
+    }
+
     const actions = el('div', 'ogt2-details-actions');
     actions.dataset['testid'] = 'details-actions';
 
@@ -627,6 +650,26 @@ function mountExplorer(
         }
       },
     );
+
+    if (
+      item !== undefined &&
+      item.entry.kind === 'file' &&
+      item.entry.size > 0 &&
+      !headProbeCache.has(path)
+    ) {
+      const probeLen = Math.min(item.entry.size, REGISTRY_HEAD_PROBE_BYTES);
+      void source
+        .readRange(path, 0, probeLen)
+        .then((res) => {
+          headProbeCache.set(path, res.bytes);
+          if (!disposed && selectedPath === path) {
+            renderDetails();
+          }
+        })
+        .catch(() => {
+          // Non-fatal probe failure; fallback classification still available by path if needed.
+        });
+    }
   };
 
   // ----- Hex viewer, scanner & hash routing ----------------------------------------------------

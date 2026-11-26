@@ -74,9 +74,45 @@ function buildMultiMemberGzip(part1: Uint8Array, part2: Uint8Array): Uint8Array 
   return out;
 }
 
+function buildResearchFixturePayload(): Uint8Array {
+  // 32 records of 0x20 bytes (1024 bytes total) with an embedded TIM magic at 0x40
+  // and known LE / fixed-point values at 0x60.
+  const stride = 0x20;
+  const recordCount = 32;
+  const buf = new Uint8Array(stride * recordCount);
+  for (let r = 0; r < recordCount; r += 1) {
+    const base = r * stride;
+    buf[base + 0] = 0x52;
+    buf[base + 1] = 0x01;
+    buf[base + 2] = r & 0xff;
+    buf[base + 3] = 0x00;
+    buf[base + 4] = (r * 37 + 11) & 0xff;
+    buf[base + 5] = (r * 73 + 19) & 0xff;
+    buf[base + 12] = 0x80;
+    buf[base + 13] = 0x01;
+    buf[base + 14] = 0x22;
+    buf[base + 15] = 0x01;
+    buf[base + 16] = 0x33;
+    buf[base + 17] = 0x44;
+    buf[base + 24] = 0xff;
+    buf[base + 25] = 0x02;
+    buf[base + 26] = 0xaa;
+    buf[base + 27] = 0x55;
+  }
+  // Embedded TIM signature at 0x40
+  buf.set([0x10, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00], 0x40);
+  // Known int16 LE at 0x60: 0x1000 (+4096 => fixed 4.12 = 1.000000, fixed 1.15 = 0.125000)
+  const view = new DataView(buf.buffer);
+  view.setInt16(0x60, 0x1000, true);
+  view.setInt16(0x62, 0x4000, true);
+  return buf;
+}
+
 function createExplorerFixtureArchive() {
   const packedPlain = deterministicPayload(640, 3);
   const packedGz = gzipSync(packedPlain, { mtime: 0 });
+  const researchPlain = buildResearchFixturePayload();
+  const researchGz = gzipSync(researchPlain, { mtime: 0 });
   const hiddenPlain = deterministicPayload(512, 7);
   const hiddenGz = gzipSync(hiddenPlain, { mtime: 0 });
   const fakeGzBytes = new TextEncoder().encode('PLAIN_CONTENT_WITH_GZ_NAME');
@@ -103,6 +139,7 @@ function createExplorerFixtureArchive() {
       unixTime: 945_000_010,
       children: [
         { kind: 'file', name: 'packed.dat.gz', data: packedGz, unixTime: 945_000_020 },
+        { kind: 'file', name: 'research.dat.gz', data: researchGz, unixTime: 945_000_025 },
         { kind: 'file', name: 'hidden_gz.bin', data: hiddenGz, unixTime: 945_000_030 },
         { kind: 'file', name: 'fake.gz', data: fakeGzBytes, unixTime: 945_000_040 },
         { kind: 'file', name: 'multi_gz.bin', data: multiGzBytes, unixTime: 945_000_050 },
@@ -129,11 +166,13 @@ function createExplorerFixtureArchive() {
     built,
     packedPlain,
     packedGz,
+    researchPlain,
+    researchGz,
     hiddenPlain,
     hiddenGz,
     fakeGzBytes,
     multiGzBytes,
-    totalFiles: 6 + bulkFiles.length,
+    totalFiles: 7 + bulkFiles.length,
   };
 }
 
@@ -323,6 +362,105 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
     const multiRaw = await multiRawPromise;
     expect(multiRaw.suggestedFilename()).toBe('multi_gz.bin');
     expect(await readDownloadBytes(multiRaw)).toEqual(fixture.multiGzBytes);
+
+    assertCleanMonitors(monitors);
+  });
+
+  test('supports M3.1–M3.4 research tools: hexview (raw + gunzip + LE/fixed-point), worker scanner, analyzer, and format classifier without console.error', async ({
+    page,
+    baseURL,
+  }) => {
+    expect(baseURL).toBeTruthy();
+    const monitors = attachErrorMonitors(page);
+    const fixture = createExplorerFixtureArchive();
+
+    await page.goto(buildPageUrl(baseURL ?? 'http://127.0.0.1:4173/', 'debug=1'), {
+      waitUntil: 'load',
+    });
+
+    const appRoot = page.locator('#app');
+    await expect(appRoot).toHaveAttribute('data-worker', 'ready', { timeout: 10_000 });
+
+    await page.locator('[data-testid="file-input"]').setInputFiles({
+      name: 'SYNTHETIC_GT2.VOL',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from(fixture.built.bytes),
+    });
+
+    const archivePanel = page.locator('[data-testid="archive-panel"]');
+    await expect(archivePanel).toHaveAttribute('data-vol-state', 'ready', { timeout: 15_000 });
+
+    await page.locator('[data-testid="tree-dir"][data-path="cars"]').click();
+    await page.locator('[data-testid="explorer-row"][data-path="cars/research.dat.gz"]').click();
+
+    // 1. Format classifier in explorer details (M3.4)
+    await expect(page.locator('[data-testid="details-format"]')).toHaveAttribute('data-format-id', 'gzip', {
+      timeout: 5_000,
+    });
+    await expect(page.locator('[data-testid="details-format"]')).toContainText('[E3]');
+
+    // 2. All <input> and <select> elements have id & name (DevTools Issues check)
+    const missingIds = await page.evaluate(() => {
+      const nodes = [...document.querySelectorAll('input, select')];
+      return nodes
+        .filter((node) => !node.id || !node.getAttribute('name'))
+        .map((node) => node.outerHTML);
+    });
+    expect(missingIds).toEqual([]);
+
+    // 3. Open Hex Viewer (raw -> gunzip) and verify byte interpretations + InputManager isolation (M3.1)
+    await page.locator('[data-testid="action-hex-preview"]').click();
+    await expect(page.locator('[data-testid="hex-viewer"]')).toBeVisible();
+    await expect(page.locator('[data-testid="hex-format"]')).toHaveAttribute('data-format-id', 'gzip');
+
+    await page.locator('[data-testid="hex-mode-gunzip"]').click();
+    await expect(page.locator('[data-testid="hex-current-hash"]')).toContainText('mode=gunzip');
+    await expect(page.locator('[data-testid="hex-format"]')).toHaveAttribute('data-format-id', 'unknown');
+
+    // Jump to 0x60 where int16 LE = 0x1000 (+4096 -> 1.000000 in 4.12)
+    const hexOffInput = page.locator('[data-testid="hex-offset-input"]');
+    await hexOffInput.click();
+    await hexOffInput.fill('0x60');
+    await page.keyboard.press('KeyW');
+    const snapDuringHexInput = await page.evaluate(() => window.__input?.getSnapshot());
+    expect(snapDuringHexInput?.pressedCodes).toEqual([]);
+
+    await hexOffInput.fill('0x60');
+    await page.locator('[data-testid="hex-jump-button"]').click();
+    await expect(page.locator('[data-testid="hex-interp-s16"]')).toHaveText('4096');
+    await expect(page.locator('[data-testid="hex-interp-q412"]')).toHaveText('1.000000');
+    await expect(page.locator('[data-testid="hex-interp-q115"]')).toHaveText('0.125000');
+
+    // 4. Signature scanner in Worker (M3.2): scan decompressed research.dat.gz for TIM preset -> hit at 0x40
+    await page.locator('[data-testid="scanner-preset-tim"]').click();
+    await page.locator('[data-testid="scanner-mode-select"]').selectOption('gunzip');
+    await page.locator('[data-testid="scanner-run-button"]').click();
+
+    const firstHit = page.locator('[data-testid="scanner-hit"]').first();
+    await expect(firstHit).toBeVisible({ timeout: 10_000 });
+    await expect(firstHit).toHaveAttribute('data-offset', String(0x40));
+
+    // Clicking the hit updates hex viewer route to offset 0x40
+    await firstHit.locator('[data-testid="scanner-hit-jump"]').click();
+    await expect(page.locator('[data-testid="hex-current-hash"]')).toContainText('off=0x40');
+
+    // 5. Analyzer (M3.3): entropy SVG, histogram SVG, and stride 0x20 detection
+    await page.locator('[data-testid="analyzer-mode-select"]').selectOption('gunzip');
+    await page.locator('[data-testid="analyzer-run-button"]').click();
+    await expect(page.locator('[data-testid="analyzer-entropy-chart"]')).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('[data-testid="analyzer-histogram-chart"]')).toBeVisible();
+    await expect(page.locator('[data-testid="analyzer-stride-row"]').first()).toHaveAttribute(
+      'data-stride',
+      String(0x20),
+    );
+
+    // 6. Narrow viewport keeps NAZWA column visible
+    await page.setViewportSize({ width: 375, height: 812 });
+    const nameBox = await page
+      .locator('[data-testid="explorer-row"][data-path="cars/research.dat.gz"] .ogt2-col-name')
+      .boundingBox();
+    expect(nameBox).not.toBeNull();
+    expect(nameBox!.width).toBeGreaterThanOrEqual(120);
 
     assertCleanMonitors(monitors);
   });

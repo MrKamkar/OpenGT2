@@ -787,6 +787,16 @@ body {
   color: var(--ogt2-muted);
 }
 
+.ogt2-hex-format {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--ogt2-accent);
+}
+
 .ogt2-hex-mode-group {
   display: flex;
   flex-wrap: wrap;
