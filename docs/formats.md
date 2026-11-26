@@ -459,9 +459,10 @@ encodeCarId(code):
 
 ## GT2 Car Model Format: `CDO` / `CNO` (`src/formats/car/cdo/`)
 
-- **Confidence:** **E3** (header, LOD table, LOD headers, vertices, packed normals, 4 polygon lists, and shadow header verified across `2,220 / 2,220` decompressed `.cdo.gz`/`.cno.gz` models in `local_assets/GT2.VOL`, `tests/unit/cdoRealArchive.test.ts`); **E1** (clean-room shadow payload record layout, `0x08..0x0F` wheel diagnostic, `renderOrder`, `renderFlags`, `paletteRaw`, `scale`); **E0** (`unk_0x04`, `unk_0x10`, `0x40..0x867`, `unk_0x4e`, unused zero bitfields).
+- **Confidence:** **E3** (header, wheel slot order, coordinate system, LOD table, LOD headers, vertices, packed normals, 4 polygon lists, perimeter quad triangulation `(0,1,2)+(0,2,3)`, uniform single-sided `CCW` winding convention, PS1 4×4 CLUT `paletteRaw` formula, `renderFlags` bit 2 ↔ `paletteIndex === 14` correlation, and shadow header verified across `2,220 / 2,220` decompressed `.cdo.gz`/`.cno.gz` paired with `.cdp.gz`/`.cnp.gz` in `local_assets/GT2.VOL`, `tests/unit/cdoRealArchive.test.ts` & `tests/unit/cdoCdpResearchRealArchive.test.ts`); **E1** (clean-room shadow payload record layout, `renderOrder`, `renderFlags` bit 2 visual meaning, `scale`); **E0** (`unk_0x04`, `unk_0x10`, `0x40..0x867`, `unk_0x4e`, unused zero bitfields).
 - **Clean-room source:** Implemented solely from [ROADMAP.md Appendix D](../ROADMAP.md#załącznik-d-format-aut-gt2-cdocnocdpcnp) and streaming verification against `local_assets/GT2.VOL` (no code copied from `pez2k/gt2tools`).
 - **Endianness & Size Limit:** Little-endian (`DataView(..., true)`) (**E3**); uncompressed size `11,048–20,000 B` (`100% <= 0x5000` / `20,480 B`) (**E3**).
+- **Coordinate System (**E3**):** Right-handed `1/4096 m` integer grid with **`+X` right, `+Y` up, `-Z` forward** (verified across `2,220` models: wheel `y` averages `+699`, LOD0 `y` spans `[-18, +2850]` on average, and night-illuminated white headlights cluster at `Z < 0` [`4,817` vs `18`] while red taillights cluster at `Z > 0` [`4,480` vs `174`]).
 
 ### 1. Fixed Header (`0x00..0x867`, `2,152` bytes)
 
@@ -470,10 +471,10 @@ encodeCarId(code):
 | `0x00` | 3 B | `uint8[3]` | Magic `"GT\x02"` (`47 54 02`) | **E3** |
 | `0x03` | 1 B | `uint8` | `unk_0x03`: observed `0x00` across `2,220 / 2,220` models | **E1** |
 | `0x04` | 4 B | `uint32` LE | `unk_0x04`: observed `0x00000000` across `2,220 / 2,220` models | **E0** |
-| `0x08` | 8 B | `uint16[4]` LE | `rawWheelDiag0x08`: observed `0` across `2,220 / 2,220` models (reserved for M6.9) | **E1** |
+| `0x08` | 8 B | `uint16[4]` LE | `rawWheelDiag0x08`: strictly `[0, 0, 0, 0]` across `2,220 / 2,220` models (`0x18` is the active wheel parameter record in GT2) | **E3** |
 | `0x10` | 8 B | `uint16[4]` LE | `unk_0x10`: observed `0` across `2,220 / 2,220` models | **E0** |
-| `0x18` | 8 B | `uint16[4]` LE | `menuWheels`: `frontRadius`, `frontWidth`, `rearRadius`, `rearWidth` (`1/4096 m` units; non-zero across `2,220 / 2,220`) | **E3** (layout) / **E2** (units) |
-| `0x20` | 32 B | `4×(4×int16)` LE | `wheelPositions`: `[x, y, z, menuX]` per wheel (`1/4096 m`; pairs `0/1` and `2/3` symmetric in `±x` and matching `z`) | **E3** (layout) / **E2** (units) |
+| `0x18` | 8 B | `uint16[4]` LE | `menuWheels`: `frontRadius`, `frontWidth`, `rearRadius`, `rearWidth` (`1/4096 m` units; strictly non-zero across `2,220 / 2,220` models) | **E3** |
+| `0x20` | 32 B | `4×(4×int16)` LE | `wheelPositions`: `[x, y, z, menuX]` per wheel (`1/4096 m`, `menuX / x ≈ 0.874` in `[0.796, 0.920]`). Verified order across `2,220 / 2,220` models: **`[0]` Front-Left (`x<0, z<0`), `[1]` Front-Right (`x>0, z<0`), `[2]` Rear-Left (`x<0, z>0`), `[3]` Rear-Right (`x>0, z>0`)**. | **E3** |
 | `0x40` | `0x828` B | `uint8[]` | `unk_0x40`: unknown gap (`0x40..0x867`), explicitly skipped | **E0** |
 
 ### 2. LOD Table (`0x868`) & Sequential LOD Header (`0x50` bytes)
@@ -507,8 +508,12 @@ encodeCarId(code):
    - `quads` (`quadCount × 16 B`, `faceType = 40` / `0x28`, `71,188` records),
    - `uvTriangles` (`uvTriCount × 28 B`, `faceType = 37` / `0x25`, `295,480` records),
    - `uvQuads` (`uvQuadCount × 28 B`, `faceType = 45` / `0x2D` [`466,201` records] + modulated variant `faceType = 44` / `0x2C` [`8` records across `2` files, accepted with parser warning]).
-   - Base `16 B` layout: `0x00` `uint8[4] v0..v3` (`v3 === 0` for triangles), `0x04` `uint16` (`renderOrder` bits `0..4` [**E1**], `n0` bits `5..13`, bits `14..15 === 0` [**E0**]), `0x06` `uint16` (bits `0..11 === 0` [**E0**], `renderFlags` bits `12..15` observed `{0, 4, 8, 12}` [**E1**]), `0x08` `uint32` (bit `0 === 0` [**E0**], `n1` bits `1..9`, `n2` bits `10..18`, `n3` bits `19..27`, bits `28..31 === 0` [**E0**]), `0x0C` `uint32` (`color` `BGR888` bits `0..23` as `0xBBGGRR`, `faceType` bits `24..31`).
-   - Additional `12 B` UV block (`0x10..0x1B`): `uv0 (u,v)`, `uint16 paletteRaw` (**E1**, reserved for M6.9), `uv1 (u,v)`, `uint16 pad0x16 === 0` (**E3**), `uv2 (u,v)`, `uv3 (u,v)` (`(0,0)` for triangles; `u ∈ [0, 255]`, `v ∈ [0, 223]`).
+   - Base `16 B` layout: `0x00` `uint8[4] v0..v3` (`v3 === 0` for triangles), `0x04` `uint16` (`renderOrder` bits `0..4` [**E1**, observed `15` values `{2, 4, 6, 8, 10, 12, 14, 16, 17, 19, 21, 23, 27, 29, 31}`, dominated by `16` (`687,417`)], `n0` bits `5..13`, bits `14..15 === 0` [**E0**]), `0x06` `uint16` (bits `0..11 === 0` [**E0**], `renderFlags` bits `12..15` observed `{0, 4, 8, 12}`), `0x08` `uint32` (bit `0 === 0` [**E0**], `n1` bits `1..9`, `n2` bits `10..18`, `n3` bits `19..27`, bits `28..31 === 0` [**E0**]), `0x0C` `uint32` (`color` `BGR888` bits `0..23` as `0xBBGGRR`, `faceType` bits `24..31`).
+   - **Quad Triangulation & Uniform Winding Order (**E3**):** Quads list vertices `[v0, v1, v2, v3]` in **perimeter order** and triangulate cleanly as `(v0, v1, v2) + (v0, v2, v3)` (`532,711` consistent vs `2,529` mixed in 3D, `99.53%`; `442,945` vs `1,493` in 2D UV, `99.66%`; whereas Z-order `(0,1,2)+(2,1,3)` yields `99.0%` normal-inversion conflicts). Relative to the unpacked 10-bit vertex normals (`(v1 - v0) × (v2 - v0) · N_avg > 0` in right-handed `+X right, +Y up, -Z forward`), both triangles and triangulated quads use **uniform CCW front-facing winding (`gl.CCW`)** when single-sided:
+     - `renderFlags` bit 3 (`0x08`, **E3**): **`1`** (`renderFlags ∈ {8, 12}`) = single-sided `CCW` (`657,294 / 659,138 = 99.72%`, including `19,458 / 19,458 = 100.00%` for `rf = 12`); **`0`** (`renderFlags ∈ {0, 4}`) = double-sided (disable back-face culling in M7).
+     - `renderFlags` bit 2 (`0x04`, **E3** correlation / **E1** visual meaning): **`1`** (`renderFlags ∈ {4, 12}`) is in **`100.00%` (`21,941 / 21,941`) bijection** with `paletteIndex === 14` across all `842,731` polygons (`0` occurrences on untextured `32/40` or palettes `0..13`).
+   - Additional `12 B` UV block (`0x10..0x1B`): `uv0 (u,v)`, `uint16 paletteRaw` (**E3**), `uv1 (u,v)`, `uint16 pad0x16 === 0` (**E3**), `uv2 (u,v)`, `uv3 (u,v)` (`(0,0)` for triangles; `u ∈ [0, 255]`, `v ∈ [0, 223]` texel coordinates).
+   - **`paletteRaw` Formula (**E3**):** Only `15` distinct values occur across all `761,689` UV polygons (`0x0000..0x0003`, `0x0040..0x0043`, `0x0080..0x0083`, `0x00C0..0x00C2` — PS1 4×4 VRAM CLUT grid `row = raw >>> 6`, `col = raw & 3`). `(raw >>> 4) + (raw & 0x3F)` maps `761,689 / 761,689` (`100.0%`) strictly into `0..14`.
    - Edge case (`4` files / `8` LODs): `normalCount === 0` with all polygon normal indices `[0, 0, 0, 0]` (accepted with warning; non-zero index when `normalCount === 0` is rejected).
 
 ### 4. Trailing Shadow Block (After Final LOD)
@@ -518,3 +523,31 @@ encodeCarId(code):
   - `vertexCount × 4 B`: `int16 x, int16 z` LE (`1/4096 m`).
   - `triangleCount × 4 B` followed by `quadCount × 4 B`: packed `uint32` LE (`v0` bits `0..5`, `v1` `6..11`, `v2` `12..17`, `v3` `18..23` [`0` on triangles], `flagsRaw` bits `24..31` observed `0x80`/`0x00` — diagnostic only).
   - Sample shadow header + start of payload (`64 B` total): `1800020010000000b7f80000bfef0000490700001f12000011004d12` + `0000bfef00001f120000e1f200008e0b8404170b640641084907c30978057611`.
+
+---
+
+## GT2 Car Texture & Palette Format: `CDP` / `CNP` (`src/formats/car/cdp/`)
+
+- **Confidence:** **E3** (file size, header, `colorCount`, ASCII `colorIds`, `30` × `0x240`-byte paint slot layout, `256 × 224` 4 bpp bitmap, `0xFFFF` empty-entry semantics, and day/night slot alignment verified across `2,220 / 2,220` decompressed `.cdp.gz`/`.cnp.gz` files in `local_assets/GT2.VOL`, `tests/unit/cdpRealArchive.test.ts` & `tests/unit/cdoCdpResearchRealArchive.test.ts`); **E1** (`illuminationMasks` and `paintMasks` semantics, STP bit 15 role).
+- **Clean-room source:** Implemented solely from [ROADMAP.md Appendix D.7](../ROADMAP.md#d7-tekstury-cdp--cnp) and streaming verification against `local_assets/GT2.VOL`.
+- **Endianness & Fixed Size:** Little-endian (`DataView(..., true)`) (**E3**); exact uncompressed size `45,984 B` (`0xB3A0 = 0x43A0 + 0x7000`) across `2,220 / 2,220` files (**E3**).
+
+### 1. Header & Color Slot Table (`0x00..0x439F`)
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 2 B | `uint16` LE | `colorCount`: active paint slots (`1..16` observed, max `30`; upper byte `0x01` is `0x00` across `2,220 / 2,220`) | **E3** |
+| `0x02` | `30` B | `uint8[30]` | `colorIds`: ASCII `[0-9a-z]` (`36` distinct chars) for `0..colorCount-1`; trailing `colorCount..29` strictly `0x00` (`2,220 / 2,220`) | **E3** |
+| `0x20` | `30 × 0x240` B | `CdpColorSlot[30]` | Paint slot records (`9,258` active slots across `2,220` files; unused slots `colorCount..29` strictly `0x00` across `2,220 / 2,220`) | **E3** |
+| `0x43A0` | `0x7000` B | `uint8[]` | `256 × 224` 4 bpp indexed bitmap (`128 B/row`, even pixel = low nibble `byte & 0x0F`, odd pixel = high nibble `(byte >>> 4) & 0x0F`) | **E3** |
+
+### 2. Paint Slot Record (`0x240` = `576` bytes)
+
+| Relative Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `+0x000` | `0x200` B | `uint16[16][16]` LE | `16` CLUTs × `16` 15-bit PS1 `A1B5G5R5` colors (`bit 15 = STP`, `14..10 = B`, `9..5 = G`, `4..0 = R`); `0xFFFF` = empty/unused slot | **E3** |
+| `+0x200` | `0x20` B | `uint16[16]` LE | `illuminationMasks`: bit `c` of word `p` correlates with day→night palette changes (`26,187` changed+marked vs `3,337` changed-only); STP bit 15 shows no surge on illuminated entries (`138` day vs `122` night) | **E1** |
+| `+0x220` | `0x20` B | `uint16[16]` LE | `paintMasks`: bit `c` of word `p` correlates with multi-color paint recoloring (`123,883` varying+marked vs `2,654` varying-only across `1,650` multi-color files) | **E1** |
+
+- **`0xFFFF` Empty Slot vs White+STP (**E3**):** Across `148,128` active palettes (`9,258` slots × `16`), `11,902` are all-`0xFFFF` and `107` are partial-`0xFFFF`. Active UV polygons have **`0` texel hits** in partially-`0xFFFF` palettes (`1,068 / 1,068`), and only **`4` daytime quads in `1` `.cdo`** reference an all-`0xFFFF` palette (`paletteIndex = 12`, `dayIllum = 0`) whose paired night `.cnp` populates palette `12` (`0` `0xFFFF` entries, `illuminationMasks[12] = 0xFF00`). `cdpToIndexedImage` defaults `0xFFFF` to `0x0000` (transparent black) while preserving raw `emptyEntryMasks`/`emptyPalettes` on `CdpColorSlot`.
+- **Day vs Night Pairs (**E3**):** `1,110 / 1,110` `.cdp`/`.cnp` pairs share identical `colorCount` and `colorIds`; `1,077 / 1,110` pairs differ in bitmap content (`0x43A0..0xB39F`).
