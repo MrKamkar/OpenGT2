@@ -335,3 +335,23 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 - **Pewność:** **E3** dla formatu `.cdp`/`.cnp`, kolejności kół, osi układu, triangulacji `(0,1,2)+(0,2,3)`, konwencji `CCW` + bitu `0x08`, wzoru `paletteRaw` i bijekcji `rf&4 ↔ pal=14`; **E1** dla `renderOrder`, wizualnej roli bitu `0x04` oraz masek `illumination`/`paint`.
 - **Konsekwencje dla kodu:** M6.8 może oprzeć konwersję `CarModel` na potwierdzonej triangulacji `CCW`, indeksach palet `0..15`, surowych koordynatach UV oraz jawnej flagi `singleSided = (renderFlags & 0x08) !== 0` pod culling w M7.
 - **Otwarte pytania:** Wykonać M6.8 (`CarModel`), M6.10 (baza odniesienia na `2 220` parach) i M6.11 (powiązanie `carparam`/kolorów z `CarCatalog`).
+
+## 2026-11-26 — M6.8 & M6.10 — Konwersja `CarModel` i weryfikacja pełnego pipeline'u na `2 220` parach w `GT2.VOL`
+- **Pytanie:** Czy pełny pipeline (`parseCdo` + `parseCdp` → `buildCarModel`, `selectCarModelPaint`, `withCarModelTexture`) buduje bezbłędnie wszystkie `2 220` wariantów aut (`1 110` dzień + `1 110` noc) w `local_assets/GT2.VOL` oraz jakie są dokładne zanonimizowane statystyki odniesienia dla próby ≥ 5 klas aut przed kontrolą wzrokową w M7?
+- **Metoda:** Implementacja `src/formats/car/carModel.ts` + `src/formats/car/index.ts` (testy jednostkowe w `tests/unit/carModel.test.ts`) oraz strumieniowy test integracyjny `tests/unit/carModelRealArchive.test.ts` na `NodeFileByteSource` + `CachedByteSource` + `VolReader`.
+- **Wynik (statystyki zagregowane z `2 220` par, zero nazw aut/plików gry):**
+  - `2 220 / 2 220` modeli zbudowanych pomyślnie (`1 110` dzień + `1 110` noc); `825 / 825` wielokolorowych aut przeszło zmianę slotu lakieru (`selectCarModelPaint`); `0` nieoczekiwanych ostrzeżeń (wyłącznie znane: `8` LOD-ów z `normalCount === 0`, `8` modulowanych czworokątów `faceType 44`, `1` przypadek pustej palety `12` w jednym dziennym modelu).
+  - Wszystkie współrzędne UV mieszczą się w surowych tekselach `[0..255] × [0..223]`, a indeksy palet w `[0..14]`.
+  - **Zanonimizowana baza odniesienia dla M7 (5 deterministycznych klas z wariantu dziennego):**
+
+| Klasa próby (bez nazw/kodów gry) | Kolory lakieru | Wymiary LOD0 (`X × Y × Z`, m) | Wierzchołki LOD0 | Trójkąty LOD0 (bez UV + z UV = suma) | Użyte palety LOD0 | Trójkąty LOD1 / LOD2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Klasa A (najkrótsza bryła LOD0) | `1` | `1.906 × 1.048 × 0.063` | `88` | `0 + 172 = 172` | `1` (`#3`) | `172` / `172` |
+| Klasa B (mediana długości LOD0) | `10` | `0.906 × 0.562 × 2.241` | `226` | `32 + 296 = 328` | `7` | `214` / `50` |
+| Klasa C (najwięcej trójkątów LOD0) | `6` | `1.762 × 1.191 × 3.685` | `255` | `36 + 460 = 496` | `13` | `236` / `32` |
+| Klasa D (maks. `16` kolorów lakieru) | `16` | `1.148 × 0.517 × 2.497` | `198` | `38 + 330 = 368` | `13` | `232` / `52` |
+| Klasa E (najdłuższa bryła LOD0) | `2` | `1.849 × 1.168 × 3.968` | `223` | `32 + 344 = 376` | `13` | `266` / `64` |
+
+- **Pewność:** **E3** dla pełnego potoku konwersji geometrii, kół, LOD-ów, triangulacji `CCW`, indeksów palet i tekstur aut.
+- **Konsekwencje dla kodu:** `CarModel` stanowi gotowy kontrakt wejściowy pod budowę buforów WebGL2 w M7 (`gl.SHORT`, `gl.UNSIGNED_BYTE`, `R8` + `RGBA8`, `gl.CCW`).
+- **Otwarte pytania:** W M6.11 domknąć powiązania `CarRacingModification` i plików `carparam` z `CarCatalog`/`CarAssetIndex`.
