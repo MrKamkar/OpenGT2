@@ -263,3 +263,15 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 - **Pewność:** **E3** dla kontenera `GTDT`, układu `31` tablic `gtmode_data`, `4` tablic `gtmode_race`, rozmiarów `24` struktur oraz nagłówka `WSDB`; **E1** dla znaczenia `formatFlag = 0x006C`; **E0** dla sekcji `2` i `24..29` (`ParseNothing`).
 - **Konsekwencje dla kodu:** Nie wystąpił żaden warunek STOP — w M5.2 można zaimplementować deklaratywny parser układu `GTDT` (`src/formats/gtdb/layout.ts`) oraz wyszukiwarkę wariantów regionalnych `findGtdbEntries` bez hardcodowania prefiksu regionu (z wykluczeniem `*_dev`).
 - **Otwarte pytania:** W M5.2 zweryfikować wszystkie wykryte warianty testem integracyjnym w Vitest; w M5.3–M5.4 zdekodować rekordy struktur i napisy `WSDB`.
+
+## 2026-11-26 — M5.2 — Deklaratywny parser układu `GTDT` (`src/formats/gtdb/`) i walidacja spójności
+- **Pytanie:** Jak dostarczyć czysty, niezależny od środowiska przeglądarkowego parser układu tablic bazy danych `GTDT` z twardą walidacją granic, nakładania niepustych sekcji oraz podzielności `size % elementSize === 0`, a także wzorcowe wyszukiwanie wariantów regionalnych bez hardcodowania jednego prefiksu?
+- **Metoda:** Implementacja `src/formats/gtdb/` (`types.ts`, `layout.ts`, `index.ts`) z atrybucją MIT dla `adeyblue/GTVolTools`, aktualizacja `src/formats/registry.ts` o sygnaturę `GTDT` (`E3`), budowanie syntetycznych buforów w `tests/fixtures/buildGtdb.ts` oraz testy jednostkowe (`tests/unit/gtdbLayout.test.ts`) i strumieniowy test integracyjny (`tests/unit/gtdbRealArchive.test.ts`).
+- **Wynik:**
+  - `GTMODE_DATA_TABLE_SPECS` deklaruje `31` tablic (`0..30`, 24 nazwane struktury `E3` i 7 sekcji `E0` `unk_section_*`) w kolejności z `GT2DataExploder/structs.h`; `GTMODE_RACE_TABLE_SPECS` deklaruje `4` sekcje `gtmode_race`.
+  - `parseGtdbLayout` waliduje magic `"GTDT"`, minimalny `pairCount`, granice katalogu i wszystkich sekcji, brak nakładania niepustych zakresów (z dopuszczeniem pustych sekcji `size === 0` oraz luk/paddingu między sekcjami) oraz `size % elementSize === 0` (rzucając typowany `GtdbError`).
+  - `findGtdbEntries` wykrywa po wzorcach wszystkie warianty regionalne `gtmode_data`, `gtmode_race`, `unistrdb`, `arcade_data` i `license_data` z pominięciem stubów `*_dev`.
+  - Test na realnym `local_assets/GT2.VOL` zweryfikował strumieniowo wszystkie `7/7` wariantów `gtmode_data` (spójna liczba rekordów `CarData === CarDimensions === CarEngineData === CarDrivetrain` oraz `CarTyres === CarRearTyres`) i `7/7` wariantów `gtmode_race`.
+- **Pewność:** **E3** dla parsera układu `GTMODE_DATA_TABLE_SPECS` i `GTMODE_RACE_TABLE_SPECS` oraz sygnatury `GTDT` w `registry.ts`.
+- **Konsekwencje dla kodu:** Fundament `src/formats/gtdb/` jest gotowy do implementacji dekoderów poszczególnych struktur (`CarDimensions`, `CarEngineData`, `CarGearbox`, `CarSuspension`, `CarTyres`, `CarData`) w M5.3.
+- **Otwarte pytania:** W M5.3 zaimplementować dekodery rekordów struktur (z izolacją pól **E0** jako `unk_0x..`), a w M5.4 zbadać kodowanie i dekoder `WSDB` (`unistrdb`).

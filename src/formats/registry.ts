@@ -74,6 +74,14 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     notes: 'Obrazy tła menu GT2 (8 bpp, kafelki 16x8, 16 palet); zweryfikowano 458 bloków w GT2.VOL (M4.4).',
   },
   {
+    id: 'gtdt',
+    ext: [],
+    magic: [0x47, 0x54, 0x44, 0x54],
+    formatName: 'GT2 Database Container (GTDT)',
+    evidence: 'E3',
+    notes: 'Kontener tablic bazy danych GT2 ("GTDT"); zweryfikowano 22 pliki w GT2.VOL (M5.1).',
+  },
+  {
     id: 'cdo',
     ext: ['.cdo', '.cno'],
     magic: [0x47, 0x54, 0x02],
