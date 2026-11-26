@@ -1348,6 +1348,119 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.28);
 }
 
+/* ----- M4.7: Lazy Thumbnail Gallery ------------------------------------------------------- */
+
+.ogt2-gallery-mount[hidden],
+.ogt2-gallery-shell[hidden] {
+  display: none;
+}
+
+.ogt2-gallery-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ogt2-gallery-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ogt2-gallery-scroll {
+  position: relative;
+  height: 392px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid var(--ogt2-border);
+  border-radius: 6px;
+  background: rgba(10, 14, 24, 0.78);
+  padding: 10px;
+}
+
+.ogt2-gallery-spacer {
+  position: relative;
+  width: 100%;
+}
+
+.ogt2-gallery-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 10px;
+  will-change: transform;
+}
+
+.ogt2-gallery-card {
+  height: 176px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--ogt2-border);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.85);
+  color: var(--ogt2-text);
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+
+.ogt2-gallery-card:hover {
+  border-color: var(--ogt2-accent);
+}
+
+.ogt2-gallery-card.is-selected {
+  border-color: var(--ogt2-accent);
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.ogt2-gallery-thumb-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: rgba(10, 14, 24, 0.7);
+  overflow: hidden;
+}
+
+.ogt2-gallery-canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.ogt2-gallery-canvas[hidden] {
+  display: none;
+}
+
+.ogt2-gallery-card-status {
+  font-size: 0.72rem;
+  color: var(--ogt2-muted);
+}
+
+.ogt2-gallery-card-name {
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ogt2-gallery-card-meta {
+  font-size: 0.7rem;
+  color: var(--ogt2-muted);
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+
 @media (max-width: 1320px) {
   .ogt2-hex-body {
     grid-template-columns: minmax(0, 1fr);

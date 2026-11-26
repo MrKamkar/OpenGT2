@@ -7,7 +7,9 @@ import type { VolEntry, VolInfo } from '../../formats/vol';
 import { parseHexHash } from '../../tools/hexview';
 import {
   type ImageDecoderService,
+  type ThumbnailGalleryHandle,
   mountImageViewerPanel,
+  mountThumbnailGalleryPanel,
   shouldAutoPreviewEntry,
 } from '../imageViewer';
 import { type HexDataSource, mountHexViewPanel } from '../tools/hexViewPanel';
@@ -235,7 +237,26 @@ function mountExplorer(
   countLabel.dataset['testid'] = 'explorer-count';
   countLabel.setAttribute('aria-live', 'polite');
 
+  let viewMode: 'list' | 'gallery' = 'list';
+  let viewListButton: HTMLButtonElement | null = null;
+  let viewGalleryButton: HTMLButtonElement | null = null;
+
   toolbar.append(upButton, scopeLabel, searchInput, countLabel);
+  if (source.imageDecoder !== undefined) {
+    const viewSwitch = el('div', 'ogt2-hex-mode-group');
+    viewListButton = el('button', 'ogt2-button ogt2-button-subtle is-active', 'Lista');
+    viewListButton.type = 'button';
+    viewListButton.dataset['testid'] = 'explorer-view-list';
+    viewListButton.setAttribute('aria-pressed', 'true');
+
+    viewGalleryButton = el('button', 'ogt2-button ogt2-button-subtle', 'Galeria miniatur');
+    viewGalleryButton.type = 'button';
+    viewGalleryButton.dataset['testid'] = 'explorer-view-gallery';
+    viewGalleryButton.setAttribute('aria-pressed', 'false');
+
+    viewSwitch.append(viewListButton, viewGalleryButton);
+    toolbar.append(viewSwitch);
+  }
 
   // ----- Virtualized list ----------------------------------------------------------------------
   const listScroll = el('div', 'ogt2-vlist-scroll');
@@ -266,6 +287,9 @@ function mountExplorer(
   listTable.append(header, list);
   listScroll.append(listTable);
 
+  const galleryMount = el('div', 'ogt2-gallery-mount');
+  galleryMount.hidden = true;
+
   // ----- Details & Workbench -------------------------------------------------------------------
   const details = el('section', 'ogt2-explorer-details');
   details.dataset['testid'] = 'explorer-details';
@@ -274,7 +298,7 @@ function mountExplorer(
   const workbench = el('div', 'ogt2-workbench');
   workbench.dataset['testid'] = 'research-workbench';
 
-  main.append(toolbar, listScroll, details, workbench);
+  main.append(toolbar, listScroll, galleryMount, details, workbench);
 
   const layout = el('div', 'ogt2-explorer');
   layout.append(tree, main);
@@ -623,6 +647,7 @@ function mountExplorer(
     }
     renderToolbar();
     renderRows();
+    thumbnailGallery?.setEntries(rows, resetScroll);
   }
 
   function navigate(target: ExplorerScope): void {
@@ -641,6 +666,7 @@ function mountExplorer(
     cancelActiveAction();
     actionFeedback = null;
     selectedPath = path;
+    thumbnailGallery?.setSelectedPath(path);
     for (const row of rowsLayer.querySelectorAll<HTMLElement>('.ogt2-vlist-row')) {
       const isSelected = row.dataset['path'] === path;
       row.classList.toggle('is-selected', isSelected);
@@ -731,6 +757,51 @@ function mountExplorer(
           },
         })
       : null;
+
+  const thumbnailGallery: ThumbnailGalleryHandle | null =
+    source.imageDecoder !== undefined
+      ? mountThumbnailGalleryPanel({
+          container: galleryMount,
+          decoder: source.imageDecoder,
+          allEntries: entries,
+          onSelectFile(path: string): void {
+            selectFile(path);
+            const item = entryByPath.get(path);
+            if (item !== undefined && item.entry.kind === 'file' && imageViewerPanel !== null) {
+              imageViewerPanel.openEntry({
+                ...item.entry,
+                isGzip: statCache.getGzipState(path) === 'gzip',
+              });
+              renderDetails();
+            }
+          },
+        })
+      : null;
+
+  const setViewMode = (nextMode: 'list' | 'gallery'): void => {
+    if (thumbnailGallery === null || viewMode === nextMode) {
+      return;
+    }
+    viewMode = nextMode;
+    const isGallery = nextMode === 'gallery';
+    listScroll.hidden = isGallery;
+    galleryMount.hidden = !isGallery;
+    thumbnailGallery.setVisible(isGallery);
+    if (viewListButton !== null && viewGalleryButton !== null) {
+      viewListButton.classList.toggle('is-active', !isGallery);
+      viewListButton.setAttribute('aria-pressed', String(!isGallery));
+      viewGalleryButton.classList.toggle('is-active', isGallery);
+      viewGalleryButton.setAttribute('aria-pressed', String(isGallery));
+    }
+  };
+
+  viewListButton?.addEventListener('click', () => {
+    setViewMode('list');
+  });
+  viewGalleryButton?.addEventListener('click', () => {
+    setViewMode('gallery');
+  });
+  thumbnailGallery?.setEntries(rows, true);
 
   const hexPanel = mountHexViewPanel({
     container: workbench,
@@ -859,6 +930,7 @@ function mountExplorer(
         statTimer = null;
       }
       statCache.dispose();
+      thumbnailGallery?.dispose();
       imageViewerPanel?.dispose();
       hexPanel.dispose();
       scannerPanel?.dispose();

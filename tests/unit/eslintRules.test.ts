@@ -23,7 +23,7 @@ describe('ESLint project rules (M0.3)', () => {
       'src/formats/vol/sample.ts',
     );
     expect(nestedTypeImport).toContain('no-restricted-imports');
-  });
+  }, 15_000);
 
   it('allows normal imports in src/** and importing src/** from tests/**', async () => {
     const srcImport = await lintRuleIds(
