@@ -1,5 +1,6 @@
 import type { CarModel } from '../formats/car';
 import type { OrbitCamera } from './camera';
+import type { DrawOrderMode, OrderingTableOptions } from './drawOrder';
 import { HdCarTextureArray, HdPipeline, type HdPipelineOptions, type WebGL2HdContext } from './hdPipeline';
 import { type IndexedTextureHandle, type WebGL2IndexedTextureContext, uploadIndexedTexture } from './indexedTexture';
 import { CarRenderMesh } from './mesh';
@@ -20,6 +21,8 @@ export type WebGL2CarRendererContext = WebGL2Ps1Context &
 
 export interface CarRendererOptions {
   readonly initialMode?: RenderMode;
+  readonly drawOrderMode?: DrawOrderMode;
+  readonly orderingTable?: OrderingTableOptions;
   readonly ps1?: Ps1PipelineOptions;
   readonly hd?: HdPipelineOptions;
 }
@@ -40,6 +43,8 @@ export class CarRenderer {
   private readonly hdPipeline: HdPipeline;
 
   private mode: RenderMode;
+  private drawOrderMode: DrawOrderMode;
+  private orderingTable: OrderingTableOptions | undefined;
   private carModel: CarModel | null = null;
   private lodIndex = 0;
   private colorSlotIndex = 0;
@@ -52,6 +57,8 @@ export class CarRenderer {
   public constructor(gl: WebGL2CarRendererContext, options: CarRendererOptions = {}) {
     this.gl = gl;
     this.mode = options.initialMode ?? 'hd';
+    this.drawOrderMode = options.drawOrderMode ?? options.ps1?.drawOrderMode ?? 'zbuffer';
+    this.orderingTable = options.orderingTable ?? options.ps1?.orderingTable;
 
     let ps1: Ps1Pipeline | null = null;
     let hd: HdPipeline | null = null;
@@ -77,6 +84,17 @@ export class CarRenderer {
 
   public setMode(mode: RenderMode): void {
     this.mode = mode;
+  }
+
+  public getDrawOrderMode(): DrawOrderMode {
+    return this.drawOrderMode;
+  }
+
+  public setDrawOrderMode(mode: DrawOrderMode, orderingTable?: OrderingTableOptions): void {
+    this.drawOrderMode = mode;
+    if (orderingTable !== undefined) {
+      this.orderingTable = orderingTable;
+    }
   }
 
   public getLodIndex(): number {
@@ -248,6 +266,12 @@ export class CarRenderer {
           : 0;
       const ps1RenderOptions: Ps1RenderOptions = {
         ...options.ps1,
+        drawOrderMode: options.ps1?.drawOrderMode ?? this.drawOrderMode,
+        ...(options.ps1?.orderingTable !== undefined
+          ? { orderingTable: options.ps1.orderingTable }
+          : this.orderingTable !== undefined
+            ? { orderingTable: this.orderingTable }
+            : {}),
         paletteRowOffset,
         ...(options.wireframe !== undefined ? { wireframe: options.wireframe } : {}),
       };

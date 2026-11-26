@@ -1,5 +1,10 @@
 import { PS1_FIXED_POINT_SCALE } from './math';
 import type { OrbitCamera } from './camera';
+import {
+  type DrawOrderMode,
+  type OrderingTableOptions,
+  sortPrimitivesOrderingTable,
+} from './drawOrder';
 import type { IndexedTextureHandle } from './indexedTexture';
 import type { CarRenderMesh, WebGL2MeshContext } from './mesh';
 import {
@@ -24,7 +29,7 @@ import {
 import { ShaderProgram, type WebGL2ShaderContext } from './shaderProgram';
 import { type GpuResourceCounts, addResourceCounts } from './types';
 
-export type Ps1DrawOrderMode = 'zbuffer' | 'ordering-table-experimental';
+export type Ps1DrawOrderMode = DrawOrderMode;
 
 /**
  * Minimal WebGL2 context interface required by `Ps1Pipeline` (FBO, textures, shaders, meshes, blend).
@@ -118,6 +123,8 @@ export interface Ps1PipelineOptions {
   readonly quantize15Bit?: boolean;
   readonly wireframe?: boolean;
   readonly blendMode?: Ps1BlendMode;
+  readonly drawOrderMode?: DrawOrderMode;
+  readonly orderingTable?: OrderingTableOptions;
   readonly clearColor?: readonly [number, number, number, number];
 }
 
@@ -129,6 +136,8 @@ export interface Ps1RenderOptions {
   readonly quantize15Bit?: boolean;
   readonly wireframe?: boolean;
   readonly blendMode?: Ps1BlendMode;
+  readonly drawOrderMode?: DrawOrderMode;
+  readonly orderingTable?: OrderingTableOptions;
   readonly displayAspect?: number;
   readonly customDrawOrder?: () => void;
 }
@@ -358,6 +367,8 @@ export class Ps1Pipeline {
   private readonly defaultQuantize15Bit: boolean;
   private readonly defaultWireframe: boolean;
   private readonly defaultBlendMode: Ps1BlendMode;
+  private readonly defaultDrawOrderMode: DrawOrderMode;
+  private readonly defaultOrderingTable: OrderingTableOptions | undefined;
   private readonly clearColor: readonly [number, number, number, number];
   private disposed = false;
 
@@ -372,6 +383,8 @@ export class Ps1Pipeline {
     this.defaultQuantize15Bit = options.quantize15Bit ?? true;
     this.defaultWireframe = options.wireframe ?? false;
     this.defaultBlendMode = options.blendMode ?? 'opaque';
+    this.defaultDrawOrderMode = options.drawOrderMode ?? 'zbuffer';
+    this.defaultOrderingTable = options.orderingTable;
     this.clearColor = options.clearColor ?? [12 / 255, 16 / 255, 24 / 255, 1];
 
     const vao = gl.createVertexArray();
@@ -539,7 +552,10 @@ export class Ps1Pipeline {
     const quantize15 = options.quantize15Bit ?? this.defaultQuantize15Bit;
     const wireframe = options.wireframe ?? this.defaultWireframe;
     const blendMode = options.blendMode ?? this.defaultBlendMode;
-    const useCustomOrder = options.customDrawOrder !== undefined;
+    const drawOrderMode = options.drawOrderMode ?? this.defaultDrawOrderMode;
+    const orderingTable = options.orderingTable ?? this.defaultOrderingTable;
+    const useCustomOrder =
+      options.customDrawOrder !== undefined || drawOrderMode === 'ordering-table-experimental';
 
     // 1. Render geometry to low-res FBO
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
@@ -562,6 +578,7 @@ export class Ps1Pipeline {
 
     applyPs1BlendMode(gl, blendMode);
 
+    const viewMatrix = camera.getViewMatrix();
     const mvp = camera.getViewProjectionMatrix();
     this.carProgram.use();
     this.carProgram.setMat4('u_mvp', mvp);
@@ -591,6 +608,13 @@ export class Ps1Pipeline {
 
     if (options.customDrawOrder !== undefined) {
       options.customDrawOrder();
+    } else if (drawOrderMode === 'ordering-table-experimental') {
+      const sorted = sortPrimitivesOrderingTable(
+        mesh.data.primitives,
+        viewMatrix,
+        orderingTable,
+      );
+      mesh.drawDynamicBatches(sorted.indices, sorted.batches);
     } else {
       mesh.drawBatches();
     }

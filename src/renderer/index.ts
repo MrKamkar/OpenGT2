@@ -122,3 +122,9 @@ export {
   type SetCarOptions,
   type WebGL2CarRendererContext,
 } from './carRenderer';
+export {
+  type DrawOrderMode,
+  type OrderingTableOptions,
+  type OrderingTableResult,
+  sortPrimitivesOrderingTable,
+} from './drawOrder';
