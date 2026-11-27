@@ -9,6 +9,7 @@ import {
   CAR_FACE_MODE_TEXTURED_RAW,
   CAR_FACE_MODE_UNTEXTURED,
   CAR_WHEEL_CDP_PALETTE_INDEX,
+  CAR_WHEEL_SEGMENTS,
   ChaseCamera,
   DriveRenderer,
   DriveSession,
@@ -20,6 +21,8 @@ import {
   buildWheelLocalMatrix,
   buildWheelMeshData,
   computeCarVisualBottomY,
+  computeWheelArchMaxUpJounce,
+  computeWheelCenterLateralX,
   hasCdpWheelPalette,
 } from '../../src/renderer';
 import { buildSyntheticCdo } from '../fixtures/buildCdo';
@@ -450,13 +453,13 @@ function createDriveGlHarness() {
 }
 
 describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9.9)', () => {
-  it('aligns car visual bottom cleanly to physics ground plane with -Z forward preserved', () => {
+  it('aligns car tyre bottoms cleanly to physics ground plane while preserving CDO body ground clearance', () => {
     const carModel = makeTestCarModel();
     const bottomY = computeCarVisualBottomY(carModel);
-    // makeTestCarModel uses default synthetic lod.scale = 17 (vertexScale = 2)
-    expect(bottomY).toBeCloseTo((-1000 * 2) / 4096, 5);
+    // Default synthetic CDO wheels: y = 900/4096, radius = 1300/4096 -> tyre bottom at -400/4096 m
+    expect(bottomY).toBeCloseTo(-400 / 4096, 5);
 
-    const carModel16 = buildCarModel(
+    const zeroWheelCar = buildCarModel(
       parseCdo(
         buildSyntheticCdo({
           lods: [
@@ -474,10 +477,14 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
             { scale: 16, maxDistance: 15 },
             { scale: 16, maxDistance: 300 },
           ],
+          mutate: (buf) => {
+            buf.fill(0, 0x18, 0x20);
+          },
         }),
       ),
     );
-    expect(computeCarVisualBottomY(carModel16)).toBeCloseTo(-1000 / 4096, 5);
+    // Falls back to scaled LOD boundingBox.low.y when no valid wheel radii exist
+    expect(computeCarVisualBottomY(zeroWheelCar)).toBeCloseTo(-1000 / 4096, 5);
 
     const comHeight = 0.48;
     const mat = buildCarWorldModelMatrix(
@@ -486,9 +493,11 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
       bottomY,
     );
 
-    // Local point (0, bottomY, 0) transforms to world (2, 0, -5), sitting flush on y = 0 ground.
-    const worldY = (mat[5] ?? 0) * bottomY + (mat[13] ?? 0);
-    expect(worldY).toBeCloseTo(0, 5);
+    // Tyre bottom (0, bottomY, 0) sits flush on y = 0 ground, while body floor (y = 0) stays raised at +400/4096 m.
+    const worldTyreBottomY = (mat[5] ?? 0) * bottomY + (mat[13] ?? 0);
+    const worldBodyFloorY = mat[13] ?? 0;
+    expect(worldTyreBottomY).toBeCloseTo(0, 5);
+    expect(worldBodyFloorY).toBeCloseTo(400 / 4096, 5);
     // Forward -Z axis remains (0, 0, -1) for identity orientation.
     expect(mat[8]).toBeCloseTo(0, 6);
     expect(mat[10]).toBeCloseTo(1, 6);
@@ -707,12 +716,66 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
     expect(harness.getLiveCounts()).toEqual(EMPTY_GPU_RESOURCE_COUNTS);
   });
 
-  it('builds CCW 4-wheel meshes, right-handed steering/spin transforms, and renders 4 wheels in HD & PS1 without GPU leaks', async () => {
+  it('builds CCW 12-segment 4-wheel meshes aligned inside fenders and renders 4 wheels in HD & PS1 without GPU leaks', async () => {
+    expect(CAR_WHEEL_SEGMENTS).toBe(12);
     const wheelData = buildWheelMeshData(0.32, 0.22, CAR_WHEEL_CDP_PALETTE_INDEX);
     expect(wheelData.vertexScale).toBe(1);
-    expect(wheelData.triangleCount).toBeGreaterThanOrEqual(64);
+    expect(wheelData.triangleCount).toBe(72);
     expect(wheelData.batches).toHaveLength(1);
     expect(wheelData.batches[0]?.singleSided).toBe(true);
+
+    // Verify wheel center X inset and fender-arch upward jounce clamp
+    const sampleCar = makeTestCarModel();
+    const fl = sampleCar.wheels[0];
+    const centerFl = computeWheelCenterLateralX(fl);
+    expect(Math.abs(centerFl) + fl.widthMeters * 0.5).toBeCloseTo(Math.abs(fl.positionMeters.x), 5);
+    const menuOnlyCenter = computeWheelCenterLateralX({
+      ...fl,
+      positionMeters: { x: 0, y: fl.positionMeters.y, z: fl.positionMeters.z, menuX: -0.74 },
+    });
+    expect(menuOnlyCenter).toBeCloseTo(-0.74, 5);
+
+    const archCar = buildCarModel(
+      parseCdo(
+        buildSyntheticCdo({
+          lods: [
+            {
+              scale: 16,
+              maxDistance: 5,
+              // Default wheels: x = ±3500 (0.854 m), y = 900 (0.220 m), r = 1300 (0.317 m) -> top = 0.537 m
+              vertices: [
+                [-3600, 0, -5000, 0],
+                [3600, 0, -5000, 0],
+                [3600, 2320, -5000, 0], // arch height = 0.5664 m -> clearance ~0.029 m -> clamped ~0.014 m
+                [-3600, 2320, -5000, 0],
+                [3600, 2400, 5000, 0],
+                [-3600, 2400, 5000, 0],
+              ],
+              normals: [
+                [0, 500, 0],
+                [0, 500, 0],
+                [0, 500, 0],
+                [0, 500, 0],
+                [0, 500, 0],
+                [0, 500, 0],
+              ],
+            },
+            { scale: 16, maxDistance: 15 },
+            { scale: 16, maxDistance: 300 },
+          ],
+        }),
+      ),
+    );
+    const jounceClamps = computeWheelArchMaxUpJounce(archCar, 0);
+    for (let i = 0; i < 4; i += 1) {
+      const w = archCar.wheels[i]!;
+      const clampVal = jounceClamps[i]!;
+      expect(clampVal).toBeGreaterThanOrEqual(0.005);
+      expect(clampVal).toBeLessThanOrEqual(0.045);
+      if (i < 2) {
+        expect(w.positionMeters.y + w.radiusMeters + clampVal).toBeLessThan(2320 / 4096);
+      }
+    }
 
     let texturedRimVerts = 0;
     let untexturedVerts = 0;

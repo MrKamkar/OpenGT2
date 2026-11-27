@@ -1,4 +1,4 @@
-import type { CarModel } from '../formats/car';
+import type { CarModel, CarWheelSpec } from '../formats/car';
 import {
   CAR_FACE_MODE_TEXTURED_RAW,
   CAR_FACE_MODE_UNTEXTURED,
@@ -13,8 +13,8 @@ export const CAR_WHEEL_CDP_PALETTE_INDEX = 15;
 /** Ratio of alloy rim disc radius to full outer tyre radius (`E1` visual proportion). */
 export const CAR_WHEEL_RIM_RADIUS_RATIO = 0.68;
 
-/** Radial polygon count used for each Drive Mode wheel cylinder. */
-export const CAR_WHEEL_SEGMENTS = 16;
+/** Radial polygon count used for each Drive Mode wheel cylinder (PS1 GT2 polygon density). */
+export const CAR_WHEEL_SEGMENTS = 12;
 
 export interface DriveWheelRenderState {
   readonly suspensionDeltaMeters: number;
@@ -41,6 +41,81 @@ function clampInt16(value: number): number {
   if (rounded < -32768) return -32768;
   if (rounded > 32767) return 32767;
   return rounded;
+}
+
+/**
+ * Returns the wheel cylinder's lateral center X (meters) in local car space.
+ * Verified across 621 GT2 `.cdo` models (`E3`): `wheelPositions.x` stores the outer tyre face
+ * (`|x| - |menuX| = width / 2`), so the wheel center sits inward by `widthMeters / 2`.
+ */
+export function computeWheelCenterLateralX(wheel: CarWheelSpec): number {
+  const sign = wheel.side === 'left' ? -1 : 1;
+  const outerAbs = Math.abs(wheel.positionMeters.x);
+  if (outerAbs > 1e-4) {
+    return sign * Math.max(0.05, outerAbs - wheel.widthMeters * 0.5);
+  }
+  const menuAbs = Math.abs(wheel.positionMeters.menuX);
+  return menuAbs > 1e-4 ? sign * menuAbs : 0;
+}
+
+/**
+ * Computes per-wheel upper visual suspension jounce clamps (meters) from `.cdo` fender-arch vertex
+ * heights so wheel tops never clip upward through the body mesh under compression (`M9.17`).
+ */
+export function computeWheelArchMaxUpJounce(
+  carModel: CarModel,
+  lodIndex = 0,
+): readonly [number, number, number, number] {
+  const fallback: readonly [number, number, number, number] = [0.035, 0.035, 0.035, 0.035];
+  const lod = carModel.lods[lodIndex] ?? carModel.lods[0];
+  if (lod === undefined || lod.vertexCount === 0) {
+    return fallback;
+  }
+
+  const bodyHalfW =
+    (Math.max(Math.abs(lod.boundingBox.low.x), Math.abs(lod.boundingBox.high.x)) *
+      lod.vertexScale) /
+    PS1_FIXED_POINT_SCALE;
+  const verts = lod.positionsMeters;
+  const limits: number[] = [];
+
+  for (let wi = 0; wi < 4; wi += 1) {
+    const wheel = carModel.wheels[wi];
+    if (wheel === undefined || wheel.radiusMeters <= 0.05) {
+      limits.push(0.035);
+      continue;
+    }
+
+    const sign = wheel.side === 'left' ? -1 : 1;
+    const wy = wheel.positionMeters.y;
+    const wz = wheel.positionMeters.z;
+    const r = wheel.radiusMeters;
+    let minBodyYOverWheel = Infinity;
+
+    for (let vi = 0; vi < lod.vertexCount; vi += 1) {
+      const base = vi * 3;
+      const vx = verts[base] ?? 0;
+      const vy = verts[base + 1] ?? 0;
+      const vz = verts[base + 2] ?? 0;
+      if (
+        vx * sign > bodyHalfW * 0.7 &&
+        Math.abs(vz - wz) < r * 0.6 &&
+        vy > wy + 0.05 &&
+        vy < minBodyYOverWheel
+      ) {
+        minBodyYOverWheel = vy;
+      }
+    }
+
+    if (Number.isFinite(minBodyYOverWheel)) {
+      const clearance = minBodyYOverWheel - (wy + r);
+      limits.push(Math.max(0.005, Math.min(0.045, clearance - 0.015)));
+    } else {
+      limits.push(0.035);
+    }
+  }
+
+  return [limits[0] ?? 0.035, limits[1] ?? 0.035, limits[2] ?? 0.035, limits[3] ?? 0.035];
 }
 
 /**

@@ -50,6 +50,8 @@ import {
   type DriveWheelRenderTuple,
   buildWheelLocalMatrix,
   buildWheelMeshData,
+  computeWheelArchMaxUpJounce,
+  computeWheelCenterLateralX,
   hasCdpWheelPalette,
 } from './wheelMesh';
 
@@ -556,27 +558,31 @@ void main() {
 `;
 
 /**
- * Returns the lowest local Y coordinate (meters) of the rendered `CarModel` mesh (`lodIndex`, default `0`),
- * scaled by `2^(lod.scale - 16)` and falling back to wheel-bottom contact (`min(wheel.y - radius)`)
- * if no LOD is available. Aligning this coordinate with `pose.position.y - comHeightMeters` places
- * the visible tyres cleanly on the road surface without floating or sinking (`M9.9`).
+ * Returns the lowest local Y coordinate (meters) of the rendered `CarModel` tyre bottoms
+ * (`min(wheel.y - radius)`), falling back to LOD `boundingBox.low.y` scaled by `2^(lod.scale - 16)`
+ * only when no valid wheels are present. Aligning this coordinate with `pose.position.y - comHeightMeters`
+ * places visible tyres flush on the road while preserving `.cdo` body ground clearance (`M9.17`).
  */
 export function computeCarVisualBottomY(carModel: CarModel, lodIndex = 0): number {
-  const lod = carModel.lods[lodIndex] ?? carModel.lods[0];
-  if (lod !== undefined && Number.isFinite(lod.boundingBox.low.y)) {
-    return (lod.boundingBox.low.y * lod.vertexScale) / PS1_FIXED_POINT_SCALE;
-  }
-
   let minWheelBottom = Infinity;
   for (const wheel of carModel.wheels) {
-    if (wheel.radiusMeters > 0 && Number.isFinite(wheel.positionMeters.y)) {
+    if (wheel.radiusMeters > 0.05 && Number.isFinite(wheel.positionMeters.y)) {
       const bottom = wheel.positionMeters.y - wheel.radiusMeters;
       if (bottom < minWheelBottom) {
         minWheelBottom = bottom;
       }
     }
   }
-  return Number.isFinite(minWheelBottom) ? minWheelBottom : 0;
+  if (Number.isFinite(minWheelBottom)) {
+    return minWheelBottom;
+  }
+
+  const lod = carModel.lods[lodIndex] ?? carModel.lods[0];
+  if (lod !== undefined && Number.isFinite(lod.boundingBox.low.y)) {
+    return (lod.boundingBox.low.y * lod.vertexScale) / PS1_FIXED_POINT_SCALE;
+  }
+
+  return 0;
 }
 
 /**
@@ -706,6 +712,9 @@ export class DriveRenderer {
   private carLodIndex = 0;
   private carColorSlotIndex = 0;
   private carVisualBottomY = 0;
+  private carWheelArchMaxUpJounce: readonly [number, number, number, number] = [
+    0.035, 0.035, 0.035, 0.035,
+  ];
   private carMesh: CarRenderMesh | null = null;
   private frontWheelMesh: CarRenderMesh | null = null;
   private rearWheelMesh: CarRenderMesh | null = null;
@@ -917,6 +926,7 @@ export class DriveRenderer {
     this.carLodIndex = lodIndex;
     this.carColorSlotIndex = colorSlotIndex;
     this.carVisualBottomY = computeCarVisualBottomY(carModel, lodIndex);
+    this.carWheelArchMaxUpJounce = computeWheelArchMaxUpJounce(carModel, lodIndex);
     this.carMesh = nextMesh;
     this.frontWheelMesh = nextFrontWheelMesh;
     this.rearWheelMesh = nextRearWheelMesh;
@@ -1238,10 +1248,12 @@ export class DriveRenderer {
           const wSpec = this.carModel.wheels[wi]!;
           const wMesh = wSpec.axle === 'front' ? this.frontWheelMesh : this.rearWheelMesh;
           const wState = options.wheelStates?.[wi];
-          const restY = Math.max(wSpec.positionMeters.y, this.carVisualBottomY + wSpec.radiusMeters);
-          const suspY = Math.max(-0.14, Math.min(0.14, wState?.suspensionDeltaMeters ?? 0));
+          const centerX = computeWheelCenterLateralX(wSpec);
+          const restY = wSpec.positionMeters.y;
+          const maxUp = this.carWheelArchMaxUpJounce[wi] ?? 0.035;
+          const suspY = Math.max(-0.09, Math.min(maxUp, wState?.suspensionDeltaMeters ?? 0));
           const localMat = buildWheelLocalMatrix(
-            { x: wSpec.positionMeters.x, y: restY + suspY, z: wSpec.positionMeters.z },
+            { x: centerX, y: restY + suspY, z: wSpec.positionMeters.z },
             wSpec.side === 'left',
             wSpec.axle === 'front' ? (wState?.steerAngleRad ?? 0) : 0,
             wState?.spinAngleRad ?? 0,
@@ -1455,10 +1467,12 @@ export class DriveRenderer {
           const wSpec = this.carModel.wheels[wi]!;
           const wMesh = wSpec.axle === 'front' ? this.frontWheelMesh : this.rearWheelMesh;
           const wState = options.wheelStates?.[wi];
-          const restY = Math.max(wSpec.positionMeters.y, this.carVisualBottomY + wSpec.radiusMeters);
-          const suspY = Math.max(-0.14, Math.min(0.14, wState?.suspensionDeltaMeters ?? 0));
+          const centerX = computeWheelCenterLateralX(wSpec);
+          const restY = wSpec.positionMeters.y;
+          const maxUp = this.carWheelArchMaxUpJounce[wi] ?? 0.035;
+          const suspY = Math.max(-0.09, Math.min(maxUp, wState?.suspensionDeltaMeters ?? 0));
           const localMat = buildWheelLocalMatrix(
-            { x: wSpec.positionMeters.x, y: restY + suspY, z: wSpec.positionMeters.z },
+            { x: centerX, y: restY + suspY, z: wSpec.positionMeters.z },
             wSpec.side === 'left',
             wSpec.axle === 'front' ? (wState?.steerAngleRad ?? 0) : 0,
             wState?.spinAngleRad ?? 0,

@@ -35,6 +35,12 @@ import {
   getGearRatio,
   quatRotateVec3,
 } from '../../src/physics';
+import {
+  buildCarWorldModelMatrix,
+  computeCarVisualBottomY,
+  computeWheelArchMaxUpJounce,
+  computeWheelCenterLateralX,
+} from '../../src/renderer';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const REAL_VOL_PATH = path.resolve(PROJECT_ROOT, 'local_assets', 'GT2.VOL');
@@ -895,5 +901,124 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
     expect(sim.getSnapshot().wallCollisionCount).toBeGreaterThan(0);
     expect(minCornerClearance).toBeGreaterThanOrEqual(-0.085);
     expect(popEvents).toBe(0);
+  }, 60_000);
+
+  it('aligns real CDO wheel X/Y/width inside body fenders and places tyres flush on ground with authentic ride height', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    expect(preferred).toBeDefined();
+
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const assetIndex = buildCarAssetIndex(allEntries);
+
+    const widthRatios: number[] = [];
+    let checkedWheels = 0;
+    let lateralWithinFenders = 0;
+    let archCheckedWheels = 0;
+    let archClearWheels = 0;
+    let groundContactSampleTested = false;
+
+    for (const car of catalog.listCars()) {
+      const carAssets = assetIndex.resolve(car.carId);
+      if (carAssets.dayModel === null) {
+        continue;
+      }
+      const cdoBytes = await gunzip(
+        await cachedSource.read(
+          carAssets.dayModel.address,
+          carAssets.dayModel.address + carAssets.dayModel.size,
+        ),
+      );
+      const carModel = buildCarModel(parseCdo(cdoBytes));
+      const lod0 = carModel.lods[0];
+      if (lod0 === undefined || lod0.vertexCount === 0) {
+        continue;
+      }
+
+      const bodyHalfW =
+        (Math.max(Math.abs(lod0.boundingBox.low.x), Math.abs(lod0.boundingBox.high.x)) *
+          lod0.vertexScale) /
+        4096;
+      const maxUpJounce = computeWheelArchMaxUpJounce(carModel, 0);
+
+      for (let wi = 0; wi < 4; wi += 1) {
+        const w = carModel.wheels[wi]!;
+        if (w.radiusMeters <= 0.05 || w.widthMeters <= 0.05) {
+          continue;
+        }
+        checkedWheels += 1;
+
+        const absX = Math.abs(w.positionMeters.x);
+        const absMenuX = Math.abs(w.positionMeters.menuX);
+        if (absX > 0.1 && absMenuX > 0.1) {
+          widthRatios.push((absX - absMenuX) / (w.widthMeters * 0.5));
+        }
+
+        const centerX = computeWheelCenterLateralX(w);
+        const outerFaceX = Math.abs(centerX) + w.widthMeters * 0.5;
+        if (outerFaceX <= bodyHalfW + 0.02) {
+          lateralWithinFenders += 1;
+        }
+
+        const sign = w.side === 'left' ? -1 : 1;
+        let archTopY = Infinity;
+        for (let vi = 0; vi < lod0.vertexCount; vi += 1) {
+          const base = vi * 3;
+          const vx = lod0.positionsMeters[base] ?? 0;
+          const vy = lod0.positionsMeters[base + 1] ?? 0;
+          const vz = lod0.positionsMeters[base + 2] ?? 0;
+          if (
+            vx * sign > bodyHalfW * 0.7 &&
+            Math.abs(vz - w.positionMeters.z) < w.radiusMeters * 0.6 &&
+            vy > w.positionMeters.y + 0.05 &&
+            vy < archTopY
+          ) {
+            archTopY = vy;
+          }
+        }
+        if (Number.isFinite(archTopY)) {
+          archCheckedWheels += 1;
+          const compressedTopY = w.positionMeters.y + w.radiusMeters + (maxUpJounce[wi] ?? 0);
+          if (compressedTopY <= archTopY) {
+            archClearWheels += 1;
+          }
+        }
+      }
+
+      if (!groundContactSampleTested && car.engine !== null && car.engine.ps >= 200) {
+        groundContactSampleTested = true;
+        const spec = buildCarPhysicsSpec(car, { carModel });
+        const bottomY = computeCarVisualBottomY(carModel, 0);
+        const mat = buildCarWorldModelMatrix(
+          { position: { x: 0, y: spec.comHeightMeters, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } },
+          spec.comHeightMeters,
+          bottomY,
+        );
+        const lowestTyreLocalY = Math.min(
+          ...carModel.wheels.map((w) => w.positionMeters.y - w.radiusMeters),
+        );
+        const lowestTyreWorldY = (mat[5] ?? 0) * lowestTyreLocalY + (mat[13] ?? 0);
+        const bodyFloorLocalY = (lod0.boundingBox.low.y * lod0.vertexScale) / 4096;
+        const bodyFloorWorldY = (mat[5] ?? 0) * bodyFloorLocalY + (mat[13] ?? 0);
+        expect(Math.abs(lowestTyreWorldY)).toBeLessThanOrEqual(0.001);
+        expect(bodyFloorWorldY).toBeGreaterThanOrEqual(0.05);
+      }
+    }
+
+    widthRatios.sort((a, b) => a - b);
+    const medianRatio = widthRatios[Math.floor(widthRatios.length / 2)] ?? 0;
+    expect(checkedWheels).toBeGreaterThan(2000);
+    expect(medianRatio).toBeGreaterThanOrEqual(0.99);
+    expect(medianRatio).toBeLessThanOrEqual(1.02);
+    expect(lateralWithinFenders / checkedWheels).toBeGreaterThanOrEqual(0.98);
+    expect(archCheckedWheels).toBeGreaterThan(1000);
+    expect(archClearWheels / archCheckedWheels).toBeGreaterThanOrEqual(0.95);
+    expect(groundContactSampleTested).toBe(true);
   }, 60_000);
 });

@@ -636,7 +636,8 @@ export function buildCarPhysicsSpec(
   if (carModel !== undefined) {
     const fl = carModel.wheels[0];
     const fr = carModel.wheels[1];
-    const trackWithTyre = Math.abs(fr.positionMeters.x - fl.positionMeters.x) + fl.widthMeters;
+    // CDO wheelPositions.x already stores the outer tyre face, so |fr.x - fl.x| is the outer track width.
+    const trackWithTyre = Math.abs(fr.positionMeters.x - fl.positionMeters.x);
     const lod0 = carModel.lods[0];
     const lod0Width =
       lod0 !== undefined
@@ -694,7 +695,10 @@ export function buildCarPhysicsSpec(
 
     const xSign = isLeft ? -1 : 1;
     const zSign = isFront ? -1 : 1;
-    const xPos = Math.abs(rawX) > 0.3 ? Math.abs(rawX) * xSign : fallbackHalfTrack * xSign;
+    const xPos =
+      modelWheel !== undefined && Math.abs(rawX) > 0.3
+        ? Math.max(0.25, Math.abs(rawX) - wheelWidthMeters * 0.5) * xSign
+        : (Math.abs(rawX) > 0.3 ? Math.abs(rawX) : fallbackHalfTrack) * xSign;
     const zPos = Math.abs(rawZ) > 0.4 ? Math.abs(rawZ) * zSign : fallbackHalfWheelbase * zSign;
 
     wheelsMutable.push({

@@ -242,5 +242,7 @@ export {
   type DriveWheelRenderTuple,
   buildWheelLocalMatrix,
   buildWheelMeshData,
+  computeWheelArchMaxUpJounce,
+  computeWheelCenterLateralX,
   hasCdpWheelPalette,
 } from './wheelMesh';
