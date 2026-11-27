@@ -393,3 +393,35 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 - **Pewność:** **E3** dla potoku ładowania `.cdo`/`.cno`/`.cdp`/`.cnp` i wariantów `rmBodyId`; **E1** dla niezintegrowanych `carwheel/*.tim`.
 - **Konsekwencje dla kodu:** Milestone M7 jest w pełni domknięty; kolejnym etapem badawczym jest M8.1–M8.2 (lokalizacja i analiza plików torów `.tro`/`.trp` przed bramką decyzyjną G1).
 - **Otwarte pytania (kontrola wzrokowa na lokalnym `GT2.VOL`):** Zweryfikować ręcznie na prawdziwym `local_assets/GT2.VOL` 5 klas aut z M6.10 pod kątem krawędzi cutout alfa w HD oraz wizualnej roli bitu `renderFlags & 0x04` przy `paletteIndex === 14`.
+
+
+## 2026-11-27 — M8.1–M8.2 — Track File Inventory and Clean-Room Binary Structure Analysis (`.tro` / `.trp` / `.bso` / `.bsp`)
+
+- **Question:** Which files inside `local_assets/GT2.VOL` hold Gran Turismo 2 track geometry, textures, backgrounds, and minimaps (M8.1), how do they map to race databases, and is `.tro` surface geometry plus `.trp` texture data deterministically decodable for Decision Gate G1 (M8.2)?
+- **Method:** Read-only streaming traversal of `local_assets/GT2.VOL` via `NodeFileByteSource` + `CachedByteSource` + `VolReader` + `gunzip` (without loading the archive into RAM), followed by statistical header/offset/stride probing across all tracks and verification in `tests/unit/trackResearchRealArchive.test.ts`. Strictly compliant with §1.2 (no track or file name lists; hex probes ≤ 64 B).
+- **M8.1 Streaming Inventory (`11,578` total VOL files):**
+  - `crsobj/*.tro.gz`: `126` single-member gzip streams (`22,800–334,912 B` compressed; `77,768–696,792 B` unpacked); `126/126` begin with `"@(#)GT-PS\0\0\0"`.
+  - `crsobj/*.trp.gz`: `126` single-member gzip streams (`5,370–208,734 B` compressed; `30,980–295,620 B` unpacked); **1:1 stem match** with `.tro.gz` (`0` orphans).
+  - `bgsobj/*.bso.gz` & `bgsobj/*.bsp.gz`: `34` `.bso.gz` (`1,536–5,547 B` comp / `7,232–22,096 B` raw, magic `"BG\0\0"`) paired **1:1** with `34` `.bsp.gz` (`4,068–41,245 B` comp). `0/34` stems identically match `crsobj/`, indicating a shared background/sky assignment table (**E0/E1**).
+  - `crsmap/*.tim.gz`: `120` minimap TIMs (`87–633 B` comp); `120/120` (`100%`) stems match `crsobj/`.
+  - `carparam/(<region>_)?gtmode_race.dat.gz`: contains `248` `RaceInfo` (`0x9C B`) records + `2,670 B` `RaceStrings` (`255` length-prefixed ASCII strings, `24` exact `crsobj/` stem matches); exact `RaceInfo` → `.tro` stem mapping remains **E1**.
+  - Auxiliary non-track singletons (**E0**): `.tsd.gz` (`1`, `159,072 B` raw), `.arc` (`1`, `28,760 B`, `"@(#)GT-ARC\0\0"`), `.txd` (`1`, `44,947 B`, race HUD strings).
+  - **5 Anonymized Candidate Tracks (by unpacked `.tro` byte size):**
+    - `Track #1 (smallest)`: `.tro` `28,024 B` comp / `77,768 B` raw (`12` segs, `142` UVs); `.trp` `40,186 B` comp / `72,612 B` raw (`37` TIMs).
+    - `Track #2`: `.tro` `24,139 B` comp / `88,460 B` raw (`34` segs, `220` UVs); `.trp` `20,035 B` comp / `30,980 B` raw (`23` TIMs).
+    - `Track #4`: `.tro` `36,041 B` comp / `102,928 B` raw (`30` segs, `585` UVs); `.trp` `41,545 B` comp / `75,620 B` raw (`52` TIMs).
+    - `Track #6`: `.tro` `38,764 B` comp / `118,660 B` raw (`50` segs, `426` UVs); `.trp` `35,042 B` comp / `59,524 B` raw (`42` TIMs).
+    - `Track #126 (largest)`: `.tro` `315,413 B` comp / `696,792 B` raw (`194` segs, `2,106` UVs); `.trp` `147,822 B` comp / `295,620 B` raw (`202` TIMs).
+- **M8.2 Binary Structure Findings:**
+  - **`.trp` & `.bsp` Texture Packs (**E3**):** `[u32 timCount]` + `timCount` concatenated standard `4 bpp + CLUT` PS1 TIMs with zero padding, ending at exact EOF (`14,138/14,138` `.trp` TIMs in VRAM `x ∈ [640, 1024]`; `1,160/1,160` `.bsp` TIMs in VRAM `x ∈ [704, 1024]`).
+  - **`.tro` Render Geometry & UV Mapping (**E3**):**
+    - `126/126` `.tro` headers (`72 B`) expose 5 monotonic section offsets `off0..off4`; Section 0 (`off0..off1`) holds `segmentCount` (`14,387` total), `uvCount` × `32 B` UV table (`off1 - uvTableOff === uvCount * 32`), and `segOffsets[0..segmentCount-1]`.
+    - All `28,774` sub-meshes (`subMesh0` at `seg + 0xA4` + `subMesh1` at `u32[seg + 0x94]`) obey an exact `0x44`-byte header + 11 typed lists (`SVECTOR int16×4` vertices = `1,431,126`; `F3/F4/G3/G4/FT3/FT4/GT3/GT4` = `854,397` polygons) with `0` vertex OOB, `0 / 794,729` UV OOB, `0` non-zero `v3` on triangles, and `(0,1,2)+(0,2,3)` perimeter quad winding (`751,085` vs `154` in 3D).
+    - Segment world-space cell origin `(int32[seg + 0x30/0x38/0x34] >> 22) * 4096` eliminates all `4096`-unit cell boundary jumps (`0 / 14,387` off-by-4096 errors, `13,154` exact shared-vertex seams).
+    - Both hi-res and mipmap halves of every `32 B` UV record (`clut` + `tpage` + `(u,v)`) map **`100.0%`** into the paired `.trp` TIM blocks across the 5 sampled candidate tracks (`142`, `220`, `585`, `426`, `2,106` UVs).
+- **Confidence Matrix:**
+  - **E3:** `.trp`/`.bsp` TIM packs; `.tro` Section 0, segment offsets, `0x44` sub-mesh headers, lists `0..8` (`SVECTOR` + `F3..GT4`), perimeter quad winding, cell-origin formula, hi-res/mipmap `clut`/`tpage`/UV VRAM mapping.
+  - **E2:** `.bso` `"BG\0\0"` signature and 1:1 pairing with `.bsp`.
+  - **E1:** `0x24..0x47` checkpoint table, `0x48..off0` start/racing-line block, `subBlock98`/`9C`/`A0` collision/visibility blocks, Sections `1..4` (`off1..off4` objects/PVS), list `9` sprites, `unk5`/`unkFlags`, `RaceInfo` → `.tro` stem mapping.
+  - **E0:** List `10`, `.bso` internal geometry payload, `.tro` unknown `0x001F0000` / UV trailing `u32`, `bgsobj` sky-assignment table, `.tsd`/`.arc`/`.txd`.
+- **Decision Gate G1 Assessment:** **Core G1 criterion is PASSED with high margin (E3).** Track surface & environment meshes (`lists 0..8`) and PS1 `4 bpp + CLUT` textures (`.trp`) plus cell-aligned world coordinates can already be deterministically decoded across all `126` tracks. Remaining unknowns (Sections `1..4` objects, collision sub-blocks `98/9C`, checkpoints/start grid, `.bso` skybox) are secondary for M8.3+ and can be researched incrementally in M8.5/M8.7/M8.8 without blocking M8.3–M8.4. **Recommended next action (pending human G1 sign-off): GO (M8.3–M8.9).**

@@ -566,3 +566,121 @@ encodeCarId(code):
 
 - **`0xFFFF` Empty Slot vs White+STP (**E3**):** Across `148,128` active palettes (`9,258` slots × `16`), `11,902` are all-`0xFFFF` and `107` are partial-`0xFFFF`. Active UV polygons have **`0` texel hits** in partially-`0xFFFF` palettes (`1,068 / 1,068`), and only **`4` daytime quads in `1` `.cdo`** reference an all-`0xFFFF` palette (`paletteIndex = 12`, `dayIllum = 0`) whose paired night `.cnp` populates palette `12` (`0` `0xFFFF` entries, `illuminationMasks[12] = 0xFF00`). `cdpToIndexedImage` defaults `0xFFFF` to `0x0000` (transparent black) while preserving raw `emptyEntryMasks`/`emptyPalettes` on `CdpColorSlot`.
 - **Day vs Night Pairs (**E3**):** `1,110 / 1,110` `.cdp`/`.cnp` pairs share identical `colorCount` and `colorIds`; `1,077 / 1,110` pairs differ in bitmap content (`0x43A0..0xB39F`).
+
+
+---
+
+## GT2 Track & Background Texture Pack Format: `TRP` / `BSP` (M8.2)
+
+- **Confidence:** **E3** (full archive verification across `126/126` `.trp.gz` [`14,138` TIMs] and `34/34` `.bsp.gz` [`1,160` TIMs] in `local_assets/GT2.VOL`, `tests/unit/trackResearchRealArchive.test.ts`).
+- **Endianness:** Little-endian (`DataView(..., true)`).
+- **Layout:**
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 4 B | `uint32` LE | `timCount` (`8..259` in `.trp`, `3..63` in `.bsp`) | **E3** |
+| `0x04` | variable | `TimImage[timCount]` | Concatenated standard PS1 TIMs (`0x10 00 00 00`, `flags = 0x08` = `4 bpp + CLUT`, strict `clut.bnum` & `img.bnum`, zero padding, ends at exact EOF) | **E3** |
+
+- **VRAM Bounds (`1,024 × 512` 16-bit halfwords):**
+  - `.trp` (`14,138 / 14,138` TIMs): pixel `x ∈ [640, 1024]`, `y ∈ [0, 512]`.
+  - `.bsp` (`1,160 / 1,160` TIMs): pixel `x ∈ [704, 1024]`, `y ∈ [0, 512]`.
+- **Signature Note:** When `timCount === 16` (`0x10 00 00 00`), byte `0x00..0x03` matches standalone TIM magic. `FORMAT_REGISTRY` resolves `.trp`/`.bsp` reliably by matching the first entry's TIM header + `4 bpp + CLUT` flags `[0x10, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00]` at `magicOffset: 4`.
+- **Sample header (`Track #1 (smallest)` `.trp`, first 32 B):** `2500000010000000080000002c0000006002f30110000100ff7f7b6f5a6bf762`.
+
+---
+
+## GT2 Track Geometry Format: `TRO` (M8.2)
+
+- **Confidence:** **E3** for header magic, section bounds, Section 0 layout, `0x44`-byte sub-mesh headers, 11-list strides, `SVECTOR` vertex arrays, `F3/F4/G3/G4/FT3/FT4/GT3/GT4` packed polygon bitfields, `(0,1,2)+(0,2,3)` quad triangulation, world-space cell origin `(int32 >> 22) * 4096`, and `clut`/`tpage`/texel addressing in the 32 B UV table (`126/126` `.tro.gz` files, `14,387` segments, `28,774` sub-meshes, `1,431,126` vertices, `854,397` polygons in `tests/unit/trackResearchRealArchive.test.ts`); **E1** for auxiliary Sections 1–4, checkpoints, `0x48..off0`, `subBlock98`/`9C`/`A0`, list `9` sprites, and `unk5`/`unkFlags`; **E0** for list `10`, unknown header/UV tail words, and `.tro`→`raceId` cross-file mapping.
+- **Endianness:** Little-endian.
+
+### 1. Top-Level Header (`0x00..0x47`, 72 B) & Variable Prefix (`0x48..off0`)
+
+| Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `0x00` | 12 B | `char[12]` | Magic `"@(#)GT-PS\0\0\0"` (`40 28 23 29 47 54 2D 50 53 00 00 00`) | **E3** |
+| `0x0C` | 4 B | `uint32` | Constant `0x001F0000` across `126/126` files (role/version flag unverified) | **E1** |
+| `0x10` | 4 B | `uint32` | `off0`: Section 0 offset (segments + UV table) | **E3** |
+| `0x14` | 4 B | `uint32` | `off1`: Section 1 offset (`off0 < off1`, `4,861` items total across archive) | **E3** bounds / **E1** role |
+| `0x18` | 4 B | `uint32` | `off2`: Section 2 offset (`off1 <= off2`, `5,709` items total; candidate trackside/static objects) | **E3** bounds / **E1** role |
+| `0x1C` | 4 B | `uint32` | `off3`: Section 3 offset (`off2 <= off3`, `5,924` items total) | **E3** bounds / **E1** role |
+| `0x20` | 4 B | `uint32` | `off4`: trailing section offset (`off3 <= off4 < EOF`; `u32[off4] === fileLength - off4` on `126/126`) | **E3** bounds / **E1** role |
+| `0x24..0x47` | 36 B | `uint32[]` | `checkpointCount` (`0..3`) + distance table | **E1** |
+| `0x48..off0` | `472..2,344` B | variable | Variable pre-geometry table (candidate start grid / racing line) | **E0/E1** |
+
+- **Sample header (`Track #1 (smallest)` `.tro`, first 32 B):** `4028232947542d505300000000001f003803000040040100e4040100d02c0100`.
+
+### 2. Section 0 (`off0..off1`): Segment Table & UV Table (`126/126`, **E3**)
+
+| Relative Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `+0x00` | 4 B | `uint32` | `trackLengthRaw` (correlates with centerline path sum × `1024`, ~`16.16` scale) | **E1** |
+| `+0x04` | 2 B | `uint16` | `segmentCount` (`12..194` per track, `14,387` total) | **E3** |
+| `+0x06` | 2 B | `uint16` | `uvCount` (`<= 2,742` per track) | **E3** |
+| `+0x08` | 4 B | `uint32` | `uvTableOff` (`off1 - uvTableOff === uvCount * 32` on `126/126`) | **E3** |
+| `+0x0C` | `segmentCount × 4` B | `uint32[]` | `segOffsets` (`segOffsets[0] === off0 + 12 + segmentCount * 4`, strictly monotonic `< uvTableOff`) | **E3** |
+
+### 3. Segment Record (`14,387 / 14,387`) & World-Space Cell Origin
+
+| Relative Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `+0x00` | 2 B | `uint16` | `prevSeg` index | **E3** |
+| `+0x02` | 2 B | `uint16` | `nextSeg` index | **E3** |
+| `+0x18..+0x23` | 12 B | `int32[3]` | Start centerline `(X, Z_up, Y_lat)` (`1024 × vertexUnit`) | **E1** |
+| `+0x30..+0x3B` | 12 B | `int32[3]` | Segment center `(X, Z_up, Y_lat)` used for cell origin extraction | **E3** cell / **E1** center |
+| `+0x44..+0x93` | 80 B | `int32[20]` | Two `10 × int32` world bounding prisms | **E1** |
+| `+0x94` | 4 B | `uint32` | `subMesh1Off` (LOD1 / secondary `0x44` B sub-mesh header) | **E3** |
+| `+0x98` | 4 B | `uint32` | `subBlock98Off` (`u32 count` + `count × 8 B`, candidate collision walls) | **E1** |
+| `+0x9C` | 4 B | `uint32` | `subBlock9COff` (payload contains internal file offset at `+0x28`, candidate road/collision strip) | **E1** |
+| `+0xA0` | 4 B | `uint32` | `subBlockA0Off` (trailing visibility / PVS block) | **E1** |
+| `+0xA4` | `0x44` B | `SubMeshHeader` | Primary `subMesh0` header (`LOD0`) | **E3** |
+
+- **World-Space Reconstruction Formula (**E3**):** Each sub-mesh stores local `int16` vertices `(vx, vy, vz)` inside a `4096`-unit cell:
+  - `cellX = (int32[seg + 0x30] >> 22) * 4096`
+  - `cellY = (int32[seg + 0x38] >> 22) * 4096`
+  - `cellZ = (int32[seg + 0x34] >> 22) * 4096`
+  - `world = (cellX + vx, cellY + vy, cellZ + vz)` (`(X, Y)` horizontal ground plane, `+Z` up).
+  - Verified across all `14,387` segments: `0` off-by-4096 seam errors (`13,154` exact vertex seams; remaining `1,233` are point-to-point endpoints or `0`-vertex dummy segments).
+
+### 4. Sub-Mesh Header (`0x44` B) & 11 Typed Lists (`28,774 / 28,774` exact match)
+
+- Header layout: `+0x00..+0x2B` = `11 × uint32` absolute list offsets (`ptr[0] === mhOff + 0x44`), `+0x2C` = `uint16 vertexCount` (`<= 448` per sub-mesh), `+0x2E` = `uint16 pad === 0`, `+0x30..+0x43` = `10 × uint16` counts for lists `1..10`.
+- Strides & archive totals:
+  - List `0` (`8 B`, `1,431,126`): `int16 x, y, z, pad=0` (`SVECTOR`, **E3**).
+  - List `1` (`12 B`, `4,987`): `F3` untextured triangle (`0x20`, **E3**).
+  - List `2` (`12 B`, `37,115`): `F4` untextured quad (`0x28`, **E3**).
+  - List `3` (`20 B`, `2,993`): `G3` Gouraud triangle (`0x30`, **E3**).
+  - List `4` (`24 B`, `14,573`): `G4` Gouraud quad (`0x38`, **E3**).
+  - List `5` (`12 B`, `89,063`): `FT3` textured triangle (`0x24`, **E3**).
+  - List `6` (`12 B`, `663,589`): `FT4` textured quad (`0x2C`, **E3**).
+  - List `7` (`20 B`, `5,625`): `GT3` textured Gouraud triangle (`0x34`, **E3**).
+  - List `8` (`24 B`, `36,452`): `GT4` textured Gouraud quad (`0x3C`, **E3**).
+  - List `9` (`16 B`, `12,409`): candidate billboard/sprite (`0x2C` GPU packet tag, **E1**).
+  - List `10` (`20 B`, `2,195`): auxiliary block (`0x00` tag, **E0/E1**).
+- **Polygon Bitfields (Lists `1..8`, `854,397` polygons, **E3**):**
+  - `w0` (`uint32` at `+0x00`): `v0` (bits `0..8`), `v1` (bits `9..17`), `v2` (bits `18..26`), `unk5` (bits `27..31`, **E1**).
+  - `w1` (`uint32` at `+0x04`): `v3` (bits `0..8`; strictly `0` on `100%` of triangles), `uvIdx` (bits `9..22`; `0` OOB across `794,729` textured polygons), `unkFlags` (bits `23..31`, **E1**).
+  - Trailing primitive bytes after `w0, w1` hold vertex/primitive colors + PS1 GPU packet tag (`4 B` for flat, `12 B` for Gouraud).
+  - **Quad Triangulation (**E3**):** Quads `[v0, v1, v2, v3]` follow perimeter order and triangulate as `(v0, v1, v2) + (v0, v2, v3)` (`751,085` consistent vs `154` winding reversals in 3D; `85,253` vs `900` in 2D UV).
+
+### 5. UV Table (`uvCount × 32 B` at `uvTableOff`, **E3**)
+
+Each `32 B` entry holds two `16 B` records (`+0x00` hi-res, `+0x10` mipmap):
+
+| Relative Offset | Size | Type | Name / Meaning | Confidence |
+| --- | --- | --- | --- | --- |
+| `+0x00` | 2 B | `uint8[2]` | `u0, v0` | **E3** |
+| `+0x02` | 2 B | `uint16` | `clut` (`X = (clut & 0x3F) * 16`, `Y = (clut >>> 6) & 0x1FF`) | **E3** |
+| `+0x04` | 2 B | `uint8[2]` | `u1, v1` | **E3** |
+| `+0x06` | 2 B | `uint16` | `tpage` (`tpX = (tpage & 0x0F) * 64`, `tpY = ((tpage >>> 4) & 0x01) * 256`) | **E3** |
+| `+0x08..+0x0B` | 4 B | `uint8[4]` | `u2, v2, u3, v3` | **E3** |
+| `+0x0C` | 4 B | `uint32` | `unk` | **E0** |
+
+- Against the paired `.trp` TIM blocks on the 5 anonymized track ranks (`#1, #2, #4, #6, #126`), both hi-res and mipmap entries yield **`100.0%` CLUT + pixel VRAM hits** (`142/142`, `220/220`, `585/585`, `426/426`, `2,106/2,106`).
+- **Sample UV entry (`Track #2`, `uvIdx = 0`, 32 B):** `5e60287e5e7f0d00007f0060620b00008e90257d8e9f0d00609f609000000000`.
+
+---
+
+## GT2 Track Background Object Container: `BSO` (M8.1)
+
+- **Confidence:** **E2** (`34` files under `bgsobj/*.bso.gz`, 1:1 paired with `bgsobj/*.bsp.gz`, ASCII magic `"BG\0\0"` = `42 47 00 00` across `34/34`); **E0** internal skybox geometry payload (currently unparsed; zero identical stems match `crsobj/`, confirming a separate shared sky-mapping table).
