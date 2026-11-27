@@ -584,14 +584,16 @@ encodeCarId(code):
 - **VRAM Bounds (`1,024 × 512` 16-bit halfwords):**
   - `.trp` (`14,138 / 14,138` TIMs): pixel `x ∈ [640, 1024]`, `y ∈ [0, 512]`.
   - `.bsp` (`1,160 / 1,160` TIMs): pixel `x ∈ [704, 1024]`, `y ∈ [0, 512]`.
+  - Sequential PS1 `LoadImage` blitting across `126/126` `.trp` packs yields `0` pixel/CLUT overlaps, `237` exact-rectangle TIM pixel updates (`179` identical, `58` updated), and `2` partial pixel overlaps (**E3**).
+  - Active CLUT entries (`226,208` total) contain `4,516` `0x0000`, `5,092` `0x8000`, and `5,884` STP-set (`0x8000`) entries (**E3**).
 - **Signature Note:** When `timCount === 16` (`0x10 00 00 00`), byte `0x00..0x03` matches standalone TIM magic. `FORMAT_REGISTRY` resolves `.trp`/`.bsp` reliably by matching the first entry's TIM header + `4 bpp + CLUT` flags `[0x10, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00]` at `magicOffset: 4`.
 - **Sample header (`Track #1 (smallest)` `.trp`, first 32 B):** `2500000010000000080000002c0000006002f30110000100ff7f7b6f5a6bf762`.
 
 ---
 
-## GT2 Track Geometry Format: `TRO` (M8.2)
+## GT2 Track Geometry Format: `TRO` (M8.2–M8.5)
 
-- **Confidence:** **E3** for header magic, section bounds, Section 0 layout, `0x44`-byte sub-mesh headers, 11-list strides, `SVECTOR` vertex arrays, `F3/F4/G3/G4/FT3/FT4/GT3/GT4` packed polygon bitfields, `(0,1,2)+(0,2,3)` quad triangulation, world-space cell origin `(int32 >> 22) * 4096`, and `clut`/`tpage`/texel addressing in the 32 B UV table (`126/126` `.tro.gz` files, `14,387` segments, `28,774` sub-meshes, `1,431,126` vertices, `854,397` polygons in `tests/unit/trackResearchRealArchive.test.ts`); **E1** for auxiliary Sections 1–4, checkpoints, `0x48..off0`, `subBlock98`/`9C`/`A0`, list `9` sprites, and `unk5`/`unkFlags`; **E0** for list `10`, unknown header/UV tail words, and `.tro`→`raceId` cross-file mapping.
+- **Confidence:** **E3** for header magic, section bounds, Section 0 layout, `0x44`-byte sub-mesh headers, 11-list strides, `SVECTOR` vertex arrays, `F3/F4/G3/G4/FT3/FT4/GT3/GT4` packed polygon bitfields, GPU command tags & RGB color layout, `subMesh0`/`subMesh1` LOD relationship and opposite winding, `(0,1,2)+(0,2,3)` / `(0,2,1)+(0,3,2)` quad triangulation, world-space cell origin `(int32 >> 22) * 4096`, `subBlock98` 2D barrier walls, and `100%` 4 bpp `clut`/`tpage`/texel addressing across all `126/126` tracks; **E1** for `TRO_UNITS_PER_METER = 64` world scale, auxiliary Sections 1–4, checkpoints, `0x48..off0`, `subBlock9C`/`A0`, list `9` sprites, and `unk5`/`unkFlags`; **E0** for list `10`, unknown header/UV tail words, and `.tro`→`raceId` cross-file mapping.
 - **Endianness:** Little-endian.
 
 ### 1. Top-Level Header (`0x00..0x47`, 72 B) & Variable Prefix (`0x48..off0`)
@@ -629,18 +631,24 @@ encodeCarId(code):
 | `+0x18..+0x23` | 12 B | `int32[3]` | Start centerline `(X, Z_up, Y_lat)` (`1024 × vertexUnit`) | **E1** |
 | `+0x30..+0x3B` | 12 B | `int32[3]` | Segment center `(X, Z_up, Y_lat)` used for cell origin extraction | **E3** cell / **E1** center |
 | `+0x44..+0x93` | 80 B | `int32[20]` | Two `10 × int32` world bounding prisms | **E1** |
-| `+0x94` | 4 B | `uint32` | `subMesh1Off` (LOD1 / secondary `0x44` B sub-mesh header) | **E3** |
-| `+0x98` | 4 B | `uint32` | `subBlock98Off` (`u32 count` + `count × 8 B`, candidate collision walls) | **E1** |
+| `+0x94` | 4 B | `uint32` | `subMesh1Off` (`LOD1` / far low-detail `0x44` B sub-mesh header) | **E3** |
+| `+0x98` | 4 B | `uint32` | `subBlock98Off` (`uint32 count` + `count × 8 B` 2D barrier walls `{ uint16 v0, uint16 v1, int16 nxFixed12, int16 nyFixed12 }`, `80,433` walls across `14,387/14,387` segments) | **E3** |
 | `+0x9C` | 4 B | `uint32` | `subBlock9COff` (payload contains internal file offset at `+0x28`, candidate road/collision strip) | **E1** |
 | `+0xA0` | 4 B | `uint32` | `subBlockA0Off` (trailing visibility / PVS block) | **E1** |
 | `+0xA4` | `0x44` B | `SubMeshHeader` | Primary `subMesh0` header (`LOD0`) | **E3** |
 
-- **World-Space Reconstruction Formula (**E3**):** Each sub-mesh stores local `int16` vertices `(vx, vy, vz)` inside a `4096`-unit cell:
+- **World-Space Reconstruction & Engine Transform (**E3** geometry / **E1** scale):** Each sub-mesh stores local `int16` vertices `(vx, vy, vz)` inside a `4096`-unit cell:
   - `cellX = (int32[seg + 0x30] >> 22) * 4096`
   - `cellY = (int32[seg + 0x38] >> 22) * 4096`
   - `cellZ = (int32[seg + 0x34] >> 22) * 4096`
-  - `world = (cellX + vx, cellY + vy, cellZ + vz)` (`(X, Y)` horizontal ground plane, `+Z` up).
+  - `worldRaw = (cellX + vx, cellY + vy, cellZ + vz)` (`(X, Y)` horizontal ground plane, `+Z` up).
   - Verified across all `14,387` segments: `0` off-by-4096 seam errors (`13,154` exact vertex seams; remaining `1,233` are point-to-point endpoints or `0`-vertex dummy segments).
+  - Proper-rotation (`det = +1`) axis transform to engine right-handed `+Y` up (`+X` right, `+Y` up, `-Z` forward): `(x / s, z / s, -y / s)` with `s = TRO_UNITS_PER_METER = 64` (**E1**: empirically yields `7.1–34.5 m` [median `24.0 m`] `subBlock98` road widths and `247–6,972 m` circuit lengths matching `trackLengthRaw / 65536`).
+- **`subMesh0` (LOD0) vs `subMesh1` (LOD1) & Opposite Winding (**E3**):**
+  - `subMesh0` (`1,129,468` vertices, `699,211` polygons) and `subMesh1` (`301,658` vertices, `155,186` polygons) are LOD variants (`32/126` identical, `94/126` simplified LOD1; `12/126` tracks have `700` distant `only1` segments with `subMesh0.vertexCount === 0` and `subMesh1.vertexCount > 0`).
+  - Shared polygons have reversed vertex order (`85,122 / 85,300 = 99.79%`): in raw `.tro` (`+Z` up), `subMesh0` horizontal faces are `95.7%` CW from above (`nz < 0`) and `subMesh1` are `98.1%` CCW from above (`nz > 0`). Engine `gl.CCW` normalization emits `(0,2,1)` / `(0,2,1)+(0,3,2)` for `subMesh0` and `(0,1,2)` / `(0,1,2)+(0,2,3)` for `subMesh1`.
+- **`subBlock98` 2D Wall Barriers (`80,433` records across `14,387/14,387` segments, **E3**):**
+  - `b9cOff - b98Off === 4 + count * 8` (`100%`). Each `8 B` entry stores `uint16 v0, uint16 v1` (`0` OOB in `subMesh0` vertices) and `int16 nxFixed12, int16 nyFixed12` (`99.82%` unit length `/ 4096`, `99.74%` perpendicular to edge `(v1 - v0)`).
 
 ### 4. Sub-Mesh Header (`0x44` B) & 11 Typed Lists (`28,774 / 28,774` exact match)
 
@@ -657,11 +665,11 @@ encodeCarId(code):
   - List `8` (`24 B`, `36,452`): `GT4` textured Gouraud quad (`0x3C`, **E3**).
   - List `9` (`16 B`, `12,409`): candidate billboard/sprite (`0x2C` GPU packet tag, **E1**).
   - List `10` (`20 B`, `2,195`): auxiliary block (`0x00` tag, **E0/E1**).
-- **Polygon Bitfields (Lists `1..8`, `854,397` polygons, **E3**):**
+- **Polygon Bitfields, GPU Tags & Colors (Lists `1..8`, `854,397` polygons, **E3**):**
   - `w0` (`uint32` at `+0x00`): `v0` (bits `0..8`), `v1` (bits `9..17`), `v2` (bits `18..26`), `unk5` (bits `27..31`, **E1**).
-  - `w1` (`uint32` at `+0x04`): `v3` (bits `0..8`; strictly `0` on `100%` of triangles), `uvIdx` (bits `9..22`; `0` OOB across `794,729` textured polygons), `unkFlags` (bits `23..31`, **E1**).
-  - Trailing primitive bytes after `w0, w1` hold vertex/primitive colors + PS1 GPU packet tag (`4 B` for flat, `12 B` for Gouraud).
-  - **Quad Triangulation (**E3**):** Quads `[v0, v1, v2, v3]` follow perimeter order and triangulate as `(v0, v1, v2) + (v0, v2, v3)` (`751,085` consistent vs `154` winding reversals in 3D; `85,253` vs `900` in 2D UV).
+  - `w1` (`uint32` at `+0x04`): `v3` (bits `0..8`; strictly `0` on `100%` of triangles), `uvIdx` (bits `9..22`; `0` OOB across `794,729` textured polygons), `unkFlags` (bits `23..31`, **E1**; bit `8` always `0`).
+  - Trailing primitive bytes after `w0, w1`: `+0x08..+0x0A` = `[R, G, B]` (`uint8[3]`), `+0x0B` = PS1 GP0 command byte (`0x20, 0x28, 0x30, 0x38, 0x24, 0x2C, 0x34, 0x3C` for lists `1..8` on `100.0%` of polygons; `0` semi-transparent tags). Gouraud lists (`3, 4, 7, 8`) store additional `[R, G, B, 0x00]` color words at `+0x0C`, `+0x10`, and (quads `4, 8`) `+0x14` (`byte +3 === 0x00` on `100%`). Textured lists use PS1 modulated brightness (`0x80` = `1.0×`).
+  - **Quad Triangulation (**E3**):** Quads `[v0, v1, v2, v3]` follow perimeter order; normalized to engine `gl.CCW` via `(0,2,1)+(0,3,2)` for `subMesh0` and `(0,1,2)+(0,2,3)` for `subMesh1`.
 
 ### 5. UV Table (`uvCount × 32 B` at `uvTableOff`, **E3**)
 
@@ -672,11 +680,11 @@ Each `32 B` entry holds two `16 B` records (`+0x00` hi-res, `+0x10` mipmap):
 | `+0x00` | 2 B | `uint8[2]` | `u0, v0` | **E3** |
 | `+0x02` | 2 B | `uint16` | `clut` (`X = (clut & 0x3F) * 16`, `Y = (clut >>> 6) & 0x1FF`) | **E3** |
 | `+0x04` | 2 B | `uint8[2]` | `u1, v1` | **E3** |
-| `+0x06` | 2 B | `uint16` | `tpage` (`tpX = (tpage & 0x0F) * 64`, `tpY = ((tpage >>> 4) & 0x01) * 256`) | **E3** |
+| `+0x06` | 2 B | `uint16` | `tpage` (`tpX = (tpage & 0x0F) * 64`, `tpY = ((tpage >>> 4) & 0x01) * 256`, `abr = (tpage >>> 5) & 3`, `depth = (tpage >>> 7) & 3`) | **E3** |
 | `+0x08..+0x0B` | 4 B | `uint8[4]` | `u2, v2, u3, v3` | **E3** |
 | `+0x0C` | 4 B | `uint32` | `unk` | **E0** |
 
-- Against the paired `.trp` TIM blocks on the 5 anonymized track ranks (`#1, #2, #4, #6, #126`), both hi-res and mipmap entries yield **`100.0%` CLUT + pixel VRAM hits** (`142/142`, `220/220`, `585/585`, `426/426`, `2,106/2,106`).
+- Across **all `126/126` tracks** (`255,422` hi-res/mipmap records, `1,021,688` UV corners), `.tro` + `.trp` resolution yields **`100.0%` (`0` misses)** CLUT and pixel VRAM hits, `0` cross-TIM UV quads, and `100.0%` (`255,422 / 255,422`) `tpage` `colorDepth === 0` (`4 bpp`), `abr === 0`, `highBits === 0`.
 - **Sample UV entry (`Track #2`, `uvIdx = 0`, 32 B):** `5e60287e5e7f0d00007f0060620b00008e90257d8e9f0d00609f609000000000`.
 
 ---
