@@ -453,3 +453,15 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 - **Confidence:** **E3** for `subMesh0`/`subMesh1` LOD relationship, opposite winding, proper-rotation coordinate mapping, GPU tags/RGB layout, `126/126` 4 bpp VRAM/tpage coverage, and `subBlock98` 2D barriers; **E1** for `TRO_UNITS_PER_METER = 64`, `unk5`/`unkFlags`, `subBlock9C`, checkpoints, and prefix blocks.
 - **Consequences for Code:** Ready to implement M8.3 (`types.ts`), M8.4 (`trp.ts`, `tro.ts`, `trackModel.ts`), and M8.5 (`collision.ts`) with per-vertex `paletteIndices` batching (no per-CLUT draw-call splitting).
 - **Open Questions:** Visually confirm `TRO_UNITS_PER_METER = 64` against car scale (`1/4096 m`) in M8.7/M9; investigate `subBlock9C`, checkpoints (`0x24..0x47`), start grid (`0x48..off0`), and `.bso`/`.bsp` skyboxes in M8.8/M9+.
+
+## 2026-11-27 — M8.3–M8.5 — Pure TypeScript Track Parsers, `TrackModel`, and `CollisionMesh`
+
+- **Question:** Do the pure TypeScript `src/formats/track/` modules (`parseTrp`, `parseTro`, `buildTrackModel`, `buildCollisionMesh`, and `raycastCollisionMesh`) cleanly parse, normalize, batch, and derive collision across all `126/126` real `.tro.gz` + `.trp.gz` tracks in `local_assets/GT2.VOL` as well as synthetic test fixtures without DOM/WebGL/Node runtime dependencies?
+- **Method:** Implemented strict zero-`any` TypeScript modules in `src/formats/track/` (`types.ts`, `trp.ts`, `tro.ts`, `collision.ts`, `trackModel.ts`, `index.ts`), synthetic builders (`tests/fixtures/buildTrp.ts`, `tests/fixtures/buildTro.ts`), synthetic unit tests (`trackTypes.test.ts`, `trp.test.ts`, `tro.test.ts`, `trackModel.test.ts`, `trackCollision.test.ts`), and streaming `GT2.VOL` verification (`tests/unit/trackRealArchive.test.ts`).
+- **Results:**
+  - `126/126` real `.trp.gz` + `.tro.gz` track pairs parsed and converted cleanly with `0` errors, `0` OOB indices, and `0` VRAM misses (`14,138` TIMs, `14,387` segments, `80,433` `subBlock98` wall barriers, `700` `lod1-fallback` segments across `12` tracks).
+  - Normalized `gl.CCW` winding produces `> 95%` upward (`+Y`) normals on near-horizontal road/ground triangles across both `subMesh0` (`lod0`) and `subMesh1` (`lod1-fallback`).
+  - Per-vertex `paletteIndices` batching merges multiple 16-color CLUTs on the same texture page into single `TrackMeshPart` batches (`< 8` parts per non-empty segment on average).
+  - `buildCollisionMesh` builds unit-normal collision triangles (`ground` / `wall` / `ceiling`) plus converted `subBlock98` wall barriers and segment-AABB-culled `raycastCollisionMesh` queries for M9.2.
+- **Confidence:** **E3** for `.trp`/`.tro` parsing, VRAM/CLUT resolution, `gl.CCW` winding normalization, and `subBlock98` barriers; **E1** for `TRO_UNITS_PER_METER = 64` and unparsed auxiliary blocks.
+- **Consequences for Code:** Pure TypeScript track data pipeline (M8.3–M8.5) is complete and verified; ready for M8.6 (freecam), M8.7 (WebGL2 track renderer & culling), M8.8 (skybox investigation), and M8.9 (Track Viewer UI).

@@ -5,9 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { gunzip } from '../../src/formats/gzip';
 import {
+  buildCollisionMesh,
   buildTrackModel,
   parseTro,
   parseTrp,
+  raycastCollisionMesh,
   type TrackMeshPart,
 } from '../../src/formats/track';
 import { VolReader } from '../../src/formats/vol';
@@ -137,10 +139,15 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL track parser & TrackModel integrati
     let totalPrimaryParts = 0;
     let totalPrimaryTriangles = 0;
     let totalNonEmptySegs = 0;
+    let totalCollisionTris = 0;
+    let totalCollisionGroundTris = 0;
+    let totalCollisionBarriers = 0;
+    let downwardRaycastHits = 0;
     let horizUp = 0;
     let horizDown = 0;
 
-    for (const troEntry of troEntries) {
+    for (let trackIdx = 0; trackIdx < troEntries.length; trackIdx += 1) {
+      const troEntry = troEntries[trackIdx]!;
       const trpEntry = trpByStem.get(getStem(troEntry.path));
       expect(trpEntry).toBeDefined();
 
@@ -150,6 +157,7 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL track parser & TrackModel integrati
       const trp = parseTrp(trpRaw);
       const tro = parseTro(troRaw);
       const model = buildTrackModel(tro, trp);
+      const collision = buildCollisionMesh(tro);
 
       totalTims += trp.timCount;
       totalSegments += tro.segmentCount;
@@ -180,6 +188,38 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL track parser & TrackModel integrati
       expect(Number.isFinite(model.bounds.max.x)).toBe(true);
       expect(model.textureAtlas).not.toBeNull();
 
+      totalCollisionTris += collision.triangleCount;
+      totalCollisionBarriers += collision.wallBarriers.length;
+      for (let ti = 0; ti < collision.triangleCount; ti += 1) {
+        const nx = collision.normals[ti * 3]!;
+        const ny = collision.normals[ti * 3 + 1]!;
+        const nz = collision.normals[ti * 3 + 2]!;
+        expect(Math.hypot(nx, ny, nz)).toBeCloseTo(1, 4);
+        if (collision.surfaceTypes[ti] === 0) {
+          totalCollisionGroundTris += 1;
+        }
+      }
+
+      // Probe downward raycast from above the first non-empty segment centerline on the first 10 tracks.
+      if (trackIdx < 10) {
+        const firstNonEmpty = model.segments.find((s) => s.subMeshRole !== 'empty');
+        if (firstNonEmpty !== undefined) {
+          const hit = raycastCollisionMesh(
+            collision,
+            {
+              x: firstNonEmpty.centerlineCenter.x,
+              y: firstNonEmpty.bounds.max.y + 50,
+              z: firstNonEmpty.centerlineCenter.z,
+            },
+            { x: 0, y: -1, z: 0 },
+            200,
+          );
+          if (hit !== null) {
+            downwardRaycastHits += 1;
+          }
+        }
+      }
+
       const signs = countHorizontalNormalSigns(model.render);
       horizUp += signs.up;
       horizDown += signs.down;
@@ -188,6 +228,10 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL track parser & TrackModel integrati
     expect(totalTims).toBe(14_138);
     expect(totalSegments).toBe(14_387);
     expect(totalWalls2D).toBe(80_433);
+    expect(totalCollisionBarriers).toBe(80_433);
+    expect(totalCollisionTris).toBeGreaterThan(1_000_000);
+    expect(totalCollisionGroundTris).toBeGreaterThan(totalCollisionTris * 0.4);
+    expect(downwardRaycastHits).toBeGreaterThanOrEqual(8);
     expect(totalLod1FallbackSegs).toBe(700);
     expect(tracksWithLod1Fallback).toBe(12);
     expect(totalPrimaryTriangles).toBeGreaterThan(1_000_000);

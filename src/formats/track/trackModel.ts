@@ -1,3 +1,4 @@
+import { buildCollisionMesh } from './collision';
 import {
   extractVram4BppPage,
   extractVramClut16,
@@ -47,6 +48,7 @@ export interface BuildTrackModelOptions {
   readonly cullingMode?: TrackCullingMode;
   readonly includeLod1?: boolean;
   readonly strictVram?: boolean;
+  readonly includeCollision?: boolean;
 }
 
 interface MutableBoundingBox {
@@ -522,6 +524,9 @@ export function buildTrackModel(
     });
   }
 
+  const collision =
+    options.includeCollision === true ? buildCollisionMesh(tro, { unitsPerMeter }) : undefined;
+
   return {
     coordinateSystem: {
       right: '+X',
@@ -536,6 +541,7 @@ export function buildTrackModel(
     segments,
     bounds: finalizeBox(trackBounds),
     textureAtlas,
+    ...(collision !== undefined ? { collision } : {}),
     startGrid: [],
     checkpoints: [],
     trackLengthMeters: tro.trackLengthRaw / (1024 * unitsPerMeter),
