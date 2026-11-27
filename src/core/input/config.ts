@@ -115,16 +115,16 @@ export const DEFAULT_INPUT_BINDINGS: InputBindings = {
  * Centralized in configuration rather than hardcoded in physics.
  */
 export const DEFAULT_INPUT_SMOOTHING: InputSmoothingConfig = Object.freeze({
-  // Reaches full steering lock in ~0.22 s, centers in ~0.16 s.
-  steeringRiseRate: 4.5,
-  steeringReturnRate: 6.0,
-  // Smooth ramp for throttle/brake to emulate analog pedal travel.
-  throttleRiseRate: 5.0,
-  throttleReturnRate: 8.0,
-  brakeRiseRate: 6.0,
-  brakeReturnRate: 8.0,
-  // At 60 m/s (~216 km/h), max steering angle reduces linearly to 35%.
-  speedSensitivityMinScale: 0.35,
+  // Reaches full steering lock in ~0.18 s, centers briskly in ~0.12 s for responsive keyboard control.
+  steeringRiseRate: 5.5,
+  steeringReturnRate: 8.5,
+  // Responsive pedal ramp emulating analog travel without sluggishness.
+  throttleRiseRate: 6.0,
+  throttleReturnRate: 10.0,
+  brakeRiseRate: 7.5,
+  brakeReturnRate: 10.0,
+  // Nonlinear speed-sensitive curve reduces steering lock cleanly down to 26% at 60 m/s (~216 km/h).
+  speedSensitivityMinScale: 0.26,
   speedSensitivityReferenceSpeedMps: 60,
 });
 

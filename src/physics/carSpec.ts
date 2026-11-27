@@ -101,9 +101,9 @@ export const DEFAULT_DRIVE_LAYOUT: DriveLayout = 'FR';
 export const DEFAULT_LSD_LOCKING_FACTOR = 0.25;
 export const DEFAULT_LSD_PRELOAD_NM = 40;
 
-/** Assumed brake sizing target (`1.15 g` peak brake capability, 65% front bias). */
-export const DEFAULT_BRAKE_DECEL_TARGET_G = 1.15;
-export const DEFAULT_FRONT_BRAKE_BIAS = 0.65;
+/** Assumed brake sizing target (`1.22 g` peak brake capability, 68% front bias). */
+export const DEFAULT_BRAKE_DECEL_TARGET_G = 1.22;
+export const DEFAULT_FRONT_BRAKE_BIAS = 0.68;
 export const DEFAULT_HANDBRAKE_TORQUE_MULTIPLIER = 1.35;
 
 export interface SuspensionStagePreset {

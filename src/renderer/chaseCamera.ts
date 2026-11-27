@@ -19,6 +19,9 @@ export interface ChaseCameraPreset {
   readonly fovYRad: number;
   readonly positionStiffness: number;
   readonly targetStiffness: number;
+  readonly yawStiffness: number;
+  readonly maxSpeedFovDeltaRad: number;
+  readonly maxSpeedDistanceDeltaMeters: number;
 }
 
 /**
@@ -29,35 +32,44 @@ export const CHASE_CAMERA_PRESETS: Readonly<Record<ChaseCameraPresetId, ChaseCam
   standard: {
     id: 'standard',
     label: 'Chase Standard',
-    distanceMeters: 5.8,
-    heightMeters: 2.15,
-    lookAheadMeters: 2.5,
-    lookHeightMeters: 0.95,
-    fovYRad: (55 * Math.PI) / 180,
-    positionStiffness: 10.0,
-    targetStiffness: 14.0,
+    distanceMeters: 4.6,
+    heightMeters: 1.55,
+    lookAheadMeters: 3.1,
+    lookHeightMeters: 0.78,
+    fovYRad: (52 * Math.PI) / 180,
+    positionStiffness: 14.0,
+    targetStiffness: 18.0,
+    yawStiffness: 10.5,
+    maxSpeedFovDeltaRad: (5.5 * Math.PI) / 180,
+    maxSpeedDistanceDeltaMeters: 0.45,
   },
   close: {
     id: 'close',
     label: 'Chase Close',
-    distanceMeters: 4.4,
-    heightMeters: 1.65,
-    lookAheadMeters: 2.8,
-    lookHeightMeters: 0.85,
-    fovYRad: (58 * Math.PI) / 180,
-    positionStiffness: 12.0,
-    targetStiffness: 16.0,
+    distanceMeters: 3.7,
+    heightMeters: 1.32,
+    lookAheadMeters: 3.3,
+    lookHeightMeters: 0.76,
+    fovYRad: (55 * Math.PI) / 180,
+    positionStiffness: 16.0,
+    targetStiffness: 20.0,
+    yawStiffness: 12.5,
+    maxSpeedFovDeltaRad: (5.0 * Math.PI) / 180,
+    maxSpeedDistanceDeltaMeters: 0.35,
   },
   far: {
     id: 'far',
     label: 'Chase Far',
-    distanceMeters: 7.6,
-    heightMeters: 2.85,
-    lookAheadMeters: 2.2,
-    lookHeightMeters: 1.05,
-    fovYRad: (52 * Math.PI) / 180,
-    positionStiffness: 8.5,
-    targetStiffness: 12.0,
+    distanceMeters: 6.0,
+    heightMeters: 2.05,
+    lookAheadMeters: 2.8,
+    lookHeightMeters: 0.88,
+    fovYRad: (50 * Math.PI) / 180,
+    positionStiffness: 11.0,
+    targetStiffness: 15.0,
+    yawStiffness: 9.0,
+    maxSpeedFovDeltaRad: (4.5 * Math.PI) / 180,
+    maxSpeedDistanceDeltaMeters: 0.55,
   },
 };
 
@@ -71,6 +83,13 @@ export const DEFAULT_CHASE_CAMERA_ASPECT = 4 / 3;
 export const DEFAULT_CHASE_CAMERA_NEAR = 0.25;
 export const DEFAULT_CHASE_CAMERA_FAR = 4000;
 const MAX_CHASE_DT_SECONDS = 0.25;
+const MIN_CAMERA_GROUND_CLEARANCE_METERS = 0.65;
+const SPEED_EFFECT_REFERENCE_MPS = 65;
+const SPEED_EFFECT_STIFFNESS = 4.5;
+
+function clampUnit(value: number): number {
+  return value < 0 ? 0 : value > 1 ? 1 : value;
+}
 
 export interface ChaseCameraOptions {
   readonly preset?: ChaseCameraPresetId;
@@ -120,9 +139,11 @@ export class ChaseCamera {
   private readonly near: number;
   private readonly far: number;
 
-  private position: Vec3 = [0, 2.15, 5.8];
-  private target: Vec3 = [0, 0.95, -2.5];
+  private position: Vec3 = [0, 1.55, 4.6];
+  private target: Vec3 = [0, 0.78, -3.1];
   private lastHorizontalForward: Vec3 = [0, 0, -1];
+  private smoothedForward: Vec3 = [0, 0, -1];
+  private smoothedSpeedFactor = 0;
   private initialized = false;
 
   public constructor(options: ChaseCameraOptions = {}) {
@@ -177,14 +198,19 @@ export class ChaseCamera {
     return this.lastHorizontalForward;
   }
 
-  private computeIdealVectors(pose: VehiclePose): { readonly eye: Vec3; readonly target: Vec3 } {
+  private computeIdealVectors(
+    pose: VehiclePose,
+    fwd: Vec3,
+    speedFactor: number,
+  ): { readonly eye: Vec3; readonly target: Vec3 } {
     const preset = this.getPreset();
-    const fwd = this.extractHorizontalForward(pose);
+    const effectiveDistance =
+      preset.distanceMeters + speedFactor * preset.maxSpeedDistanceDeltaMeters;
 
     const eye: Vec3 = [
-      pose.position.x - fwd[0] * preset.distanceMeters,
+      pose.position.x - fwd[0] * effectiveDistance,
       pose.position.y + preset.heightMeters,
-      pose.position.z - fwd[2] * preset.distanceMeters,
+      pose.position.z - fwd[2] * effectiveDistance,
     ];
     const target: Vec3 = [
       pose.position.x + fwd[0] * preset.lookAheadMeters,
@@ -201,7 +227,10 @@ export class ChaseCamera {
     if (!isFinitePose(pose)) {
       return;
     }
-    const ideal = this.computeIdealVectors(pose);
+    const fwd = this.extractHorizontalForward(pose);
+    this.smoothedForward = fwd;
+    this.smoothedSpeedFactor = 0;
+    const ideal = this.computeIdealVectors(pose, fwd, 0);
     this.position = ideal.eye;
     this.target = ideal.target;
     this.initialized = true;
@@ -211,7 +240,6 @@ export class ChaseCamera {
    * Smoothly damps camera position and look-at target toward the trailing pose for `dtSeconds`.
    */
   public update(pose: VehiclePose, dtSeconds: number, velocity?: PhysicsVec3): void {
-    void velocity;
     if (!isFinitePose(pose)) {
       return;
     }
@@ -229,12 +257,36 @@ export class ChaseCamera {
     }
 
     const preset = this.getPreset();
-    const ideal = this.computeIdealVectors(pose);
+    const rawFwd = this.extractHorizontalForward(pose);
+    const yawAlpha = 1 - Math.exp(-preset.yawStiffness * safeDt);
+    const blendedFwd = lerpVec3(this.smoothedForward, rawFwd, yawAlpha);
+    const blendedLen = Math.hypot(blendedFwd[0], blendedFwd[2]);
+    this.smoothedForward =
+      Number.isFinite(blendedLen) && blendedLen > 1e-5
+        ? [blendedFwd[0] / blendedLen, 0, blendedFwd[2] / blendedLen]
+        : rawFwd;
+
+    let targetSpeedFactor = 0;
+    if (velocity !== undefined) {
+      const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+      if (Number.isFinite(speed)) {
+        targetSpeedFactor = clampUnit(speed / SPEED_EFFECT_REFERENCE_MPS);
+      }
+    }
+    const speedAlpha = 1 - Math.exp(-SPEED_EFFECT_STIFFNESS * safeDt);
+    this.smoothedSpeedFactor += (targetSpeedFactor - this.smoothedSpeedFactor) * speedAlpha;
+
+    const ideal = this.computeIdealVectors(pose, this.smoothedForward, this.smoothedSpeedFactor);
 
     const posAlpha = 1 - Math.exp(-preset.positionStiffness * safeDt);
     const targetAlpha = 1 - Math.exp(-preset.targetStiffness * safeDt);
 
-    this.position = lerpVec3(this.position, ideal.eye, posAlpha);
+    const nextPos = lerpVec3(this.position, ideal.eye, posAlpha);
+    this.position = [
+      nextPos[0],
+      Math.max(nextPos[1], pose.position.y + MIN_CAMERA_GROUND_CLEARANCE_METERS),
+      nextPos[2],
+    ];
     this.target = lerpVec3(this.target, ideal.target, targetAlpha);
   }
 
@@ -246,12 +298,17 @@ export class ChaseCamera {
     return [...this.target];
   }
 
+  public getFovYRad(): number {
+    const preset = this.getPreset();
+    return preset.fovYRad + this.smoothedSpeedFactor * preset.maxSpeedFovDeltaRad;
+  }
+
   public getViewMatrix(): Mat4 {
     return mat4LookAt(this.position, this.target, [0, 1, 0]);
   }
 
   public getProjectionMatrix(): Mat4 {
-    return mat4Perspective(this.getPreset().fovYRad, this.aspect, this.near, this.far);
+    return mat4Perspective(this.getFovYRad(), this.aspect, this.near, this.far);
   }
 
   public getViewProjectionMatrix(): Mat4 {
@@ -263,7 +320,7 @@ export class ChaseCamera {
       presetId: this.presetId,
       position: [...this.position],
       target: [...this.target],
-      fovYRad: this.getPreset().fovYRad,
+      fovYRad: this.getFovYRad(),
       aspect: this.aspect,
       near: this.near,
       far: this.far,

@@ -109,4 +109,44 @@ describe('ChaseCamera (M9.8)', () => {
     expect(ndcZ).toBeGreaterThan(-1);
     expect(ndcZ).toBeLessThan(1);
   });
+
+  it('frames a 1.76 m wide car at 20-26% of 16:9 viewport width in Chase Standard', () => {
+    const cam = new ChaseCamera({ aspect: 16 / 9, preset: 'standard' });
+    cam.snapToPose(makePose(0, 0, 0, 0));
+
+    const viewProj = cam.getViewProjectionMatrix();
+    const leftClip = mat4TransformPoint(viewProj, [-0.88, 0.5, 0]);
+    const rightClip = mat4TransformPoint(viewProj, [0.88, 0.5, 0]);
+    const leftNdcX = leftClip[0] / leftClip[3];
+    const rightNdcX = rightClip[0] / rightClip[3];
+    const widthFraction = (rightNdcX - leftNdcX) * 0.5;
+
+    expect(widthFraction).toBeGreaterThanOrEqual(0.2);
+    expect(widthFraction).toBeLessThanOrEqual(0.26);
+  });
+
+  it('adds subtle speed-based FOV and distance lag and enforces ground clearance clamp', () => {
+    const cam = new ChaseCamera({ aspect: 16 / 9, preset: 'standard' });
+    const baseFov = CHASE_CAMERA_PRESETS.standard.fovYRad;
+    const baseDist = CHASE_CAMERA_PRESETS.standard.distanceMeters;
+
+    cam.snapToPose(makePose(0, 0, 0, 0));
+    expect(cam.getFovYRad()).toBeCloseTo(baseFov, 6);
+
+    for (let i = 0; i < 40; i += 1) {
+      cam.update(makePose(0, 0, -i * 2, 0), 0.05, { x: 0, y: 0, z: -55 });
+    }
+    expect(cam.getFovYRad()).toBeGreaterThan(baseFov);
+    expect(cam.getFovYRad()).toBeLessThanOrEqual(
+      baseFov + CHASE_CAMERA_PRESETS.standard.maxSpeedFovDeltaRad + 1e-6,
+    );
+
+    const highSpeedLag = cam.getPosition()[2] - -(39 * 2);
+    expect(highSpeedLag).toBeGreaterThan(baseDist);
+
+    // Sudden upward road crest: camera height never dips below pose.position.y + 0.65 m
+    cam.snapToPose(makePose(0, 0, 0, 0));
+    cam.update(makePose(0, 5.0, 0, 0), 1 / 60);
+    expect(cam.getPosition()[1]).toBeGreaterThanOrEqual(5.65 - 1e-6);
+  });
 });

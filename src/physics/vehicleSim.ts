@@ -34,6 +34,7 @@ import {
   applyAerodynamicForces,
   applyGravityForce,
   applyWorldForceAtPoint,
+  applyWorldTorque,
   createRigidBodyParamsFromSpec,
   createRigidBodyState,
   getWorldPointVelocity,
@@ -357,9 +358,27 @@ export class VehicleSimulation {
       );
     }
 
-    // 4. Gravity, aerodynamics, and rigid-body integration
+    // 4. Gravity, aerodynamics, mild yaw-rate stability damping, and rigid-body integration
     applyGravityForce(this.body, this.rbParams);
     applyAerodynamicForces(this.body, this.rbParams);
+    if (groundedCount >= 2 && handbrake < 0.1 && forwardSpeedMps > 3.0) {
+      const yawRate = this.body.angularVelocity.y;
+      if (Math.abs(yawRate) > 1e-4) {
+        const opposingSteer =
+          (steer > 0.05 && yawRate < 0) ||
+          (steer < -0.05 && yawRate > 0) ||
+          Math.abs(steer) <= 0.05;
+        const gain = opposingSteer ? 2.6 : 1.0;
+        const speedFactor = clamp(forwardSpeedMps / 25, 0.35, 1.4);
+        const maxAccel = 6.0 * this.spec.inertiaLocal.y;
+        const yawStabilityTorque = clamp(
+          -yawRate * gain * speedFactor * this.spec.inertiaLocal.y,
+          -maxAccel,
+          maxAccel,
+        );
+        applyWorldTorque(this.body, { x: 0, y: yawStabilityTorque, z: 0 });
+      }
+    }
     integrateRigidBody(this.body, this.rbParams, dt);
 
     // 5. Stationary brake-hold damping to eliminate low-speed numerical creep

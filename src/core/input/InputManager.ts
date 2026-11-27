@@ -45,7 +45,7 @@ export function computeMaxSteeringForSpeed(
   const reference = Math.max(ZERO_EPSILON, smoothing.speedSensitivityReferenceSpeedMps);
   const minScale = clamp(smoothing.speedSensitivityMinScale, 0, 1);
   const ratio = clamp(safeSpeed / reference, 0, 1);
-  return 1 - ratio * (1 - minScale);
+  return minScale + (1 - minScale) * Math.pow(1 - ratio, 1.6);
 }
 
 function approachUnipolar(

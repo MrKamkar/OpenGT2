@@ -26,6 +26,9 @@ export const TYRE_MIN_LOAD_SENSITIVITY = 0.75;
 /** Hard clamp on wheel angular velocity (rad/s) to bound numerical spin integration. */
 export const TYRE_MAX_SPIN_RAD_S = 400;
 
+/** Multiplier strengthening lateral cornering stiffness (`B`) without altering longitudinal acceleration. */
+export const TYRE_LATERAL_PACEJKA_B_SCALE = 1.15;
+
 export interface TyreForceInput {
   readonly normalForceN: number;
   readonly wheelAngularSpeedRadS: number;
@@ -119,14 +122,11 @@ export function computeTyreForces(input: TyreForceInput): TyreForceOutput {
     );
 
   // Positive patchRightSpeedMps means sliding right -> lateral force acts left (-wheelRight)
+  const lateralB = input.compound.pacejkaB * TYRE_LATERAL_PACEJKA_B_SCALE;
+  const lateralE = Math.min(0.45, input.compound.pacejkaE + 0.15);
   let fyLat =
     -peakForce *
-    pacejkaMagicFormula(
-      slipAngleRad,
-      input.compound.pacejkaB,
-      input.compound.pacejkaC,
-      input.compound.pacejkaE,
-    );
+    pacejkaMagicFormula(slipAngleRad, lateralB, input.compound.pacejkaC, lateralE);
 
   // Rolling resistance opposes forward motion smoothly near 0 speed
   const rrFade = clamp(Math.abs(input.patchForwardSpeedMps) / 0.3, 0, 1);

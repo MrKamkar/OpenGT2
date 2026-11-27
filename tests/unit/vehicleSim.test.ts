@@ -284,4 +284,32 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(Object.is(r30.engineRpm, r60.engineRpm)).toBe(true);
     expect(Object.is(r30.engineRpm, r144.engineRpm)).toBe(true);
   });
+
+  it('remains yaw-stable through a high-speed keyboard step steer and straight release', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const sim = new VehicleSimulation(spec, createWalledFlatTrackIndex(), {
+      initialPosition: { x: 0, y: spec.comHeightMeters + 0.05, z: 0 },
+    });
+
+    // Build high forward speed (> 22 m/s)
+    for (let i = 0; i < 960; i += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 });
+    }
+    expect(sim.getSnapshot().speedMps).toBeGreaterThan(22);
+
+    // Apply brief steering pulse then release steering back to center
+    for (let i = 0; i < 60; i += 1) {
+      sim.stepFixed({ throttle: 0.7, brake: 0, handbrake: 0, steer: 0.35 });
+    }
+    const midYawRate = Math.abs(sim.getSnapshot().angularVelocity.y);
+    expect(midYawRate).toBeGreaterThan(0.05);
+
+    for (let i = 0; i < 120; i += 1) {
+      sim.stepFixed({ throttle: 0.8, brake: 0, handbrake: 0, steer: 0 });
+    }
+    const endSnap = sim.getSnapshot();
+    expect(Number.isFinite(endSnap.speedMps)).toBe(true);
+    expect(Math.abs(endSnap.angularVelocity.y)).toBeLessThan(midYawRate * 0.35);
+    expect(endSnap.wheels.filter((w) => w.grounded).length).toBeGreaterThanOrEqual(3);
+  });
 });
