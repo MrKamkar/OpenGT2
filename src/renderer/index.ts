@@ -145,6 +145,8 @@ export {
   type WebGL2CarRendererContext,
 } from './carRenderer';
 export {
+  AUTO_LOD0_RADIUS_MULTIPLIER,
+  AUTO_LOD1_RADIUS_MULTIPLIER,
   type CarLodSelection,
   type CarViewerCanvasInputTarget,
   type CarViewerDebugStats,

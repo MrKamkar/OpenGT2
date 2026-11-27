@@ -3,6 +3,7 @@ import type { InputManager } from '../core/input';
 import type { CarModel, CarModelLod, CarTextureVariant } from '../formats/car';
 import type { GlContextLifecycleListener, GlViewportSize, WebGL2ClearContext } from './GlContext';
 import { type OrbitCameraState, OrbitCamera } from './camera';
+import { PS1_FIXED_POINT_SCALE } from './math';
 import {
   CarRenderer,
   type CarRendererOptions,
@@ -137,9 +138,13 @@ export interface CarViewerSessionOptions {
 const MAX_FRAME_DT_SECONDS = 0.1;
 const FPS_WINDOW_MS = 250;
 
+export const AUTO_LOD0_RADIUS_MULTIPLIER = 5.0;
+export const AUTO_LOD1_RADIUS_MULTIPLIER = 12.0;
+
 /**
- * Selects the appropriate LOD index from camera distance using `lod.maxDistance` thresholds
- * verified across all 2,220 CDO/CNO models (`[5, 15, 300]`).
+ * Selects the appropriate LOD index from camera distance using `lod.maxDistance` scaled
+ * by LOD0 bounding-sphere radius (`AUTO_LOD0_RADIUS_MULTIPLIER` / `AUTO_LOD1_RADIUS_MULTIPLIER`)
+ * so default orbital framing keeps full-detail `LOD0` regardless of car `lod.scale` (`M9.25`).
  */
 export function resolveAutoLodIndex(
   distanceMeters: number,
@@ -148,9 +153,39 @@ export function resolveAutoLodIndex(
   if (lods.length === 0) {
     return 0;
   }
+
+  const lod0 = lods[0];
+  let boundingRadius = 0;
+  if (
+    lod0 !== undefined &&
+    lod0.boundingBox !== undefined &&
+    lod0.boundingBox.low !== undefined &&
+    lod0.boundingBox.high !== undefined &&
+    typeof lod0.vertexScale === 'number' &&
+    Number.isFinite(lod0.vertexScale) &&
+    lod0.vertexScale > 0
+  ) {
+    const scale = lod0.vertexScale / PS1_FIXED_POINT_SCALE;
+    const dx = (lod0.boundingBox.high.x - lod0.boundingBox.low.x) * scale;
+    const dy = (lod0.boundingBox.high.y - lod0.boundingBox.low.y) * scale;
+    const dz = (lod0.boundingBox.high.z - lod0.boundingBox.low.z) * scale;
+    boundingRadius = 0.5 * Math.hypot(dx, dy, dz);
+  }
+
   for (let i = 0; i < lods.length; i += 1) {
     const lod = lods[i];
-    if (lod !== undefined && distanceMeters <= lod.maxDistance) {
+    if (lod === undefined) {
+      continue;
+    }
+    let threshold = lod.maxDistance;
+    if (boundingRadius > 0.1) {
+      if (i === 0) {
+        threshold = Math.max(threshold, boundingRadius * AUTO_LOD0_RADIUS_MULTIPLIER);
+      } else if (i === 1) {
+        threshold = Math.max(threshold, boundingRadius * AUTO_LOD1_RADIUS_MULTIPLIER);
+      }
+    }
+    if (distanceMeters <= threshold) {
       return i;
     }
   }
