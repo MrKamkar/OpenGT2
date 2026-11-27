@@ -1015,4 +1015,72 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(grass.coastDropMps).toBeGreaterThan(asphalt.coastDropMps * 1.15);
     expect(grass.peakLatG).toBeLessThan(asphalt.peakLatG * 0.75);
   });
+
+  it('never leaves the car stuck sideways after a hard oblique wall slam (M9.31)', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const sim = new VehicleSimulation(spec, createWalledFlatTrackIndex(), {
+      initialPosition: { x: -30, y: spec.comHeightMeters + 0.02, z: -100 },
+      initialYawRad: 0.5,
+    });
+    let maxTilt = 0;
+    for (let i = 0; i < 900; i += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: i < 200 ? 0.6 : 0 }, FIXED_DT);
+      const up = quatRotateVec3(sim.getPose().orientation, { x: 0, y: 1, z: 0 });
+      maxTilt = Math.max(maxTilt, Math.acos(Math.min(1, Math.max(-1, up.y))));
+    }
+    const snap = sim.getSnapshot();
+    const up = quatRotateVec3(snap.pose.orientation, { x: 0, y: 1, z: 0 });
+    expect(snap.wallCollisionCount).toBeGreaterThan(0);
+    expect(maxTilt).toBeLessThan(1.0);
+    expect(up.y).toBeGreaterThan(0.95);
+    expect(snap.wheels.filter((w) => w.grounded).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('smoothly self-rights a car tipped beyond 70 degrees roll onto all 4 wheels (M9.31)', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const sim = new VehicleSimulation(spec, createWalledFlatTrackIndex(), {
+      initialPosition: { x: 0, y: spec.comHeightMeters + 0.4, z: 0 },
+      initialRollRad: 1.35,
+    });
+    let maxStepYSpeed = 0;
+    let upAt1s = -1;
+    for (let i = 0; i < 480; i += 1) {
+      sim.stepFixed({ throttle: 0, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      maxStepYSpeed = Math.max(maxStepYSpeed, Math.abs(sim.getSnapshot().linearVelocity.y));
+      if (i === 239) {
+        upAt1s = quatRotateVec3(sim.getPose().orientation, { x: 0, y: 1, z: 0 }).y;
+      }
+    }
+    const snap = sim.getSnapshot();
+    const up = quatRotateVec3(snap.pose.orientation, { x: 0, y: 1, z: 0 });
+    expect(upAt1s).toBeGreaterThan(0.9);
+    expect(up.y).toBeGreaterThan(0.98);
+    expect(snap.wheels.every((w) => w.grounded)).toBe(true);
+    expect(maxStepYSpeed).toBeLessThan(6);
+  });
+
+  it('tracks planted on asphalt: low body slip while steering and fast yaw settling on release (M9.31)', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const sim = new VehicleSimulation(spec, createWalledFlatTrackIndex(), {
+      initialPosition: { x: 0, y: spec.comHeightMeters + 0.02, z: 60 },
+    });
+    for (let i = 0; i < 1500 && sim.getSnapshot().speedKph < 80; i += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+    }
+    let maxSlip = 0;
+    for (let i = 0; i < 90; i += 1) {
+      sim.stepFixed({ throttle: 0.3, brake: 0, handbrake: 0, steer: 0.25 }, FIXED_DT);
+      const s = sim.getSnapshot();
+      const right = quatRotateVec3(s.pose.orientation, VEC3_RIGHT);
+      maxSlip = Math.max(
+        maxSlip,
+        Math.abs(Math.atan2(vec3Dot(s.linearVelocity, right), Math.max(4, s.forwardSpeedMps))),
+      );
+    }
+    expect(maxSlip).toBeLessThan(0.12);
+    for (let i = 0; i < 120; i += 1) {
+      sim.stepFixed({ throttle: 0.3, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+    }
+    expect(Math.abs(sim.getSnapshot().angularVelocity.y)).toBeLessThan(0.08);
+  });
 });

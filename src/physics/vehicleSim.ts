@@ -20,6 +20,7 @@ import {
   isFiniteQuat,
   isFiniteVec3,
   quatFromAxisAngle,
+  quatMultiply,
   quatRotateVec3,
   vec3Add,
   vec3Cross,
@@ -88,6 +89,61 @@ export const CHASSIS_UNDERBODY_MIN_CLEARANCE_METERS = 0.005;
 /** Vertical void-fall threshold (m) before emergency on-track pose recovery triggers. */
 export const VOID_FALL_RESET_DEPTH_METERS = 5.0;
 
+/** Tilt angle (rad, ~26 deg) beyond which progressive anti-rollover stabilization begins. */
+export const ANTI_ROLLOVER_START_TILT_RAD = 0.45;
+/** Tilt angle (rad, ~40 deg) beyond which the smooth self-righting recovery rate takes over. */
+export const SELF_RIGHT_START_TILT_RAD = 0.7;
+/** Maximum roll/pitch angular speed (rad/s) kept after a wall impact. */
+export const WALL_MAX_TILT_RATE_RAD_S = 1.2;
+
+/**
+ * Progressive anti-rollover stabilization and smooth self-righting (velocity-level).
+ * Leaves normal suspension body roll (< ~26 deg) untouched, resists tilt growth between
+ * ~26 and ~40 deg, and rotates the chassis back onto its wheels beyond ~40 deg.
+ * Returns the corrected world angular velocity (yaw component is preserved).
+ */
+export function stabilizeChassisTilt(
+  orientation: PhysicsQuat,
+  angularVelocity: PhysicsVec3,
+  groundedCount: number,
+  dt: number,
+): PhysicsVec3 {
+  const up = quatRotateVec3(orientation, VEC3_UP);
+  const tilt = Math.acos(clamp(up.y, -1, 1));
+  if (tilt <= ANTI_ROLLOVER_START_TILT_RAD) {
+    return angularVelocity;
+  }
+  // Axis that rotates the chassis up-vector toward world up (horizontal, |axis| = sin(tilt)).
+  let axis = vec3Cross(up, VEC3_UP);
+  if (vec3Length(axis) < 1e-4) {
+    axis = quatRotateVec3(orientation, VEC3_FORWARD);
+    axis = { x: axis.x, y: 0, z: axis.z };
+  }
+  axis = vec3Normalize(axis, VEC3_FORWARD);
+  const wAxis = vec3Dot(angularVelocity, axis);
+
+  const soft = clamp(
+    (tilt - ANTI_ROLLOVER_START_TILT_RAD) / (SELF_RIGHT_START_TILT_RAD - ANTI_ROLLOVER_START_TILT_RAD),
+    0,
+    1,
+  );
+  let nextWAxis = wAxis;
+  // Anti-rollover: damp spin that grows the tilt and add a restoring acceleration.
+  if (wAxis < 0) {
+    nextWAxis += -wAxis * (1 - Math.exp(-14 * soft * dt));
+  }
+  nextWAxis += 22 * soft * soft * dt;
+
+  // Self-right: blend toward a righting rate (0.5-1.0 s from fully on its side).
+  const righting = clamp((tilt - SELF_RIGHT_START_TILT_RAD) / 0.2, 0, 1);
+  if (righting > 0) {
+    const strength = groundedCount <= 1 ? 1 : 0.6;
+    const target = Math.min(3.2, 1.2 + 2.0 * tilt);
+    nextWAxis += (target - nextWAxis) * (1 - Math.exp(-9 * righting * strength * dt));
+  }
+  return vec3Add(angularVelocity, vec3Scale(axis, nextWAxis - wAxis));
+}
+
 export interface WheelSimulationSnapshot {
   readonly grounded: boolean;
   readonly compression: number;
@@ -125,6 +181,8 @@ export interface VehicleSimulationSnapshot {
 export interface VehicleSimulationOptions {
   readonly initialPosition?: PhysicsVec3;
   readonly initialYawRad?: number;
+  /** Optional initial roll (rad) about the chassis forward axis; used to test self-righting. */
+  readonly initialRollRad?: number;
   readonly transmissionMode?: TransmissionMode;
   readonly absEnabled?: boolean;
   readonly fixedDt?: number;
@@ -172,7 +230,10 @@ export class VehicleSimulation {
     });
 
     const startPos = options.initialPosition ?? { x: 0, y: spec.comHeightMeters, z: 0 };
-    const startQuat = quatFromAxisAngle(VEC3_UP, options.initialYawRad ?? 0);
+    const startQuat = quatMultiply(
+      quatFromAxisAngle(VEC3_UP, options.initialYawRad ?? 0),
+      quatFromAxisAngle(VEC3_FORWARD, options.initialRollRad ?? 0),
+    );
     this.body = createRigidBodyState(startPos, startQuat);
     this.prevPose = {
       position: { ...this.body.position },
@@ -576,7 +637,7 @@ export class VehicleSimulation {
 
         let gain = 0;
         if (zeroSteer) {
-          gain = 2.2;
+          gain = 3.4;
         } else if (counterSteer) {
           gain = 3.0;
         } else if (absBodySlip > 0.28 || (oversteerExcess > 0 && absBodySlip > 0.22)) {
@@ -642,7 +703,21 @@ export class VehicleSimulation {
         this.body.angularVelocity,
         wallRes.angularVelocityDelta,
       );
+      // Wall impacts push cleanly along XZ: bound roll/pitch spin so the chassis never trips onto its side.
+      const w = this.body.angularVelocity;
+      const tiltRate = Math.hypot(w.x, w.z);
+      const k = tiltRate > WALL_MAX_TILT_RATE_RAD_S ? WALL_MAX_TILT_RATE_RAD_S / tiltRate : 1;
+      this.body.angularVelocity = { x: w.x * k * 0.6, y: w.y, z: w.z * k * 0.6 };
+      this.body.linearVelocity = { ...this.body.linearVelocity, y: Math.min(this.body.linearVelocity.y, 0.5) };
     }
+
+    // 6a. Anti-rollover stabilization and smooth self-righting
+    this.body.angularVelocity = stabilizeChassisTilt(
+      this.body.orientation,
+      this.body.angularVelocity,
+      groundedCount,
+      dt,
+    );
 
     // 6b. Solid chassis underbody & sill ground clearance against actual 3D ground triangles
     const underbodyRight = quatRotateVec3(this.body.orientation, VEC3_RIGHT);

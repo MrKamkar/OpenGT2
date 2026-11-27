@@ -685,3 +685,9 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 | High Power (`480–780 PS`) | 552 | 1050 | 5.51 | 5.52 | -0.1% | 281.8 | 291.2 | -3.2% |
 
 - **Verification & Confidence:** `107 / 107` Vitest files (`503 / 503` tests including Auto reverse/forward, ABS On vs Off + kerb CBC floor, and 126-track E3 `surfaceCode` invariants) pass with `0` `tsc`/`eslint`/`vite build` errors. `.tro` `w1` bits `28..30` `surfaceCode` (`0/1/2/3/5`) is upgraded to **E3** in [formats.md](formats.md).
+
+### M9.31 Anti-Rollover Self-Righting & Planted Asphalt Grip
+
+- **Rollover fix (`vehicleSim.ts`):** wall impacts now bound roll/pitch spin (`<= 1.2 rad/s`, damped, upward velocity capped) so contact stays in XZ. New `stabilizeChassisTilt` leaves normal body roll (`< ~26°`) untouched, progressively resists tilt growth between `~26°` and `~40°`, and applies a smooth righting rate beyond `~40°` (stronger when `groundedCount <= 1`), returning a car tipped `> 70°` onto all 4 wheels in well under 1 s without any teleport.
+- **Surface check:** TRO surface code `0` and unknown codes resolve to `asphalt` (`mu x 1.0`); only codes `1/2/3/5/6` map to low-grip surfaces, so tunnels/bridges with code `0` stay asphalt.
+- **Asphalt grip (`tyres.ts`, `vehicleSim.ts`):** lateral Pacejka stiffness `B` front `x1.46 -> x1.62`, rear `x1.56 -> x1.72`; low-speed viscous lateral settling threshold `0.6 -> 1.2 m/s`, gain `2.5 -> 3.2`; zero-steer yaw settling gain `2.2 -> 3.4`. Handbrake rear-grip scaling is unchanged, so `Space` drifts still work. No per-car constants; M9.10 benchmarks remain within ±15%.
