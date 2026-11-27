@@ -32,6 +32,7 @@ export interface SyntheticPolygonSpec {
   readonly uvIndex?: number;
   readonly colors: readonly TroRgbColor[];
   readonly unk5?: number;
+  readonly surfaceCode?: number;
   readonly unkFlags?: number;
   readonly gpuTagOverride?: number;
 }
@@ -147,7 +148,10 @@ function writeSubMesh(
       const v3 = (poly.vertices[3] ?? 0) & 0x1ff;
       const unk5 = (poly.unk5 ?? 0) & 0x1f;
       const uvIdx = (poly.uvIndex ?? 0) & 0x3fff;
-      const unkFlags = (poly.unkFlags ?? 0) & 0x1ff;
+      const unkFlags =
+        poly.surfaceCode !== undefined
+          ? (((poly.unkFlags ?? 0) & 0x1f) | ((poly.surfaceCode & 0x07) << 5)) & 0x1ff
+          : (poly.unkFlags ?? 0) & 0x1ff;
 
       const w0 = (v0 | (v1 << 9) | (v2 << 18) | (unk5 << 27)) >>> 0;
       const w1 = (v3 | (uvIdx << 9) | (unkFlags << 23)) >>> 0;

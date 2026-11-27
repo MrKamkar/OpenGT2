@@ -311,11 +311,21 @@ export const TYRE_TYPE_PRESETS: readonly [
 /** Surface grip multipliers applied on top of tyre compound friction. */
 export const SURFACE_GRIP_MULTIPLIERS: Readonly<Record<PhysicsSurfaceType, number>> = {
   asphalt: 1.0,
-  kerb: 0.9,
+  kerb: 0.92,
   gravel: 0.65,
-  grass: 0.55,
+  grass: 0.6,
   wall: 0.35,
   ceiling: 0.35,
+};
+
+/** Surface rolling resistance multipliers applied on top of compound rolling drag (SI assumption). */
+export const SURFACE_ROLLING_RESISTANCE_MULTIPLIERS: Readonly<Record<PhysicsSurfaceType, number>> = {
+  asphalt: 1.0,
+  kerb: 1.15,
+  grass: 3.5,
+  gravel: 4.5,
+  wall: 1.0,
+  ceiling: 1.0,
 };
 
 export interface TorqueCurvePoint {

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  TRO_SURFACE_ASPHALT,
+  TRO_SURFACE_DIRT,
+  TRO_SURFACE_GRASS,
+  TRO_SURFACE_KERB,
+  TRO_SURFACE_SAND,
   buildCollisionMesh,
   parseTro,
   raycastCollisionMesh,
 } from '../../src/formats/track';
-import { CollisionIndex } from '../../src/physics/collisionIndex';
+import { CollisionIndex, mapTroSurfaceCodeToPhysicsSurface } from '../../src/physics/collisionIndex';
 import { quatFromAxisAngle, quatIdentity } from '../../src/physics/math';
 import { buildSyntheticTro, type SyntheticSegmentSpec } from '../fixtures/buildTro';
 
@@ -474,5 +479,52 @@ describe('CollisionIndex spatial acceleration & wall collisions (M9.2)', () => {
     });
     expect(upperOwnHit.collided).toBe(true);
     expect(upperOwnHit.positionCorrection.z).toBeLessThan(0);
+  });
+
+  it('resolves E3 TRO surfaceCode into asphalt, kerb, grass, and gravel on wheel raycasts while honoring overrides', () => {
+    const tro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            centerRaw: [640, 320, 0],
+            subMesh0: {
+              localVertices: [
+                [0, 0, 0], [0, 640, 0], [320, 640, 0], [320, 0, 0],
+                [640, 640, 0], [640, 0, 0],
+                [960, 640, 0], [960, 0, 0],
+                [1280, 640, 0], [1280, 0, 0],
+                [1600, 640, 0], [1600, 0, 0],
+              ],
+              polygons: [
+                { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 100, g: 100, b: 100 }], surfaceCode: TRO_SURFACE_ASPHALT },
+                { listIndex: 2, vertices: [3, 2, 4, 5], colors: [{ r: 200, g: 50, b: 50 }], surfaceCode: TRO_SURFACE_KERB },
+                { listIndex: 2, vertices: [5, 4, 6, 7], colors: [{ r: 40, g: 150, b: 40 }], surfaceCode: TRO_SURFACE_GRASS },
+                { listIndex: 2, vertices: [7, 6, 8, 9], colors: [{ r: 160, g: 130, b: 90 }], surfaceCode: TRO_SURFACE_SAND },
+                { listIndex: 2, vertices: [9, 8, 10, 11], colors: [{ r: 140, g: 100, b: 70 }], surfaceCode: TRO_SURFACE_DIRT },
+              ],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+          },
+        ],
+      }),
+    );
+
+    const mesh = buildCollisionMesh(tro);
+    const index = new CollisionIndex(mesh);
+    const down = { x: 0, y: -1, z: 0 };
+
+    expect(index.raycastWheelDown({ x: 2.5, y: 5, z: -5 }, down, 20)?.surfaceType).toBe('asphalt');
+    expect(index.raycastWheelDown({ x: 7.5, y: 5, z: -5 }, down, 20)?.surfaceType).toBe('kerb');
+    expect(index.raycastWheelDown({ x: 12.5, y: 5, z: -5 }, down, 20)?.surfaceType).toBe('grass');
+    expect(index.raycastWheelDown({ x: 17.5, y: 5, z: -5 }, down, 20)?.surfaceType).toBe('gravel');
+    expect(index.raycastWheelDown({ x: 22.5, y: 5, z: -5 }, down, 20)?.surfaceType).toBe('gravel');
+    expect(mapTroSurfaceCodeToPhysicsSurface(TRO_SURFACE_GRASS)).toBe('grass');
+
+    const overrides = new Array<'asphalt' | 'grass'>(mesh.triangleCount).fill('asphalt');
+    overrides[0] = 'grass';
+    overrides[1] = 'grass';
+    const overridden = new CollisionIndex(mesh, { surfaceOverrides: overrides });
+    expect(overridden.raycastWheelDown({ x: 2.5, y: 5, z: -5 }, down, 20)?.surfaceType).toBe('grass');
   });
 });

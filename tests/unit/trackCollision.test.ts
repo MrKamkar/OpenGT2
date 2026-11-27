@@ -3,6 +3,9 @@ import {
   COLLISION_SURFACE_CEILING,
   COLLISION_SURFACE_GROUND,
   COLLISION_SURFACE_WALL,
+  TRO_SURFACE_ASPHALT,
+  TRO_SURFACE_GRASS,
+  TRO_SURFACE_KERB,
   buildCollisionMesh,
   buildTrackModel,
   classifySurfaceNormalY,
@@ -84,6 +87,7 @@ describe('track CollisionMesh builder & raycaster (M8.5)', () => {
     expect(mesh.surfaceTypes[2]).toBe(COLLISION_SURFACE_WALL);
     expect(mesh.surfaceTypes[3]).toBe(COLLISION_SURFACE_WALL);
     expect(mesh.surfaceTypes[4]).toBe(COLLISION_SURFACE_CEILING);
+    expect(Array.from(mesh.groundMaterials ?? [])).toEqual([0, 0, 0, 0, 0]);
 
     // Check subBlock98 barrier conversion: raw (0, 1) normal -> engine (0, 0, -1)
     expect(mesh.wallBarriers).toHaveLength(1);
@@ -142,5 +146,45 @@ describe('track CollisionMesh builder & raycaster (M8.5)', () => {
     expect(mesh.segments).toHaveLength(0);
     expect(mesh.wallBarriers).toHaveLength(0);
     expect(raycastCollisionMesh(mesh, { x: 0, y: 10, z: 0 }, { x: 0, y: -1, z: 0 }, 50)).toBeNull();
+  });
+
+  it('propagates E3 polygon surfaceCode values into CollisionMesh.groundMaterials', () => {
+    const tro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            centerRaw: [0, 0, 0],
+            subMesh0: {
+              localVertices: [
+                [0, 0, 0],
+                [0, 64, 0],
+                [64, 64, 0],
+                [64, 0, 0],
+                [128, 64, 0],
+                [128, 0, 0],
+                [192, 64, 0],
+                [192, 0, 0],
+              ],
+              polygons: [
+                { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 100, g: 100, b: 100 }], surfaceCode: TRO_SURFACE_ASPHALT },
+                { listIndex: 2, vertices: [3, 2, 4, 5], colors: [{ r: 200, g: 50, b: 50 }], surfaceCode: TRO_SURFACE_KERB },
+                { listIndex: 2, vertices: [5, 4, 6, 7], colors: [{ r: 40, g: 150, b: 40 }], surfaceCode: TRO_SURFACE_GRASS },
+              ],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+          },
+        ],
+      }),
+    );
+    const mesh = buildCollisionMesh(tro);
+    expect(Array.from(mesh.groundMaterials ?? [])).toEqual([
+      TRO_SURFACE_ASPHALT,
+      TRO_SURFACE_ASPHALT,
+      TRO_SURFACE_KERB,
+      TRO_SURFACE_KERB,
+      TRO_SURFACE_GRASS,
+      TRO_SURFACE_GRASS,
+    ]);
   });
 });

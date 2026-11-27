@@ -1,4 +1,8 @@
-import { SURFACE_GRIP_MULTIPLIERS, type TyreCompoundPreset } from './carSpec';
+import {
+  SURFACE_GRIP_MULTIPLIERS,
+  SURFACE_ROLLING_RESISTANCE_MULTIPLIERS,
+  type TyreCompoundPreset,
+} from './carSpec';
 import { clamp } from './math';
 import type { PhysicsSurfaceType } from './types';
 
@@ -148,11 +152,12 @@ export function computeTyreForces(input: TyreForceInput): TyreForceOutput {
     fyLat *= TYRE_HANDBRAKE_LATERAL_GRIP_SCALE;
   }
 
-  // Rolling resistance opposes forward motion smoothly near 0 speed
+  // Rolling resistance opposes forward motion smoothly near 0 speed and increases off-track
   const rrFade = clamp(Math.abs(input.patchForwardSpeedMps) / 0.3, 0, 1);
   const rollingResistanceN =
     -Math.sign(input.patchForwardSpeedMps) *
     input.compound.rollingResistance *
+    SURFACE_ROLLING_RESISTANCE_MULTIPLIERS[input.surfaceType] *
     fz *
     rrFade;
 

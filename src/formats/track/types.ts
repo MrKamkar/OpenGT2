@@ -70,6 +70,20 @@ export const COLLISION_SURFACE_GROUND = 0;
 export const COLLISION_SURFACE_WALL = 1;
 export const COLLISION_SURFACE_CEILING = 2;
 
+/**
+ * @evidence E3 — 3-bit `.tro` polygon `w1` bits `28..30` (`(w1 >>> 28) & 0x07`) ground surface codes
+ * empirically verified across `126/126` `.tro` tracks (`0` asphalt, `1` kerb, `2` grass, `3` sand/gravel, `5` dirt).
+ */
+export const TRO_SURFACE_ASPHALT = 0;
+export const TRO_SURFACE_KERB = 1;
+export const TRO_SURFACE_GRASS = 2;
+export const TRO_SURFACE_SAND = 3;
+/** @evidence E1 — Rare concrete/apron ground code (`241` polys across `13/126` tracks); conservatively mapped to asphalt. */
+export const TRO_SURFACE_CONCRETE = 4;
+export const TRO_SURFACE_DIRT = 5;
+/** @evidence E1 — Rare off-track rough code (`246` polys across `8/126` tracks); conservatively mapped to gravel. */
+export const TRO_SURFACE_ROUGH = 6;
+
 export type TroPolygonListIndex = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 export type TrackErrorCode =
@@ -280,7 +294,9 @@ export interface TroPolygon {
   readonly colors: readonly TroRgbColor[];
   /** @evidence E1 — 5-bit field `w0 >>> 27`. */
   readonly unk5: number;
-  /** @evidence E1 — 9-bit field `w1 >>> 23`. */
+  /** @evidence E3 — 3-bit polygon surface code `(w1 >>> 28) & 0x07` (`0` asphalt, `1` kerb, `2` grass, `3` sand, `5` dirt). */
+  readonly surfaceCode: number;
+  /** @evidence E1 — Full 9-bit upper `w1` field `w1 >>> 23` (bits `5..7` hold `surfaceCode`). */
   readonly unkFlags: number;
 }
 
@@ -415,6 +431,8 @@ export interface CollisionMesh {
   readonly normals: Float32Array;
   /** Per-triangle surface classification code (`0` = ground, `1` = wall, `2` = ceiling). */
   readonly surfaceTypes: Uint8Array;
+  /** Per-triangle E3 `.tro` surface material code (`(w1 >>> 28) & 0x07`, `0..7`). */
+  readonly groundMaterials?: Uint8Array;
   /** Per-triangle owning segment index (`length = triangleCount`). */
   readonly segmentIndices: Uint16Array;
   readonly segments: readonly CollisionSegmentRange[];

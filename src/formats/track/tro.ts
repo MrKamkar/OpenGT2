@@ -225,6 +225,7 @@ function parseSubMesh(
       const v3 = w1 & 0x1ff;
       const uvIndex = (w1 >>> 9) & 0x3fff;
       const unkFlags = (w1 >>> 23) & 0x1ff;
+      const surfaceCode = (w1 >>> 28) & 0x07;
 
       if (v0 >= vertexCount || v1 >= vertexCount || v2 >= vertexCount || (isQuad && v3 >= vertexCount)) {
         throw new TrackError(
@@ -292,6 +293,7 @@ function parseSubMesh(
         gpuTag,
         colors,
         unk5,
+        surfaceCode,
         unkFlags,
       });
     }

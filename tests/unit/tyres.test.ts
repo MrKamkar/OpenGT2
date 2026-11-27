@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { SURFACE_GRIP_MULTIPLIERS, TYRE_TYPE_PRESETS } from '../../src/physics/carSpec';
+import {
+  SURFACE_GRIP_MULTIPLIERS,
+  SURFACE_ROLLING_RESISTANCE_MULTIPLIERS,
+  TYRE_TYPE_PRESETS,
+} from '../../src/physics/carSpec';
 import { FIXED_DT } from '../../src/physics/fixedStep';
 import {
   TYRE_HANDBRAKE_LATERAL_GRIP_SCALE,
@@ -38,9 +42,48 @@ describe('Pacejka tyre friction model (M9.6)', () => {
     expect(softAsphalt).toBeGreaterThan(softGravel);
     expect(softGravel).toBeGreaterThan(softGrass);
     expect(SURFACE_GRIP_MULTIPLIERS.asphalt).toBe(1.0);
+    expect(SURFACE_GRIP_MULTIPLIERS.kerb).toBe(0.92);
+    expect(SURFACE_GRIP_MULTIPLIERS.grass).toBe(0.6);
+    expect(SURFACE_GRIP_MULTIPLIERS.gravel).toBe(0.65);
 
     const dirtGravel = computeEffectiveTyreMu(dirt, 'gravel', 3500);
     expect(dirtGravel).toBeGreaterThan(softGravel);
+
+    // Grass and gravel increase rolling drag noticeably vs asphalt during free rolling
+    const rollingAsphalt = computeTyreForces({
+      normalForceN: 3500,
+      wheelAngularSpeedRadS: 20 / 0.31,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 20,
+      patchRightSpeedMps: 0,
+      compound: stock,
+      surfaceType: 'asphalt',
+    });
+    const rollingGrass = computeTyreForces({
+      normalForceN: 3500,
+      wheelAngularSpeedRadS: 20 / 0.31,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 20,
+      patchRightSpeedMps: 0,
+      compound: stock,
+      surfaceType: 'grass',
+    });
+    const rollingGravel = computeTyreForces({
+      normalForceN: 3500,
+      wheelAngularSpeedRadS: 20 / 0.31,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 20,
+      patchRightSpeedMps: 0,
+      compound: stock,
+      surfaceType: 'gravel',
+    });
+    expect(SURFACE_ROLLING_RESISTANCE_MULTIPLIERS.grass).toBeGreaterThan(1.0);
+    expect(Math.abs(rollingGrass.longitudinalForceN)).toBeGreaterThan(
+      Math.abs(rollingAsphalt.longitudinalForceN) * 2.5,
+    );
+    expect(Math.abs(rollingGravel.longitudinalForceN)).toBeGreaterThan(
+      Math.abs(rollingGrass.longitudinalForceN),
+    );
   });
 
   it('enforces the combined-slip friction circle bound (hypot(Fx, Fy) <= mu * Fz)', () => {

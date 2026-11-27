@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { TRO_MAGIC, TrackError, parseTro } from '../../src/formats/track';
+import {
+  TRO_MAGIC,
+  TRO_SURFACE_ASPHALT,
+  TRO_SURFACE_DIRT,
+  TRO_SURFACE_GRASS,
+  TRO_SURFACE_KERB,
+  TRO_SURFACE_SAND,
+  TrackError,
+  parseTro,
+} from '../../src/formats/track';
 import { buildSyntheticTro } from '../fixtures/buildTro';
 import { encodeClutWord, encodeTpageWord } from '../fixtures/buildTrp';
 
@@ -120,6 +129,8 @@ describe('TRO track geometry parser (M8.4)', () => {
     expect(seg.subMesh0.list10Count).toBe(1);
     expect(seg.subMesh0.polygons[0]!.unk5).toBe(5);
     expect(seg.subMesh0.polygons[0]!.unkFlags).toBe(0x20);
+    expect(seg.subMesh0.polygons[0]!.surfaceCode).toBe(1);
+    expect(seg.subMesh0.polygons[1]!.surfaceCode).toBe(0);
     expect(seg.subMesh0.polygons[3]!.colors).toHaveLength(4);
     expect(seg.subMesh0.polygons[7]!.colors[3]).toEqual({ r: 230, g: 231, b: 232 });
     expect(seg.walls2D).toEqual([{ v0: 0, v1: 1, nxFixed12: 0, nyFixed12: 4096 }]);
@@ -293,5 +304,44 @@ describe('TRO track geometry parser (M8.4)', () => {
         }),
       ),
     ).toThrowError(/subBlock98 size mismatch/i);
+  });
+
+  it('extracts E3 surfaceCode bits 28..30 cleanly across asphalt, kerb, grass, sand, and dirt polygons', () => {
+    const tro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            centerRaw: [0, 0, 0],
+            subMesh0: {
+              localVertices: [
+                [0, 0, 0],
+                [64, 0, 0],
+                [64, 64, 0],
+              ],
+              polygons: [
+                { listIndex: 1, vertices: [0, 1, 2], colors: [{ r: 100, g: 100, b: 100 }], surfaceCode: TRO_SURFACE_ASPHALT },
+                { listIndex: 1, vertices: [0, 1, 2], colors: [{ r: 200, g: 50, b: 50 }], surfaceCode: TRO_SURFACE_KERB, unkFlags: 0x02 },
+                { listIndex: 1, vertices: [0, 1, 2], colors: [{ r: 50, g: 160, b: 50 }], surfaceCode: TRO_SURFACE_GRASS },
+                { listIndex: 1, vertices: [0, 1, 2], colors: [{ r: 160, g: 130, b: 90 }], surfaceCode: TRO_SURFACE_SAND },
+                { listIndex: 1, vertices: [0, 1, 2], colors: [{ r: 140, g: 110, b: 70 }], surfaceCode: TRO_SURFACE_DIRT },
+              ],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+          },
+        ],
+      }),
+    );
+
+    const polys = tro.segments[0]!.subMesh0.polygons;
+    expect(polys.map((p) => p.surfaceCode)).toEqual([
+      TRO_SURFACE_ASPHALT,
+      TRO_SURFACE_KERB,
+      TRO_SURFACE_GRASS,
+      TRO_SURFACE_SAND,
+      TRO_SURFACE_DIRT,
+    ]);
+    // Lower bits of unkFlags remain intact alongside surfaceCode
+    expect(polys[1]!.unkFlags).toBe(0x22);
   });
 });

@@ -297,6 +297,9 @@ export function collectTrackModelTransferables(trackModel: TrackModel): Transfer
     addOwnedBuffer(buffers, trackModel.collision.vertices);
     addOwnedBuffer(buffers, trackModel.collision.normals);
     addOwnedBuffer(buffers, trackModel.collision.surfaceTypes);
+    if (trackModel.collision.groundMaterials !== undefined) {
+      addOwnedBuffer(buffers, trackModel.collision.groundMaterials);
+    }
     addOwnedBuffer(buffers, trackModel.collision.segmentIndices);
   }
 

@@ -247,6 +247,7 @@ export function buildCollisionMesh(
   const verticesList: number[] = [];
   const normalsList: number[] = [];
   const surfaceTypesList: number[] = [];
+  const groundMaterialsList: number[] = [];
   const segmentIndicesList: number[] = [];
   const segments: CollisionSegmentRange[] = [];
   const wallBarriers: CollisionWallBarrier[] = [];
@@ -323,6 +324,7 @@ export function buildCollisionMesh(
           verticesList.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
           normalsList.push(nx, ny, nz);
           surfaceTypesList.push(surfaceTypeToCode(surfaceType));
+          groundMaterialsList.push(poly.surfaceCode);
           segmentIndicesList.push(seg.segmentIndex);
 
           if (surfaceType === 'ground') {
@@ -450,6 +452,7 @@ export function buildCollisionMesh(
     vertices: new Float32Array(verticesList),
     normals: new Float32Array(normalsList),
     surfaceTypes: new Uint8Array(surfaceTypesList),
+    groundMaterials: new Uint8Array(groundMaterialsList),
     segmentIndices: new Uint16Array(segmentIndicesList),
     segments,
     wallBarriers,

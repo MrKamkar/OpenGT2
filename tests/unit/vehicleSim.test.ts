@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { InputManager } from '../../src/core/input';
 import type { CarCatalogEntry } from '../../src/formats/gtdb';
-import { buildCollisionMesh, parseTro } from '../../src/formats/track';
+import { buildCollisionMesh, parseTro, TRO_SURFACE_ASPHALT, TRO_SURFACE_GRASS } from '../../src/formats/track';
 import { buildCarPhysicsSpec } from '../../src/physics/carSpec';
 import { CollisionIndex } from '../../src/physics/collisionIndex';
 import { DriveControlAdapter } from '../../src/physics/driveControls';
@@ -936,5 +936,83 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(sawUnloadedInnerFront).toBe(true);
     expect(minOuterFrontFx).toBeLessThan(-1000);
     expect((preKerbSpeed - postKerbSpeed) / (48 * FIXED_DT) / GRAVITY_MPS2).toBeGreaterThan(0.45);
+  });
+
+  it('applies lower grip and higher rolling drag on TRO surfaceCode grass strips vs asphalt (M9.30)', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+
+    const makeSurfaceIndex = (surfaceCode: number) => {
+      const segments: SyntheticSegmentSpec[] = [];
+      for (let cellIdx = -1; cellIdx < 12; cellIdx += 1) {
+        const cellCenterRawY = cellIdx * 4096 + 2048;
+        segments.push({
+          centerRaw: [0, cellCenterRawY, 0],
+          subMesh0: {
+            localVertices: [
+              [-3200, 0, 0],
+              [-3200, 4096, 0],
+              [3200, 4096, 0],
+              [3200, 0, 0],
+            ],
+            polygons: [
+              {
+                listIndex: 2,
+                vertices: [0, 1, 2, 3],
+                colors: [{ r: 100, g: 120, b: 100 }],
+                surfaceCode,
+              },
+            ],
+          },
+          subMesh1: { localVertices: [], polygons: [] },
+        });
+      }
+      return new CollisionIndex(buildCollisionMesh(parseTro(buildSyntheticTro({ uvEntries: [], segments }))));
+    };
+
+    const measureSurfaceBehavior = (surfaceCode: number) => {
+      const sim = new VehicleSimulation(spec, makeSurfaceIndex(surfaceCode), {
+        initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      });
+      for (let i = 0; i < 600; i += 1) {
+        sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+        if (sim.getSnapshot().speedKph >= 90) break;
+      }
+      const coastStartSpeed = sim.getSnapshot().speedMps;
+      for (let i = 0; i < 360; i += 1) {
+        sim.stepFixed({ throttle: 0, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      }
+      const coastEndSpeed = sim.getSnapshot().speedMps;
+      const coastDropMps = coastStartSpeed - coastEndSpeed;
+
+      // Measure peak lateral G under steering on the same surface
+      const turnSim = new VehicleSimulation(spec, makeSurfaceIndex(surfaceCode), {
+        initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      });
+      for (let i = 0; i < 600; i += 1) {
+        turnSim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+        if (turnSim.getSnapshot().speedKph >= 80) break;
+      }
+      let peakLatG = 0;
+      for (let i = 0; i < 90; i += 1) {
+        turnSim.stepFixed({ throttle: 0.3, brake: 0, handbrake: 0, steer: 0.7 }, FIXED_DT);
+        const snap = turnSim.getSnapshot();
+        const latG = (snap.speedMps * Math.abs(snap.angularVelocity.y)) / GRAVITY_MPS2;
+        if (latG > peakLatG) peakLatG = latG;
+      }
+
+      return {
+        detectedSurface: sim.getSnapshot().wheels[0].surfaceType,
+        coastDropMps,
+        peakLatG,
+      };
+    };
+
+    const asphalt = measureSurfaceBehavior(TRO_SURFACE_ASPHALT);
+    const grass = measureSurfaceBehavior(TRO_SURFACE_GRASS);
+
+    expect(asphalt.detectedSurface).toBe('asphalt');
+    expect(grass.detectedSurface).toBe('grass');
+    expect(grass.coastDropMps).toBeGreaterThan(asphalt.coastDropMps * 1.15);
+    expect(grass.peakLatG).toBeLessThan(asphalt.peakLatG * 0.75);
   });
 });

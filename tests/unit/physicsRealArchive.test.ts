@@ -1366,4 +1366,150 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
     }
     expect(checkedModels).toBe(40);
   }, 60_000);
+
+  it('verifies E3 TRO polygon surfaceCode invariants across all 126 tracks and multi-surface raycasts on Track #0 (M9.30)', async () => {
+    const allEntries = reader.getAllEntries();
+    const troEntries = allEntries
+      .filter(
+        (e) =>
+          e.kind === 'file' &&
+          e.path.toLowerCase().startsWith('crsobj/') &&
+          e.path.toLowerCase().endsWith('.tro.gz'),
+      )
+      .sort((a, b) => a.path.localeCompare(b.path));
+    expect(troEntries.length).toBe(126);
+
+    const groundCounts = new Array<number>(8).fill(0);
+    const wallCounts = new Array<number>(8).fill(0);
+    let lat0Less1 = 0;
+    let cnt01 = 0;
+    let lat1Less2 = 0;
+    let cnt12 = 0;
+    let lat2Less3 = 0;
+    let cnt23 = 0;
+
+    for (let ti = 0; ti < troEntries.length; ti += 1) {
+      const e = troEntries[ti]!;
+      const tro = parseTro(await gunzip(await cachedSource.read(e.address, e.address + e.size)));
+      const col = buildCollisionMesh(tro);
+
+      if (ti === 0) {
+        const idx = new CollisionIndex(col);
+        const seenSurfaces = new Set<string>();
+        const down = { x: 0, y: -1, z: 0 };
+        for (let t = 0; t < col.triangleCount; t += 1) {
+          const b = t * 9;
+          const cx = ((col.vertices[b] ?? 0) + (col.vertices[b + 3] ?? 0) + (col.vertices[b + 6] ?? 0)) / 3;
+          const cy = ((col.vertices[b + 1] ?? 0) + (col.vertices[b + 4] ?? 0) + (col.vertices[b + 7] ?? 0)) / 3;
+          const cz = ((col.vertices[b + 2] ?? 0) + (col.vertices[b + 5] ?? 0) + (col.vertices[b + 8] ?? 0)) / 3;
+          const hit = idx.raycastWheelDown({ x: cx, y: cy + 2, z: cz }, down, 4);
+          if (hit !== null) {
+            seenSurfaces.add(hit.surfaceType);
+          }
+        }
+        expect(seenSurfaces.has('asphalt')).toBe(true);
+        expect(seenSurfaces.has('kerb')).toBe(true);
+        expect(seenSurfaces.has('grass') || seenSurfaces.has('gravel')).toBe(true);
+      }
+
+      const barriersBySeg = new Map<number, typeof col.wallBarriers[number][]>();
+      for (const b of col.wallBarriers) {
+        let arr = barriersBySeg.get(b.segmentIndex);
+        if (arr === undefined) {
+          arr = [];
+          barriersBySeg.set(b.segmentIndex, arr);
+        }
+        arr.push(b);
+      }
+
+      const tSum = new Array<number>(8).fill(0);
+      const tCnt = new Array<number>(8).fill(0);
+
+      for (const seg of tro.segments) {
+        const sm = seg.subMesh0.vertexCount > 0 ? seg.subMesh0 : seg.subMesh1;
+        const rev = seg.subMesh0.vertexCount > 0;
+        const verts = sm.worldVerticesRaw;
+        const barriers = barriersBySeg.get(seg.segmentIndex);
+        const nextSeg = tro.segments[seg.nextSegment] ?? seg;
+        const cx0 = seg.centerlineStartRaw.x / 64;
+        const cz0 = -seg.centerlineStartRaw.y / 64;
+        const dxC = nextSeg.centerlineStartRaw.x / 64 - cx0;
+        const dzC = -nextSeg.centerlineStartRaw.y / 64 - cz0;
+        const lenC = Math.hypot(dxC, dzC) || 1;
+
+        for (const poly of sm.polygons) {
+          const [v0, v1, v2] = rev
+            ? [poly.vertices[0], poly.vertices[2], poly.vertices[1]]
+            : [poly.vertices[0], poly.vertices[1], poly.vertices[2]];
+          const x0 = (verts[v0 * 3] ?? 0) / 64;
+          const y0 = (verts[v0 * 3 + 2] ?? 0) / 64;
+          const z0 = -(verts[v0 * 3 + 1] ?? 0) / 64;
+          const x1 = (verts[v1 * 3] ?? 0) / 64;
+          const y1 = (verts[v1 * 3 + 2] ?? 0) / 64;
+          const z1 = -(verts[v1 * 3 + 1] ?? 0) / 64;
+          const x2 = (verts[v2 * 3] ?? 0) / 64;
+          const y2 = (verts[v2 * 3 + 2] ?? 0) / 64;
+          const z2 = -(verts[v2 * 3 + 1] ?? 0) / 64;
+
+          const ex1 = x1 - x0;
+          const ey1 = y1 - y0;
+          const ez1 = z1 - z0;
+          const ex2 = x2 - x0;
+          const ey2 = y2 - y0;
+          const ez2 = z2 - z0;
+          const cx = ey1 * ez2 - ez1 * ey2;
+          const cy = ez1 * ex2 - ex1 * ez2;
+          const cz = ex1 * ey2 - ey1 * ex2;
+          const len = Math.hypot(cx, cy, cz);
+          if (len < 1e-6) continue;
+
+          const code = poly.surfaceCode;
+          if (cy / len < 0.5) {
+            wallCounts[code] = (wallCounts[code] ?? 0) + 1;
+            continue;
+          }
+          groundCounts[code] = (groundCounts[code] ?? 0) + 1;
+
+          if (barriers === undefined || barriers.length === 0) continue;
+          const mx = (x0 + x1 + x2) / 3;
+          const mz = (z0 + z1 + z2) / 3;
+          let inside = true;
+          for (const b of barriers) {
+            if ((mx - b.start.x) * b.normal.x + (mz - b.start.z) * b.normal.z < -0.1) {
+              inside = false;
+              break;
+            }
+          }
+          if (!inside) continue;
+          const lat = Math.abs((mx - cx0) * (-dzC / lenC) + (mz - cz0) * (dxC / lenC));
+          tSum[code] = (tSum[code] ?? 0) + lat;
+          tCnt[code] = (tCnt[code] ?? 0) + 1;
+        }
+      }
+
+      if ((tCnt[0] ?? 0) >= 50 && (tCnt[1] ?? 0) >= 10) {
+        cnt01 += 1;
+        if (tSum[0]! / tCnt[0]! < tSum[1]! / tCnt[1]!) lat0Less1 += 1;
+      }
+      if ((tCnt[1] ?? 0) >= 10 && (tCnt[2] ?? 0) >= 10) {
+        cnt12 += 1;
+        if (tSum[1]! / tCnt[1]! < tSum[2]! / tCnt[2]!) lat1Less2 += 1;
+      }
+      if ((tCnt[2] ?? 0) >= 10 && (tCnt[3] ?? 0) >= 10) {
+        cnt23 += 1;
+        if (tSum[2]! / tCnt[2]! <= tSum[3]! / tCnt[3]! + 1.0) lat2Less3 += 1;
+      }
+    }
+
+    expect(groundCounts[7]).toBe(0);
+    expect(wallCounts[7]).toBe(0);
+    for (let c = 1; c <= 6; c += 1) {
+      const g = groundCounts[c] ?? 0;
+      const w = wallCounts[c] ?? 0;
+      expect(g / (g + w)).toBeGreaterThanOrEqual(0.94);
+    }
+    expect(lat0Less1 / cnt01).toBeGreaterThanOrEqual(0.9);
+    expect(lat1Less2 / cnt12).toBeGreaterThanOrEqual(0.9);
+    expect(lat2Less3 / cnt23).toBeGreaterThanOrEqual(0.9);
+  }, 60_000);
 });

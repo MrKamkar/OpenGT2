@@ -1,6 +1,12 @@
 import {
   COLLISION_SURFACE_GROUND,
   COLLISION_SURFACE_WALL,
+  TRO_SURFACE_ASPHALT,
+  TRO_SURFACE_DIRT,
+  TRO_SURFACE_GRASS,
+  TRO_SURFACE_KERB,
+  TRO_SURFACE_ROUGH,
+  TRO_SURFACE_SAND,
   type CollisionMesh,
   type CollisionSurfaceType,
   surfaceCodeToType,
@@ -111,6 +117,26 @@ interface IndexedWallBarrier {
   readonly nz: number;
   readonly minY: number;
   readonly maxY: number;
+}
+
+/**
+ * Maps verified E3 `.tro` polygon `surfaceCode` (`(w1 >>> 28) & 0x07`) to a `PhysicsSurfaceType`.
+ * Rare E1 codes `4` (concrete) and `6` (off-track rough) map conservatively to `'asphalt'` / `'gravel'`.
+ */
+export function mapTroSurfaceCodeToPhysicsSurface(surfaceCode: number): PhysicsSurfaceType {
+  switch (surfaceCode) {
+    case TRO_SURFACE_KERB:
+      return 'kerb';
+    case TRO_SURFACE_GRASS:
+      return 'grass';
+    case TRO_SURFACE_SAND:
+    case TRO_SURFACE_DIRT:
+    case TRO_SURFACE_ROUGH:
+      return 'gravel';
+    case TRO_SURFACE_ASPHALT:
+    default:
+      return 'asphalt';
+  }
 }
 
 function mapRawSurfaceToPhysicsSurface(raw: CollisionSurfaceType): PhysicsSurfaceType {
@@ -937,10 +963,16 @@ export class CollisionIndex {
 
     const nBase = bestTri * 3;
     const rawSurface = surfaceCodeToType(surfaceTypes[bestTri] ?? 0);
-    const surfaceType =
-      this.surfaceOverrides !== null
-        ? (this.surfaceOverrides[bestTri] ?? mapRawSurfaceToPhysicsSurface(rawSurface))
-        : mapRawSurfaceToPhysicsSurface(rawSurface);
+    let surfaceType: PhysicsSurfaceType;
+    if (this.surfaceOverrides !== null && this.surfaceOverrides[bestTri] !== undefined) {
+      surfaceType = this.surfaceOverrides[bestTri]!;
+    } else if (rawSurface === 'ground' && this.mesh.groundMaterials !== undefined) {
+      surfaceType = mapTroSurfaceCodeToPhysicsSurface(
+        this.mesh.groundMaterials[bestTri] ?? TRO_SURFACE_ASPHALT,
+      );
+    } else {
+      surfaceType = mapRawSurfaceToPhysicsSurface(rawSurface);
+    }
 
     return {
       distance: bestDist,
