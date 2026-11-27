@@ -426,7 +426,7 @@ export class CarViewerSession {
       }
       this.loading = false;
       this.errorMessage =
-        error instanceof Error ? error.message : 'Nie udało się wczytać modelu 3D auta.';
+        error instanceof Error ? error.message : 'Failed to load 3D car model.';
       this.emitStateChange();
       return null;
     } finally {

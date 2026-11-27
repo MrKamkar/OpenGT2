@@ -80,7 +80,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   const hud = el('section', 'ogt2-viewer-hud');
   hud.dataset['testid'] = 'car-viewer';
-  hud.setAttribute('aria-label', 'Przeglądarka aut 3D');
+  hud.setAttribute('aria-label', '3D Car Viewer');
   container.append(hud);
 
   let disposed = false;
@@ -107,15 +107,15 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   const navTabs = el('div', 'ogt2-viewer-nav');
   navTabs.setAttribute('role', 'tablist');
-  navTabs.setAttribute('aria-label', 'Tryb aplikacji');
+  navTabs.setAttribute('aria-label', 'Application mode');
 
-  const viewerTabBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', 'Przeglądarka 3D');
+  const viewerTabBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', '3D Viewer');
   viewerTabBtn.type = 'button';
   viewerTabBtn.dataset['testid'] = 'nav-mode-viewer';
   viewerTabBtn.setAttribute('role', 'tab');
   viewerTabBtn.setAttribute('aria-selected', 'true');
 
-  const inspectorTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Inspektor');
+  const inspectorTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Inspector');
   inspectorTabBtn.type = 'button';
   inspectorTabBtn.dataset['testid'] = 'nav-mode-inspector';
   inspectorTabBtn.setAttribute('role', 'tab');
@@ -123,7 +123,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   navTabs.append(viewerTabBtn, inspectorTabBtn);
 
-  const resetBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Zmień plik');
+  const resetBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Change File');
   resetBtn.type = 'button';
   resetBtn.dataset['testid'] = 'viewer-reset-file';
 
@@ -137,8 +137,8 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   sidebar.dataset['testid'] = 'viewer-car-list-panel';
 
   const sidebarHeader = el('div', 'ogt2-viewer-panel-header');
-  sidebarHeader.append(el('h2', 'ogt2-viewer-panel-title', 'Katalog aut 3D'));
-  const collapseBtn = el('button', 'ogt2-button ogt2-button-subtle ogt2-viewer-collapse', 'Zwiń');
+  sidebarHeader.append(el('h2', 'ogt2-viewer-panel-title', '3D Car Catalog'));
+  const collapseBtn = el('button', 'ogt2-button ogt2-button-subtle ogt2-viewer-collapse', 'Collapse');
   collapseBtn.type = 'button';
   collapseBtn.dataset['testid'] = 'viewer-sidebar-toggle';
   sidebarHeader.append(collapseBtn);
@@ -146,7 +146,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   const sidebarBody = el('div', 'ogt2-viewer-sidebar-body');
 
   const regionRow = el('div', 'ogt2-viewer-field');
-  const regionLabel = el('label', 'ogt2-viewer-label', 'Wariant');
+  const regionLabel = el('label', 'ogt2-viewer-label', 'Region');
   regionLabel.htmlFor = 'ogt2-viewer-region';
   const regionSelect = el('select', 'ogt2-viewer-select');
   regionSelect.id = 'ogt2-viewer-region';
@@ -163,25 +163,25 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   regionRow.append(regionLabel, regionSelect);
 
   const searchRow = el('div', 'ogt2-viewer-field');
-  const searchLabel = el('label', 'ogt2-viewer-label', 'Szukaj');
+  const searchLabel = el('label', 'ogt2-viewer-label', 'Search');
   searchLabel.htmlFor = 'ogt2-viewer-search';
   const searchInput = el('input', 'ogt2-viewer-input');
   searchInput.id = 'ogt2-viewer-search';
   searchInput.name = 'viewerSearch';
   searchInput.type = 'search';
   searchInput.dataset['testid'] = 'viewer-car-search';
-  searchInput.placeholder = 'Nazwa, carId lub kod…';
+  searchInput.placeholder = 'Name, carId, or code…';
   searchInput.autocomplete = 'off';
   searchInput.spellcheck = false;
   searchRow.append(searchLabel, searchInput);
 
-  const countLabel = el('div', 'ogt2-viewer-count', 'Ładowanie katalogu…');
+  const countLabel = el('div', 'ogt2-viewer-count', 'Loading catalog…');
   countLabel.dataset['testid'] = 'viewer-car-count';
 
   const carList = el('div', 'ogt2-viewer-car-list');
   carList.dataset['testid'] = 'viewer-car-list';
   carList.setAttribute('role', 'listbox');
-  carList.setAttribute('aria-label', 'Lista samochodów 3D');
+  carList.setAttribute('aria-label', '3D Car List');
 
   sidebarBody.append(regionRow, searchRow, countLabel, carList);
   sidebar.append(sidebarHeader, sidebarBody);
@@ -194,7 +194,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   contextLostBanner.setAttribute('role', 'alert');
   contextLostBanner.hidden = true;
   contextLostBanner.textContent =
-    'Utracono kontekst WebGL2 — oczekiwanie na odtworzenie zasobów z pamięci podręcznej…';
+    'WebGL2 context lost — waiting to restore GPU resources from cache…';
 
   const statusBanner = el('div', 'ogt2-viewer-banner');
   statusBanner.dataset['testid'] = 'viewer-status-banner';
@@ -207,7 +207,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   const controls = el('aside', 'ogt2-viewer-panel ogt2-viewer-controls');
   controls.dataset['testid'] = 'viewer-controls';
 
-  const carTitle = el('h2', 'ogt2-viewer-panel-title', 'Wybierz auto');
+  const carTitle = el('h2', 'ogt2-viewer-panel-title', 'Select Car');
   carTitle.dataset['testid'] = 'viewer-selected-name';
 
   const modelStats = el('p', 'ogt2-viewer-submeta', '—');
@@ -215,7 +215,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   // Body variant (Stock vs RM)
   const bodyField = el('div', 'ogt2-viewer-field');
-  const bodyLabel = el('label', 'ogt2-viewer-label', 'Nadwozie');
+  const bodyLabel = el('label', 'ogt2-viewer-label', 'Body');
   bodyLabel.htmlFor = 'ogt2-viewer-body';
   const bodySelect = el('select', 'ogt2-viewer-select');
   bodySelect.id = 'ogt2-viewer-body';
@@ -225,13 +225,13 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   // Day / Night toggle
   const timeField = el('div', 'ogt2-viewer-field');
-  timeField.append(el('span', 'ogt2-viewer-label', 'Wariant'));
+  timeField.append(el('span', 'ogt2-viewer-label', 'Lighting Variant'));
   const timeButtons = el('div', 'ogt2-viewer-seg');
-  const dayBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', 'Dzień (.cdo)');
+  const dayBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', 'Day (.cdo)');
   dayBtn.type = 'button';
   dayBtn.dataset['testid'] = 'viewer-time-day';
   dayBtn.setAttribute('aria-pressed', 'true');
-  const nightBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Noc (.cno)');
+  const nightBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Night (.cno)');
   nightBtn.type = 'button';
   nightBtn.dataset['testid'] = 'viewer-time-night';
   nightBtn.setAttribute('aria-pressed', 'false');
@@ -240,7 +240,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   // Paint selector
   const paintField = el('div', 'ogt2-viewer-field');
-  const paintLabel = el('label', 'ogt2-viewer-label', 'Lakier (.cdp)');
+  const paintLabel = el('label', 'ogt2-viewer-label', 'Paint (.cdp)');
   paintLabel.htmlFor = 'ogt2-viewer-paint';
   const paintSelect = el('select', 'ogt2-viewer-select');
   paintSelect.id = 'ogt2-viewer-paint';
@@ -271,7 +271,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   ps1Options.hidden = true;
 
   const ps1ResField = el('div', 'ogt2-viewer-field');
-  const ps1ResLabel = el('label', 'ogt2-viewer-label', 'Rozdzielczość PS1');
+  const ps1ResLabel = el('label', 'ogt2-viewer-label', 'PS1 Resolution');
   ps1ResLabel.htmlFor = 'ogt2-viewer-ps1-res';
   const ps1ResSelect = el('select', 'ogt2-viewer-select');
   ps1ResSelect.id = 'ogt2-viewer-ps1-res';
@@ -292,7 +292,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   ditherCheck.name = 'viewerPs1Dither';
   ditherCheck.dataset['testid'] = 'viewer-ps1-dither';
   ditherCheck.checked = true;
-  ditherRow.append(ditherCheck, el('span', undefined, 'Dithering 4×4 + 15-bit'));
+  ditherRow.append(ditherCheck, el('span', undefined, '4×4 Dithering + 15-bit'));
 
   const otRow = el('label', 'ogt2-viewer-check');
   otRow.htmlFor = 'ogt2-viewer-ps1-ot';
@@ -308,17 +308,17 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   // LOD selector
   const lodField = el('div', 'ogt2-viewer-field');
-  const lodLabel = el('label', 'ogt2-viewer-label', 'Poziom LOD');
+  const lodLabel = el('label', 'ogt2-viewer-label', 'LOD Level');
   lodLabel.htmlFor = 'ogt2-viewer-lod';
   const lodSelect = el('select', 'ogt2-viewer-select');
   lodSelect.id = 'ogt2-viewer-lod';
   lodSelect.name = 'viewerLod';
   lodSelect.dataset['testid'] = 'viewer-lod-select';
   const lodEntries: readonly { readonly value: string; readonly label: string }[] = [
-    { value: 'auto', label: 'Auto (odległość kamery)' },
-    { value: '0', label: 'LOD 0 (pełny detal)' },
-    { value: '1', label: 'LOD 1 (średni)' },
-    { value: '2', label: 'LOD 2 (daleki)' },
+    { value: 'auto', label: 'Auto (camera distance)' },
+    { value: '0', label: 'LOD 0 (full detail)' },
+    { value: '1', label: 'LOD 1 (medium)' },
+    { value: '2', label: 'LOD 2 (far)' },
   ];
   for (const item of lodEntries) {
     const opt = el('option', undefined, item.label);
@@ -329,19 +329,19 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   // Camera controls
   const camField = el('div', 'ogt2-viewer-field');
-  camField.append(el('span', 'ogt2-viewer-label', 'Kamera'));
+  camField.append(el('span', 'ogt2-viewer-label', 'Camera'));
   const camButtons = el('div', 'ogt2-viewer-seg');
   const resetCamBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Reset');
   resetCamBtn.type = 'button';
   resetCamBtn.dataset['testid'] = 'viewer-camera-reset';
-  const presetCamBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Widok (C)');
+  const presetCamBtn = el('button', 'ogt2-button ogt2-button-subtle', 'View (C)');
   presetCamBtn.type = 'button';
   presetCamBtn.dataset['testid'] = 'viewer-camera-preset';
   camButtons.append(resetCamBtn, presetCamBtn);
   const camHint = el(
     'p',
     'ogt2-viewer-hint',
-    'WSAD / Strzałki: obrót · +/- / kółko: zoom · C: widoki · mysz/dotyk',
+    'WSAD / Arrows: orbit · +/- / wheel: zoom · C: views · mouse/touch',
   );
   camField.append(camButtons, camHint);
 
@@ -368,9 +368,13 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     const debugPanel = el('div', 'ogt2-viewer-debug');
     debugPanel.dataset['testid'] = 'viewer-debug-panel';
 
-    debugPanel.append(el('span', 'ogt2-viewer-label', 'Debug (?debug=1)'));
+    const debugHeader = el('div', 'ogt2-viewer-debug-header');
+    debugHeader.append(
+      el('span', 'ogt2-viewer-label', 'Debug Overlay'),
+      el('code', 'ogt2-viewer-debug-flag', '?debug=1'),
+    );
 
-    const wireLabel = el('label', 'ogt2-viewer-check');
+    const wireLabel = el('label', 'ogt2-viewer-check ogt2-viewer-debug-wireframe');
     wireLabel.htmlFor = 'ogt2-viewer-wireframe';
     wireframeCheck = el('input');
     wireframeCheck.type = 'checkbox';
@@ -380,29 +384,29 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     wireLabel.append(wireframeCheck, el('span', undefined, 'Wireframe'));
 
     const debugList = el('dl', 'ogt2-viewer-debug-list');
-    debugFpsEl = el('dd', undefined, '—');
+    debugFpsEl = el('dd', 'ogt2-viewer-debug-num', '—');
     debugFpsEl.dataset['testid'] = 'viewer-debug-fps';
 
-    debugGpuEl = el('dd', undefined, '0');
+    debugGpuEl = el('dd', 'ogt2-viewer-debug-gpu-grid', 'Programs 0 · VAOs 0 · Buffers 0 · Textures 0 · FBOs 0 · RBOs 0');
     debugGpuEl.dataset['testid'] = 'viewer-debug-gpu';
 
-    debugGlErrorEl = el('dd', undefined, 'NO_ERROR (0x0000)');
+    debugGlErrorEl = el('dd', 'ogt2-viewer-debug-gl', 'NO_ERROR (0x0000)');
     debugGlErrorEl.dataset['testid'] = 'viewer-debug-gl-error';
 
-    debugCacheEl = el('dd', undefined, '0/16 (0 hits)');
+    debugCacheEl = el('dd', 'ogt2-viewer-debug-num', '0/16 (0 hits / 0 misses / 0 loads)');
     debugCacheEl.dataset['testid'] = 'viewer-debug-cache';
 
     debugList.append(
       el('dt', undefined, 'FPS'),
       debugFpsEl,
-      el('dt', undefined, 'GPU'),
-      debugGpuEl,
       el('dt', undefined, 'gl.getError()'),
       debugGlErrorEl,
       el('dt', undefined, 'Cache'),
       debugCacheEl,
+      el('dt', undefined, 'GPU'),
+      debugGpuEl,
     );
-    debugPanel.append(wireLabel, debugList);
+    debugPanel.append(debugHeader, wireLabel, debugList);
     controls.append(debugPanel);
 
     wireframeCheck.addEventListener('change', () => {
@@ -424,12 +428,12 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     filteredCars = filterViewerCars(allCars, assetRepository.carAssetIndex, searchQuery);
     countLabel.textContent =
       searchQuery.trim().length === 0
-        ? `${String(filteredCars.length)} aut`
-        : `${String(filteredCars.length)} / ${String(allCars.length)} aut`;
+        ? `${String(filteredCars.length)} cars`
+        : `${String(filteredCars.length)} / ${String(allCars.length)} cars`;
 
     carList.replaceChildren();
     if (filteredCars.length === 0) {
-      carList.append(el('p', 'ogt2-viewer-empty', 'Brak aut spełniających kryteria.'));
+      carList.append(el('p', 'ogt2-viewer-empty', 'No matching cars.'));
       return;
     }
 
@@ -490,7 +494,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     if (texture === null) {
       lastPaintModelRef = null;
       paintSelect.replaceChildren();
-      const emptyOpt = el('option', undefined, 'Brak tekstur');
+      const emptyOpt = el('option', undefined, 'No textures');
       emptyOpt.value = '0';
       paintSelect.append(emptyOpt);
       paintSelect.disabled = true;
@@ -515,7 +519,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
         swatch.dataset['testid'] = 'viewer-paint-slot';
         swatch.dataset['slotIndex'] = String(slot.slotIndex);
         swatch.title = label;
-        swatch.setAttribute('aria-label', `Lakier ${label}`);
+        swatch.setAttribute('aria-label', `Paint ${label}`);
         swatch.style.backgroundColor = samplePaintSlotPreviewCss(slot);
         swatch.addEventListener('click', () => {
           session.setPaintSlot(slot.slotIndex);
@@ -549,7 +553,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     } else if (snap.loading) {
       statusBanner.hidden = false;
       statusBanner.classList.remove('is-error');
-      statusBanner.textContent = `Wczytywanie modelu ${snap.bodyCode ?? ''}…`;
+      statusBanner.textContent = `Loading model ${snap.bodyCode ?? ''}…`;
     } else {
       statusBanner.hidden = true;
       statusBanner.textContent = '';
@@ -595,9 +599,9 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
           ? lod.untexturedTriangles.length + lod.texturedTriangles.length
           : 0;
       const vertCount = lod?.vertexCount ?? 0;
-      modelStats.textContent = `${snap.bodyCode ?? '—'} · ${snap.timeOfDay === 'day' ? 'Dzień' : 'Noc'} · LOD${String(snap.activeLodIndex)} (${String(vertCount)} v / ${String(triCount)} tri)`;
+      modelStats.textContent = `${snap.bodyCode ?? '—'} · ${snap.timeOfDay === 'day' ? 'Day' : 'Night'} · LOD${String(snap.activeLodIndex)} (${String(vertCount)} v / ${String(triCount)} tri)`;
     } else if (snap.bodyCode !== null) {
-      modelStats.textContent = `${snap.bodyCode} · ładowanie…`;
+      modelStats.textContent = `${snap.bodyCode} · loading…`;
     } else {
       modelStats.textContent = '—';
     }
@@ -614,7 +618,24 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     }
     if (debugGpuEl !== null) {
       const g = stats.gpuResources;
-      debugGpuEl.textContent = `P:${String(g.programs)} V:${String(g.vaos)} B:${String(g.buffers)} T:${String(g.textures)} F:${String(g.framebuffers)} R:${String(g.renderbuffers)}`;
+      const metrics: readonly [string, number][] = [
+        ['Programs', g.programs],
+        ['VAOs', g.vaos],
+        ['Buffers', g.buffers],
+        ['Textures', g.textures],
+        ['FBOs', g.framebuffers],
+        ['RBOs', g.renderbuffers],
+      ];
+      const frag = document.createDocumentFragment();
+      for (const [label, value] of metrics) {
+        const cell = el('span', 'ogt2-viewer-debug-gpu-item');
+        cell.append(
+          el('span', 'ogt2-viewer-debug-gpu-k', label),
+          el('span', 'ogt2-viewer-debug-gpu-v', String(value)),
+        );
+        frag.append(cell);
+      }
+      debugGpuEl.replaceChildren(frag);
     }
     if (debugGlErrorEl !== null) {
       const hex = `0x${stats.glError.code.toString(16).toUpperCase().padStart(4, '0')}`;
@@ -626,7 +647,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     }
     if (debugCacheEl !== null) {
       const c = stats.cacheStats;
-      debugCacheEl.textContent = `${String(c.size)}/${String(c.maxEntries)} (${String(c.hits)}H/${String(c.misses)}M, ${String(c.workerLoads)}W)`;
+      debugCacheEl.textContent = `${String(c.size)}/${String(c.maxEntries)} (${String(c.hits)}H/${String(c.misses)}M/${String(c.workerLoads)}W)`;
     }
   };
 
@@ -647,7 +668,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
 
   const loadRegionVariant = (variant: GtdbRegionVariant | undefined): void => {
     if (variant === undefined) {
-      countLabel.textContent = 'Brak bazy aut';
+      countLabel.textContent = 'No car database found';
       return;
     }
     if (catalogAbort !== null) {
@@ -655,7 +676,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     }
     const controller = new AbortController();
     catalogAbort = controller;
-    countLabel.textContent = 'Wczytywanie bazy…';
+    countLabel.textContent = 'Loading database…';
 
     void loadCarCatalog(
       {
@@ -690,7 +711,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
           return;
         }
         countLabel.textContent =
-          error instanceof Error ? error.message : 'Błąd wczytywania katalogu.';
+          error instanceof Error ? error.message : 'Failed to load catalog.';
       });
   };
 
@@ -706,7 +727,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   collapseBtn.addEventListener('click', () => {
     listCollapsed = !listCollapsed;
     sidebarBody.hidden = listCollapsed;
-    collapseBtn.textContent = listCollapsed ? 'Rozwiń' : 'Zwiń';
+    collapseBtn.textContent = listCollapsed ? 'Expand' : 'Collapse';
     canvas.focus({ preventScroll: true });
   });
 

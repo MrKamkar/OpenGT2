@@ -1996,27 +1996,94 @@ body {
 .ogt2-viewer-debug {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--ogt2-border);
+  gap: 8px;
+  padding: 10px;
+  margin-top: 2px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.ogt2-viewer-debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ogt2-viewer-debug-flag {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--ogt2-accent);
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.ogt2-viewer-debug-wireframe {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .ogt2-viewer-debug-list {
   margin: 0;
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 3px 8px;
+  grid-template-columns: minmax(74px, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 5px 10px;
   font-size: 0.74rem;
+  line-height: 1.35;
 }
 
 .ogt2-viewer-debug-list dt {
   color: var(--ogt2-muted);
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  white-space: nowrap;
 }
 
 .ogt2-viewer-debug-list dd {
   margin: 0;
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.ogt2-viewer-debug-gl {
+  color: #4ade80;
+}
+
+.ogt2-viewer-debug-gl.is-error {
+  color: var(--ogt2-error);
+  font-weight: 600;
+}
+
+.ogt2-viewer-debug-gpu-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 10px;
+  text-align: left !important;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.18);
+}
+
+.ogt2-viewer-debug-gpu-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ogt2-viewer-debug-gpu-k {
+  color: var(--ogt2-muted);
+  font-size: 0.7rem;
+}
+
+.ogt2-viewer-debug-gpu-v {
+  color: var(--ogt2-text);
+  font-weight: 600;
 }
 
 @media (max-width: 960px) {

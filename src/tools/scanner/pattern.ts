@@ -37,7 +37,7 @@ function parseHexNibble(ch: string): number {
 export function parseHexPattern(input: string): CompiledPattern {
   const trimmed = input.trim();
   if (trimmed.length === 0) {
-    throw new PatternSyntaxError('Wzorzec sygnatury jest pusty.');
+    throw new PatternSyntaxError('Signature pattern is empty.');
   }
 
   const tokens = trimmed.split(/\s+/);
@@ -47,7 +47,7 @@ export function parseHexPattern(input: string): CompiledPattern {
   for (const token of tokens) {
     if (token.length !== 2) {
       throw new PatternSyntaxError(
-        `Nieprawidłowy token "${token}" — każdy bajt musi składać się z 2 znaków (np. "1F" lub "??").`,
+        `Invalid token "${token}" — each byte must have 2 characters (e.g. "1F" or "??").`,
       );
     }
 
@@ -60,7 +60,7 @@ export function parseHexPattern(input: string): CompiledPattern {
     if (hiChar !== '?') {
       const hi = parseHexNibble(hiChar);
       if (hi < 0) {
-        throw new PatternSyntaxError(`Nieprawidłowy znak szesnastkowy w tokenie "${token}".`);
+        throw new PatternSyntaxError(`Invalid hex character in token "${token}".`);
       }
       mask |= 0xf0;
       value |= hi << 4;
@@ -70,7 +70,7 @@ export function parseHexPattern(input: string): CompiledPattern {
     if (loChar !== '?') {
       const lo = parseHexNibble(loChar);
       if (lo < 0) {
-        throw new PatternSyntaxError(`Nieprawidłowy znak szesnastkowy w tokenie "${token}".`);
+        throw new PatternSyntaxError(`Invalid hex character in token "${token}".`);
       }
       mask |= 0x0f;
       value |= lo;
@@ -81,7 +81,7 @@ export function parseHexPattern(input: string): CompiledPattern {
   }
 
   if (!hasConcreteBit) {
-    throw new PatternSyntaxError('Wzorzec musi zawierać co najmniej jeden znany bit lub bajt (nie same "??").');
+    throw new PatternSyntaxError('Pattern must contain at least one concrete bit or byte (not all "??").');
   }
 
   return {

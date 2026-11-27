@@ -208,7 +208,7 @@ export function initApp(): void {
     panel.showLoading(file.name);
 
     if (typeof Worker === 'undefined') {
-      panel.showError('Ta przeglądarka nie obsługuje Web Workerów — eksplorator archiwum jest niedostępny.');
+      panel.showError('This browser does not support Web Workers — archive inspector is unavailable.');
       return;
     }
 
@@ -244,7 +244,7 @@ export function initApp(): void {
             client.readDecompressedRange(path, start, end, signal !== undefined ? { signal } : undefined),
           scanEntry: (entry, scanOptions) => {
             if (typeof Worker === 'undefined') {
-              return Promise.reject(new Error('Przeglądarka nie obsługuje Web Workerów.'));
+              return Promise.reject(new Error('This browser does not support Web Workers.'));
             }
             return ensureScannerSession().scanBlobRange(
               {
@@ -266,7 +266,7 @@ export function initApp(): void {
           imageDecoder: {
             decodeImage: (entry, idxCandidates, decodeOptions) => {
               if (typeof Worker === 'undefined') {
-                return Promise.reject(new Error('Przeglądarka nie obsługuje Web Workerów.'));
+                return Promise.reject(new Error('This browser does not support Web Workers.'));
               }
               return ensureImageDecoderPool().exec(
                 'decodeImage',
@@ -401,8 +401,8 @@ export function initApp(): void {
         }
         const message =
           error instanceof Error
-            ? `Nie udało się obliczyć odcisku pliku: ${error.message}`
-            : 'Nie udało się obliczyć odcisku pliku.';
+            ? `Failed to compute file fingerprint: ${error.message}`
+            : 'Failed to compute file fingerprint.';
         stateMachine.dispatch({
           type: 'LOAD_FAILED',
           message,
@@ -472,19 +472,19 @@ export function initApp(): void {
           case 'denied':
             screen.setRememberedFile({
               name: result.handle.name,
-              note: 'Brak zgody na ponowny dostęp do pliku — wybierz plik ręcznie.',
+              note: 'Permission to reopen file was denied — select the file manually.',
             });
             break;
           case 'prompt':
             screen.setRememberedFile({
               name: result.handle.name,
-              note: 'Wymagana zgoda przeglądarki na odczyt pliku.',
+              note: 'Browser permission is required to read the file.',
             });
             break;
           case 'error':
             screen.setRememberedFile({
               name: result.handle.name,
-              note: 'Nie udało się ponownie otworzyć zapamiętanego pliku — wybierz go ponownie.',
+              note: 'Failed to reopen remembered file — please select it again.',
             });
             break;
           case 'empty':

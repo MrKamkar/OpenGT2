@@ -13,7 +13,7 @@ export interface CapabilityProbes {
 }
 
 export const WEBGL2_UNSUPPORTED_MESSAGE =
-  'Twoja przeglądarka lub urządzenie nie obsługuje WebGL2, który jest wymagany przez OpenGT2 Web Engine. Włącz akcelerację sprzętową lub użyj nowszej przeglądarki.';
+  'Your browser or device does not support WebGL2, which is required by OpenGT2 Web Engine. Enable hardware acceleration or use a newer browser.';
 
 function defaultProbeWebGL2(): boolean {
   if (typeof document === 'undefined') {

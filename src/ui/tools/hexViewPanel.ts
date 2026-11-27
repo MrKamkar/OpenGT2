@@ -92,13 +92,13 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
 
   const panel = el('section', 'ogt2-hex-panel');
   panel.dataset['testid'] = 'hex-viewer';
-  panel.setAttribute('aria-label', 'Podgląd hex');
+  panel.setAttribute('aria-label', 'Hex Viewer');
   panel.hidden = true;
 
   // Header
   const header = el('div', 'ogt2-hex-header');
   const titleGroup = el('div', 'ogt2-hex-title-group');
-  const title = el('h3', 'ogt2-hex-title', 'Podgląd hex');
+  const title = el('h3', 'ogt2-hex-title', 'Hex Viewer');
   const pathBadge = el('code', 'ogt2-hex-path');
   pathBadge.dataset['testid'] = 'hex-path';
   const formatBadge = el('span', 'ogt2-hex-format');
@@ -108,13 +108,13 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
   titleGroup.append(title, pathBadge, formatBadge, sizeBadge);
 
   const modeGroup = el('div', 'ogt2-hex-mode-group');
-  const rawModeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Surowy');
+  const rawModeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Raw');
   rawModeBtn.type = 'button';
   rawModeBtn.dataset['testid'] = 'hex-mode-raw';
-  const gunzipModeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Rozpakowany (gzip)');
+  const gunzipModeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Decompressed (gzip)');
   gunzipModeBtn.type = 'button';
   gunzipModeBtn.dataset['testid'] = 'hex-mode-gunzip';
-  const closeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Zamknij');
+  const closeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Close');
   closeBtn.type = 'button';
   closeBtn.dataset['testid'] = 'hex-close-button';
   modeGroup.append(rawModeBtn, gunzipModeBtn, closeBtn);
@@ -133,7 +133,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
   offsetInput.spellcheck = false;
   offsetInput.dataset['testid'] = 'hex-offset-input';
 
-  const lengthLabel = el('label', 'ogt2-hex-field-label', 'Długość');
+  const lengthLabel = el('label', 'ogt2-hex-field-label', 'Length');
   lengthLabel.htmlFor = 'ogt2-hex-length';
   const lengthInput = el('input', 'ogt2-hex-input ogt2-hex-input-short');
   lengthInput.id = 'ogt2-hex-length';
@@ -144,7 +144,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
   lengthInput.spellcheck = false;
   lengthInput.dataset['testid'] = 'hex-length-input';
 
-  const jumpBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Przejdź');
+  const jumpBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Jump');
   jumpBtn.type = 'submit';
   jumpBtn.dataset['testid'] = 'hex-jump-button';
 
@@ -178,7 +178,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
   const spacer = el('div', 'ogt2-hex-spacer');
   const rowsLayer = el('div', 'ogt2-hex-rows');
   spacer.append(rowsLayer);
-  const emptyNote = el('p', 'ogt2-vlist-empty', 'Plik jest pusty (0 B).');
+  const emptyNote = el('p', 'ogt2-vlist-empty', 'File is empty (0 B).');
   emptyNote.dataset['testid'] = 'hex-empty';
   emptyNote.hidden = true;
   list.append(spacer, emptyNote);
@@ -187,8 +187,8 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
   // Inspector panel
   const inspector = el('aside', 'ogt2-hex-inspector');
   inspector.dataset['testid'] = 'hex-inspector';
-  const inspTitle = el('h4', 'ogt2-hex-insp-title', 'Interpretacja zaznaczenia (LE)');
-  const inspSelection = el('p', 'ogt2-hex-insp-range', 'Zaznaczenie: —');
+  const inspTitle = el('h4', 'ogt2-hex-insp-title', 'Selection Inspector (LE)');
+  const inspSelection = el('p', 'ogt2-hex-insp-range', 'Selection: —');
   inspSelection.dataset['testid'] = 'hex-selection-range';
 
   const inspList = el('dl', 'ogt2-meta-list ogt2-hex-insp-list');
@@ -350,7 +350,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
 
   const updateInspector = (): void => {
     if (selection === null || !isLoaded || totalSize === 0) {
-      inspSelection.textContent = 'Zaznaczenie: —';
+      inspSelection.textContent = 'Selection: —';
       for (const node of Object.values(interpNodes)) {
         node.textContent = '—';
       }
@@ -360,7 +360,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
     const start = Math.max(0, Math.min(selection.start, totalSize - 1));
     const end = Math.min(totalSize, start + Math.max(1, selection.length));
     const len = end - start;
-    inspSelection.textContent = `Zaznaczenie: ${formatHexOffset(start, 1)} (${String(len)} B)`;
+    inspSelection.textContent = `Selection: ${formatHexOffset(start, 1)} (${String(len)} B)`;
 
     const sample = new Uint8Array(Math.min(4, totalSize - start));
     let missing = false;
@@ -430,7 +430,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
       delete formatBadge.dataset['evidence'];
       formatBadge.title = '';
     }
-    sizeBadge.textContent = isLoaded ? `${formatByteSize(totalSize)} (${formatBytesExact(totalSize)})` : 'wczytywanie…';
+    sizeBadge.textContent = isLoaded ? `${formatByteSize(totalSize)} (${formatBytesExact(totalSize)})` : 'loading…';
     rawModeBtn.classList.toggle('is-active', currentRoute.mode === 'raw');
     gunzipModeBtn.classList.toggle('is-active', currentRoute.mode === 'gunzip');
     hashOutput.textContent = buildHexHash(currentRoute);
@@ -718,7 +718,7 @@ export function mountHexViewPanel(options: HexViewPanelOptions): HexViewPanelHan
     }
     const parsedOffset = parseOffsetInput(offsetInput.value);
     if (parsedOffset === null) {
-      setError('Nieprawidłowy offset — podaj liczbę dziesiętną lub szesnastkową (np. 0x100).');
+      setError('Invalid offset — enter a decimal or hexadecimal value (e.g. 0x100).');
       return;
     }
     const parsedLen = parseOffsetInput(lengthInput.value);

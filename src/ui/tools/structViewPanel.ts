@@ -60,11 +60,11 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
 
   const panel = el('section', 'ogt2-tool-panel');
   panel.dataset['testid'] = 'struct-panel';
-  panel.setAttribute('aria-label', 'Podgląd struktury jako tablica');
+  panel.setAttribute('aria-label', 'Struct array viewer');
   panel.hidden = true;
 
   const header = el('div', 'ogt2-tool-header');
-  const title = el('h3', 'ogt2-tool-title', 'Podgląd struktury „jako tablica”');
+  const title = el('h3', 'ogt2-tool-title', 'Struct Array Viewer');
   const targetLabel = el('code', 'ogt2-hex-path');
   targetLabel.dataset['testid'] = 'struct-target';
   header.append(title, targetLabel);
@@ -72,7 +72,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
   // Main form
   const form = el('form', 'ogt2-struct-form');
 
-  const nameLabel = el('label', 'ogt2-hex-field-label', 'Nazwa');
+  const nameLabel = el('label', 'ogt2-hex-field-label', 'Name');
   nameLabel.htmlFor = 'ogt2-struct-name';
   const nameInput = el('input', 'ogt2-hex-input');
   nameInput.id = 'ogt2-struct-name';
@@ -83,15 +83,15 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
   nameInput.spellcheck = false;
   nameInput.dataset['testid'] = 'struct-name-input';
 
-  const modeLabel = el('label', 'ogt2-hex-field-label', 'Tryb');
+  const modeLabel = el('label', 'ogt2-hex-field-label', 'Mode');
   modeLabel.htmlFor = 'ogt2-struct-mode';
   const modeSelect = el('select', 'ogt2-scanner-select');
   modeSelect.id = 'ogt2-struct-mode';
   modeSelect.name = 'structMode';
   modeSelect.dataset['testid'] = 'struct-mode-select';
-  const optRaw = el('option', undefined, 'Surowy');
+  const optRaw = el('option', undefined, 'Raw');
   optRaw.value = 'raw';
-  const optGunzip = el('option', undefined, 'Rozpakowany (gzip)');
+  const optGunzip = el('option', undefined, 'Decompressed (gzip)');
   optGunzip.value = 'gunzip';
   modeSelect.append(optRaw, optGunzip);
 
@@ -119,7 +119,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
   strideInput.spellcheck = false;
   strideInput.dataset['testid'] = 'struct-stride-input';
 
-  const countLabel = el('label', 'ogt2-hex-field-label', 'Elementy');
+  const countLabel = el('label', 'ogt2-hex-field-label', 'Count');
   countLabel.htmlFor = 'ogt2-struct-count';
   const countInput = el('input', 'ogt2-hex-input ogt2-hex-input-short');
   countInput.id = 'ogt2-struct-count';
@@ -131,7 +131,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
   countInput.spellcheck = false;
   countInput.dataset['testid'] = 'struct-count-input';
 
-  const decodeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Dekoduj tablicę');
+  const decodeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Decode Array');
   decodeBtn.type = 'submit';
   decodeBtn.dataset['testid'] = 'struct-decode-button';
 
@@ -152,8 +152,8 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
   // Field definitions list
   const fieldsBox = el('div', 'ogt2-struct-fields-box');
   const fieldsHeader = el('div', 'ogt2-struct-fields-header');
-  fieldsHeader.append(el('span', 'ogt2-hex-insp-title', 'Pola rekordu (LE)'));
-  const addFieldBtn = el('button', 'ogt2-button ogt2-button-subtle', '+ Dodaj pole');
+  fieldsHeader.append(el('span', 'ogt2-hex-insp-title', 'Record Fields (LE)'));
+  const addFieldBtn = el('button', 'ogt2-button ogt2-button-subtle', '+ Add Field');
   addFieldBtn.type = 'button';
   addFieldBtn.dataset['testid'] = 'struct-add-field';
   fieldsHeader.append(addFieldBtn);
@@ -164,24 +164,24 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
 
   // Actions + pagination row
   const actionsRow = el('div', 'ogt2-struct-actions');
-  const prevPageBtn = el('button', 'ogt2-button ogt2-button-subtle', '← Poprzednia');
+  const prevPageBtn = el('button', 'ogt2-button ogt2-button-subtle', '← Prev');
   prevPageBtn.type = 'button';
   prevPageBtn.dataset['testid'] = 'struct-page-prev';
   prevPageBtn.disabled = true;
 
-  const pageInfo = el('span', 'ogt2-status-text', 'Strona —');
+  const pageInfo = el('span', 'ogt2-status-text', 'Page —');
   pageInfo.dataset['testid'] = 'struct-page-info';
 
-  const nextPageBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Następna →');
+  const nextPageBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Next →');
   nextPageBtn.type = 'button';
   nextPageBtn.dataset['testid'] = 'struct-page-next';
   nextPageBtn.disabled = true;
 
-  const copyJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Kopiuj JSON');
+  const copyJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Copy JSON');
   copyJsonBtn.type = 'button';
   copyJsonBtn.dataset['testid'] = 'struct-copy-json';
 
-  const downloadJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Pobierz JSON');
+  const downloadJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Download JSON');
   downloadJsonBtn.type = 'button';
   downloadJsonBtn.dataset['testid'] = 'struct-download-json';
 
@@ -209,17 +209,17 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
 
   // JSON import/export box
   const jsonBox = el('div', 'ogt2-struct-json-box');
-  const jsonLabel = el('label', 'ogt2-hex-field-label', 'Definicja JSON (eksport / import)');
+  const jsonLabel = el('label', 'ogt2-hex-field-label', 'JSON Definition (export / import)');
   jsonLabel.htmlFor = 'ogt2-struct-import';
   const jsonTextarea = el('textarea', 'ogt2-struct-textarea');
   jsonTextarea.id = 'ogt2-struct-import';
   jsonTextarea.name = 'structImportJson';
   jsonTextarea.rows = 4;
-  jsonTextarea.placeholder = 'Wklej definicję JSON struktury lub kliknij „Kopiuj JSON”…';
+  jsonTextarea.placeholder = 'Paste struct JSON definition or click "Copy JSON"…';
   jsonTextarea.spellcheck = false;
   jsonTextarea.dataset['testid'] = 'struct-import-textarea';
 
-  const applyJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Wczytaj JSON');
+  const applyJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Load JSON');
   applyJsonBtn.type = 'button';
   applyJsonBtn.dataset['testid'] = 'struct-import-apply';
   jsonBox.append(jsonLabel, jsonTextarea, applyJsonBtn);
@@ -281,8 +281,8 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
       fName.name = `structFieldName_${String(draft.rowId)}`;
       fName.type = 'text';
       fName.value = draft.name;
-      fName.placeholder = 'nazwa';
-      fName.setAttribute('aria-label', 'Nazwa pola');
+      fName.placeholder = 'name';
+      fName.setAttribute('aria-label', 'Field name');
       fName.autocomplete = 'off';
       fName.spellcheck = false;
       fName.addEventListener('input', () => {
@@ -295,7 +295,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
       fOff.type = 'text';
       fOff.value = draft.offsetText;
       fOff.placeholder = '0x0';
-      fOff.setAttribute('aria-label', 'Przesunięcie pola w rekordzie');
+      fOff.setAttribute('aria-label', 'Field offset within record');
       fOff.autocomplete = 'off';
       fOff.spellcheck = false;
       fOff.addEventListener('input', () => {
@@ -305,7 +305,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
       const fType = el('select', 'ogt2-scanner-select');
       fType.id = `ogt2-struct-field-type-${String(draft.rowId)}`;
       fType.name = `structFieldType_${String(draft.rowId)}`;
-      fType.setAttribute('aria-label', 'Typ pola');
+      fType.setAttribute('aria-label', 'Field type');
       for (const ft of STRUCT_FIELD_TYPES) {
         const opt = el('option', undefined, ft);
         opt.value = ft;
@@ -319,11 +319,11 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
       fLen.type = 'text';
       fLen.value = draft.lengthText;
       fLen.placeholder = '4';
-      fLen.setAttribute('aria-label', 'Długość pola hex w bajtach');
+      fLen.setAttribute('aria-label', 'Hex field byte length');
       fLen.autocomplete = 'off';
       fLen.spellcheck = false;
       fLen.disabled = draft.type !== 'hex';
-      fLen.title = 'Liczba bajtów dla typu hex (1..16)';
+      fLen.title = 'Byte length for hex type (1..16)';
       fLen.addEventListener('input', () => {
         draft.lengthText = fLen.value;
       });
@@ -333,7 +333,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
         fLen.disabled = draft.type !== 'hex';
       });
 
-      const removeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Usuń');
+      const removeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Remove');
       removeBtn.type = 'button';
       removeBtn.disabled = fieldDrafts.length <= 1;
       removeBtn.addEventListener('click', () => {
@@ -352,26 +352,26 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
   const buildSchemaFromInputs = (): StructSchema => {
     const baseOffset = parseOffsetInput(offsetInput.value);
     if (baseOffset === null) {
-      throw new Error('Nieprawidłowy offset początkowy (podaj liczbę dziesiętną lub 0x...).');
+      throw new Error('Invalid base offset (enter a decimal or 0x... hex value).');
     }
     const stride = parseOffsetInput(strideInput.value);
     if (stride === null) {
-      throw new Error('Nieprawidłowy stride (podaj liczbę dziesiętną lub 0x...).');
+      throw new Error('Invalid stride (enter a decimal or 0x... hex value).');
     }
     const count = parseOffsetInput(countInput.value);
     if (count === null) {
-      throw new Error('Nieprawidłowa liczba elementów.');
+      throw new Error('Invalid element count.');
     }
 
     const fields: StructFieldDef[] = fieldDrafts.map((draft, idx) => {
       const parsedOff = parseOffsetInput(draft.offsetText);
       if (parsedOff === null) {
-        throw new Error(`Pole #${String(idx + 1)}: nieprawidłowe przesunięcie "${draft.offsetText}".`);
+        throw new Error(`Field #${String(idx + 1)}: invalid offset "${draft.offsetText}".`);
       }
       if (draft.type === 'hex') {
         const parsedLen = parseOffsetInput(draft.lengthText);
         if (parsedLen === null) {
-          throw new Error(`Pole "${draft.name}": nieprawidłowa długość hex.`);
+          throw new Error(`Field "${draft.name}": invalid hex length.`);
         }
         return {
           name: draft.name.trim(),
@@ -420,8 +420,8 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
     nextPageBtn.disabled = pageIdx >= pagesTotal - 1;
     pageInfo.textContent =
       endIdx > startIdx
-        ? `Strona ${String(pageIdx + 1)} / ${String(pagesTotal)} (wiersze ${String(startIdx)}–${String(endIdx - 1)})`
-        : 'Strona —';
+        ? `Page ${String(pageIdx + 1)} / ${String(pagesTotal)} (rows ${String(startIdx)}–${String(endIdx - 1)})`
+        : 'Page —';
   };
 
   const renderDecodedTable = (schema: StructSchema, pageIndexToLoad: number): void => {
@@ -446,7 +446,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
     const controller = new AbortController();
     activeController = controller;
     decodeBtn.disabled = true;
-    setStatus('Odczytywanie strony rekordów…');
+    setStatus('Reading record page…');
 
     const readPromise = decompress
       ? source.readDecompressedRange(targetEntry.path, page.byteStart, page.byteEnd, controller.signal)
@@ -500,7 +500,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
         updatePaginationUi(page.pageIndex, page.totalPages, page.startIndex, page.endIndex);
         jsonTextarea.value = serializeStructSchemaJson(schema);
         setStatus(
-          `Zdekodowano ${String(rows.length)} z ${String(schema.count)} rekordów (strumień ${String(res.totalSize)} B, przeczytano okno ${String(res.bytes.byteLength)} B).`,
+          `Decoded ${String(rows.length)} of ${String(schema.count)} records (stream ${String(res.totalSize)} B, read window ${String(res.bytes.byteLength)} B).`,
         );
       })
       .catch((error: unknown) => {
@@ -561,11 +561,11 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
       setError(null);
       if (typeof navigator !== 'undefined' && navigator.clipboard !== undefined) {
         void navigator.clipboard.writeText(json).then(
-          () => setStatus('Skopiowano definicję struktury JSON do schowka.'),
-          () => setStatus('Wygenerowano JSON w polu poniżej (skopiuj ręcznie).'),
+          () => setStatus('Copied struct JSON definition to clipboard.'),
+          () => setStatus('Generated JSON below (copy manually).'),
         );
       } else {
-        setStatus('Wygenerowano JSON w polu poniżej (skopiuj ręcznie).');
+        setStatus('Generated JSON below (copy manually).');
       }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : String(error));
@@ -584,7 +584,7 @@ export function mountStructViewPanel(options: StructViewPanelOptions): StructVie
       const bytes = new TextEncoder().encode(json);
       const filename = buildJsonFilename(currentEntry.path, schema.name);
       triggerLocalBlobDownload(bytes, filename);
-      setStatus(`Pobrano lokalnie definicję JSON: ${filename}.`);
+      setStatus(`Downloaded JSON definition locally: ${filename}.`);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : String(error));
     }

@@ -39,7 +39,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     magic: [0x47, 0x54, 0x46, 0x53, 0x00, 0x00, 0x00, 0x00],
     formatName: 'GT2.VOL Archive (GTFS)',
     evidence: 'E3',
-    notes: 'Nagłówek archiwum GT2.VOL ("GTFS\\0\\0\\0\\0") zweryfikowany na realnym archiwum.',
+    notes: 'GT2.VOL archive header ("GTFS\\0\\0\\0\\0") verified against real archive.',
   },
   {
     id: 'gzip',
@@ -47,7 +47,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     magic: [0x1f, 0x8b],
     formatName: 'gzip stream (RFC 1952)',
     evidence: 'E3',
-    notes: 'Strumień kompresji gzip (1F 8B); w GT2.VOL występuje zarówno z .gz, jak i bez rozszerzenia.',
+    notes: 'gzip compression stream (1F 8B); appears both with .gz and without extension in GT2.VOL.',
   },
   {
     id: 'wsdb',
@@ -56,7 +56,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     magicOffset: 4,
     formatName: 'GT2 Wide String Database (WSDB)',
     evidence: 'E3',
-    notes: 'Baza napisów UTF-16LE ("WSDB" pod 0x04); zweryfikowano 7 plików unistrdb w GT2.VOL (M5.4).',
+    notes: 'UTF-16LE string database ("WSDB" at 0x04); verified 7 unistrdb files in GT2.VOL (M5.4).',
   },
   {
     id: 'tim',
@@ -64,7 +64,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     magic: [0x10, 0x00, 0x00, 0x00],
     formatName: 'PS1 TIM image',
     evidence: 'E3',
-    notes: 'Standardowy format tekstury PS1 (PSX-SPX); zweryfikowano 3 729 obrazów w GT2.VOL (M4.1/M4.3).',
+    notes: 'Standard PS1 texture format (PSX-SPX); verified 3,729 images in GT2.VOL (M4.1/M4.3).',
   },
   {
     id: 'gm',
@@ -72,7 +72,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     magic: [0x47, 0x4d, 0x03, 0x00],
     formatName: 'GT2 Menu Foreground Image (GM)',
     evidence: 'E3',
-    notes: 'Obrazy pierwszego planu menu GT2 (4 bpp, kafelki 16x8, 32 palety); zweryfikowano 16 914 obrazów w GT2.VOL (M4.4).',
+    notes: 'GT2 menu foreground images (4 bpp, 16x8 tiles, 32 palettes); verified 16,914 images in GT2.VOL (M4.4).',
   },
   {
     id: 'gtmp',
@@ -80,7 +80,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     magic: [0x47, 0x54, 0x4d, 0x50],
     formatName: 'GT2 Menu Background Image (GTMP)',
     evidence: 'E3',
-    notes: 'Obrazy tła menu GT2 (8 bpp, kafelki 16x8, 16 palet); zweryfikowano 458 bloków w GT2.VOL (M4.4).',
+    notes: 'GT2 menu background images (8 bpp, 16x8 tiles, 16 palettes); verified 458 blocks in GT2.VOL (M4.4).',
   },
   {
     id: 'gtdt',
@@ -88,7 +88,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     magic: [0x47, 0x54, 0x44, 0x54],
     formatName: 'GT2 Database Container (GTDT)',
     evidence: 'E3',
-    notes: 'Kontener tablic bazy danych GT2 ("GTDT"); zweryfikowano 22 pliki w GT2.VOL (M5.1).',
+    notes: 'GT2 database table container ("GTDT"); verified 22 files in GT2.VOL (M5.1).',
   },
   {
     id: 'cdo',
@@ -96,7 +96,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     magic: [0x47, 0x54, 0x02],
     formatName: 'GT2 Car Model (CDO/CNO)',
     evidence: 'E3',
-    notes: 'Model 3D auta GT2 (dzień/noc, "GT\\x02"); zweryfikowano 2 220 plików w GT2.VOL (M6.1–M6.6).',
+    notes: 'GT2 3D car model (day/night, "GT\\x02"); verified 2,220 files in GT2.VOL (M6.1–M6.6).',
   },
   {
     id: 'cdp',
@@ -105,7 +105,7 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     formatName: 'GT2 Car Texture (CDP/CNP)',
     evidence: 'E3',
     notes:
-      'Tekstura i palety auta GT2 (dzień/noc, 256x224 4 bpp, bez stałego magic) — zweryfikowano 2 220 plików w GT2.VOL (M6.7).',
+      'GT2 car texture and palettes (day/night, 256x224 4 bpp, no fixed magic); verified 2,220 files in GT2.VOL (M6.7).',
   },
 ];
 
@@ -230,6 +230,6 @@ export function classifyFile(input: FileClassificationInput): FileClassification
     formatName: 'unknown',
     evidence: 'E0',
     matchedBy: 'none',
-    notes: 'Brak rozpoznanej sygnatury lub znanego rozszerzenia.',
+    notes: 'No recognized signature or known extension.',
   };
 }

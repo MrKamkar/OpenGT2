@@ -41,7 +41,7 @@ export function encodeHexSample(bytes: Uint8Array, options: HexSampleOptions = {
   if (bytes.byteLength > EVIDENCE_MAX_HEX_SAMPLE_BYTES && !truncate) {
     throw new EvidencePackError(
       'HexSampleTooLong',
-      `Próbka hex ma ${String(bytes.byteLength)} B — maksymalny dozwolony rozmiar to ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B (§1.2).`,
+      `Hex sample is ${String(bytes.byteLength)} B — maximum allowed is ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B (§1.2).`,
     );
   }
   const limit = Math.min(bytes.byteLength, EVIDENCE_MAX_HEX_SAMPLE_BYTES);
@@ -68,7 +68,7 @@ export function parseHexSample(raw: string, options: HexSampleOptions = {}): Par
   if (!/^[0-9a-fA-F]+$/.test(compact) || compact.length % 2 !== 0) {
     throw new EvidencePackError(
       'InvalidHexSample',
-      'Nieprawidłowa próbka hex — podaj parzystą liczbę cyfr szesnastkowych (0–9, A–F).',
+      'Invalid hex sample — enter an even number of hexadecimal digits (0–9, A–F).',
     );
   }
 
@@ -77,7 +77,7 @@ export function parseHexSample(raw: string, options: HexSampleOptions = {}): Par
   if (totalBytes > EVIDENCE_MAX_HEX_SAMPLE_BYTES && !truncate) {
     throw new EvidencePackError(
       'HexSampleTooLong',
-      `Próbka hex ma ${String(totalBytes)} B — przekracza twardy limit ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B (§1.2).`,
+      `Hex sample is ${String(totalBytes)} B — exceeds the hard ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B limit (§1.2).`,
     );
   }
 
@@ -103,21 +103,21 @@ export function createEvidenceEntry(
 ): EvidencePackEntry {
   const path = input.path.trim();
   if (path.length === 0) {
-    throw new EvidencePackError('InvalidEntry', 'Ścieżka pliku w archiwum nie może być pusta.');
+    throw new EvidencePackError('InvalidEntry', 'Archive file path cannot be empty.');
   }
   if (input.mode !== 'raw' && input.mode !== 'gunzip') {
-    throw new EvidencePackError('InvalidEntry', `Nieobsługiwany tryb odczytu: ${String(input.mode)}.`);
+    throw new EvidencePackError('InvalidEntry', `Unsupported read mode: ${String(input.mode)}.`);
   }
   if (!Number.isSafeInteger(input.offset) || input.offset < 0) {
-    throw new EvidencePackError('InvalidEntry', 'Offset musi być nieujemną liczbą całkowitą.');
+    throw new EvidencePackError('InvalidEntry', 'Offset must be a non-negative integer.');
   }
   if (!Number.isSafeInteger(input.length) || input.length < 0) {
-    throw new EvidencePackError('InvalidEntry', 'Długość musi być nieujemną liczbą całkowitą.');
+    throw new EvidencePackError('InvalidEntry', 'Length must be a non-negative integer.');
   }
   if (!EVIDENCE_LEVEL_SET.has(input.evidence)) {
     throw new EvidencePackError(
       'InvalidEntry',
-      `Nieprawidłowy poziom pewności "${String(input.evidence)}" (dozwolone E0–E3).`,
+      `Invalid evidence level "${String(input.evidence)}" (allowed: E0–E3).`,
     );
   }
 
@@ -162,13 +162,13 @@ export function validateEvidencePack(pack: EvidencePack): void {
   if (pack.schemaVersion !== EVIDENCE_PACK_SCHEMA_VERSION) {
     throw new EvidencePackError(
       'InvalidEntry',
-      `Nieobsługiwana wersja Evidence Pack: ${String(pack.schemaVersion)}.`,
+      `Unsupported Evidence Pack version: ${String(pack.schemaVersion)}.`,
     );
   }
   if (pack.maxHexSampleBytes !== EVIDENCE_MAX_HEX_SAMPLE_BYTES) {
     throw new EvidencePackError(
       'InvalidEntry',
-      `Nieprawidłowy limit próbki hex w nagłówku: ${String(pack.maxHexSampleBytes)}.`,
+      `Invalid hex sample limit in header: ${String(pack.maxHexSampleBytes)}.`,
     );
   }
 

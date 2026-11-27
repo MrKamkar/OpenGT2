@@ -56,7 +56,7 @@ export function getFieldByteSize(field: StructFieldDef): number {
       const len = field.length ?? DEFAULT_HEX_FIELD_BYTES;
       if (!Number.isSafeInteger(len) || len < 1 || len > STRUCT_MAX_HEX_FIELD_BYTES) {
         throw new Error(
-          `Pole hex "${field.name}": nieprawidłowa długość ${String(len)} (dozwolone 1..${String(STRUCT_MAX_HEX_FIELD_BYTES)} B).`,
+          `Hex field "${field.name}": invalid length ${String(len)} (allowed: 1..${String(STRUCT_MAX_HEX_FIELD_BYTES)} B).`,
         );
       }
       return len;
@@ -70,20 +70,20 @@ export function getFieldByteSize(field: StructFieldDef): number {
  */
 export function validateStructSchema(schema: StructSchema): void {
   if (!Number.isSafeInteger(schema.baseOffset) || schema.baseOffset < 0) {
-    throw new Error('Offset początkowy musi być nieujemną liczbą całkowitą.');
+    throw new Error('Base offset must be a non-negative integer.');
   }
   if (!Number.isSafeInteger(schema.stride) || schema.stride < 1 || schema.stride > STRUCT_MAX_STRIDE) {
     throw new Error(
-      `Rozmiar elementu (stride) musi mieścić się w zakresie 1..${String(STRUCT_MAX_STRIDE)} B.`,
+      `Element stride must be within 1..${String(STRUCT_MAX_STRIDE)} B.`,
     );
   }
   if (!Number.isSafeInteger(schema.count) || schema.count < 1 || schema.count > STRUCT_MAX_COUNT) {
     throw new Error(
-      `Liczba elementów musi mieścić się w zakresie 1..${String(STRUCT_MAX_COUNT)}.`,
+      `Element count must be within 1..${String(STRUCT_MAX_COUNT)}.`,
     );
   }
   if (schema.fields.length === 0) {
-    throw new Error('Definicja struktury musi zawierać co najmniej jedno pole.');
+    throw new Error('Struct definition must contain at least one field.');
   }
 
   for (let i = 0; i < schema.fields.length; i += 1) {
@@ -93,15 +93,15 @@ export function validateStructSchema(schema: StructSchema): void {
     }
     const trimmedName = field.name.trim();
     if (trimmedName.length === 0) {
-      throw new Error(`Pole #${String(i + 1)} musi mieć niepustą nazwę.`);
+      throw new Error(`Field #${String(i + 1)} must have a non-empty name.`);
     }
     if (!Number.isSafeInteger(field.offset) || field.offset < 0) {
-      throw new Error(`Pole "${trimmedName}": przesunięcie w rekordzie musi być nieujemne.`);
+      throw new Error(`Field "${trimmedName}": record offset must be non-negative.`);
     }
     const size = getFieldByteSize(field);
     if (field.offset + size > schema.stride) {
       throw new Error(
-        `Pole "${trimmedName}" (${String(field.offset)} + ${String(size)} B) wykracza poza stride ${String(schema.stride)} B.`,
+        `Field "${trimmedName}" (${String(field.offset)} + ${String(size)} B) exceeds stride ${String(schema.stride)} B.`,
       );
     }
   }
@@ -302,13 +302,13 @@ export function decodeStructSlice(
 ): DecodedStructRow[] {
   validateStructSchema(schema);
   if (!Number.isSafeInteger(sliceStartOffset) || sliceStartOffset < 0) {
-    throw new Error('Offset bufora wycinka musi być nieujemną liczbą całkowitą.');
+    throw new Error('Slice buffer offset must be a non-negative integer.');
   }
   if (!Number.isSafeInteger(startIndex) || startIndex < 0) {
-    throw new Error('Indeks początkowy wiersza musi być nieujemną liczbą całkowitą.');
+    throw new Error('Start row index must be a non-negative integer.');
   }
   if (!Number.isSafeInteger(rowCount) || rowCount < 0) {
-    throw new Error('Liczba wierszy do dekodowania musi być nieujemna.');
+    throw new Error('Row count to decode must be non-negative.');
   }
 
   const endIndex = Math.min(schema.count, startIndex + rowCount);

@@ -59,7 +59,7 @@ export function clampEntryIndex(index: number, count: number): number {
 /**
  * Heuristic determining whether selecting `entry` in Explorer should automatically invoke the
  * 2D image decoder worker (verified formats from M4.3-M4.4). Explicit preview remains available
- * for any file via the "Podgląd obrazu" button.
+ * for any file via the "Image Preview" button.
  */
 export function shouldAutoPreviewEntry(entry: VolEntry): boolean {
   if (entry.kind !== 'file' || entry.size < 4) {

@@ -36,7 +36,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseIntOrHexField(value: unknown, label: string): number {
   if (typeof value === 'number') {
     if (!Number.isSafeInteger(value) || value < 0) {
-      throw new Error(`Pole "${label}" musi być nieujemną liczbą całkowitą.`);
+      throw new Error(`Field "${label}" must be a non-negative integer.`);
     }
     return value;
   }
@@ -46,30 +46,30 @@ function parseIntOrHexField(value: unknown, label: string): number {
       return parsed;
     }
   }
-  throw new Error(`Pole "${label}" ma nieprawidłową wartość całkowitą lub hex.`);
+  throw new Error(`Field "${label}" has an invalid integer or hex value.`);
 }
 
 function parseFieldDef(raw: unknown, index: number): StructFieldDef {
   if (!isRecord(raw)) {
-    throw new Error(`Pole #${String(index + 1)} w JSON musi być obiektem.`);
+    throw new Error(`Field #${String(index + 1)} in JSON must be an object.`);
   }
   const rawName = raw['name'];
   if (typeof rawName !== 'string' || rawName.trim().length === 0) {
-    throw new Error(`Pole #${String(index + 1)} w JSON musi mieć niepusty napis "name".`);
+    throw new Error(`Field #${String(index + 1)} in JSON must have a non-empty "name" string.`);
   }
   const rawOffset = raw['offset'] !== undefined ? raw['offset'] : raw['offsetHex'];
   const offset = parseIntOrHexField(rawOffset, `fields[${String(index)}].offset`);
 
   const rawType = raw['type'];
   if (typeof rawType !== 'string' || !FIELD_TYPE_SET.has(rawType)) {
-    throw new Error(`Pole "${rawName}" ma nieobsługiwany typ "${String(rawType)}".`);
+    throw new Error(`Field "${rawName}" has unsupported type "${String(rawType)}".`);
   }
   const type = rawType as StructFieldType;
 
   let length: number | undefined;
   if (raw['length'] !== undefined) {
     if (typeof raw['length'] !== 'number' || !Number.isSafeInteger(raw['length'])) {
-      throw new Error(`Pole "${rawName}": "length" musi być liczbą całkowitą.`);
+      throw new Error(`Field "${rawName}": "length" must be an integer.`);
     }
     length = raw['length'];
   }
@@ -121,18 +121,18 @@ export function parseStructSchemaJson(raw: string): StructSchema {
     parsed = JSON.parse(raw);
   } catch (error: unknown) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Nieprawidłowy JSON definicji struktury: ${detail}`, { cause: error });
+    throw new Error(`Invalid struct schema JSON: ${detail}`, { cause: error });
   }
 
   if (!isRecord(parsed)) {
-    throw new Error('Definicja struktury JSON musi być obiektem.');
+    throw new Error('Struct schema JSON must be an object.');
   }
 
   if (parsed['schemaVersion'] !== undefined && parsed['schemaVersion'] !== STRUCT_SCHEMA_VERSION) {
-    throw new Error(`Nieobsługiwana wersja schematu: ${String(parsed['schemaVersion'])}.`);
+    throw new Error(`Unsupported schema version: ${String(parsed['schemaVersion'])}.`);
   }
   if (parsed['endianness'] !== undefined && parsed['endianness'] !== 'little') {
-    throw new Error(`Nieobsługiwana kolejność bajtów: ${String(parsed['endianness'])} (wymagane little).`);
+    throw new Error(`Unsupported endianness: ${String(parsed['endianness'])} (required: little).`);
   }
 
   const rawName = parsed['name'];
@@ -148,7 +148,7 @@ export function parseStructSchemaJson(raw: string): StructSchema {
 
   const rawFields = parsed['fields'];
   if (!Array.isArray(rawFields)) {
-    throw new Error('Pole "fields" w definicji struktury musi być tablicą.');
+    throw new Error('Field "fields" in struct schema must be an array.');
   }
 
   const fields = rawFields.map((item, idx) => parseFieldDef(item, idx));

@@ -28,7 +28,7 @@ describe('fileActions (M2.9)', () => {
     expect(buildHexPreviewHash('readme.txt', -10)).toBe('#hex=readme.txt&off=0x0');
   });
 
-  it('maps GzipError, VolError, and generic errors to Polish messages', () => {
+  it('maps GzipError, VolError, and generic errors to English messages', () => {
     expect(describeFileActionError(new GzipError(GzipError.InvalidMagic, 'no magic'))).toContain(
       '1F 8B',
     );
@@ -36,18 +36,18 @@ describe('fileActions (M2.9)', () => {
       describeFileActionError(
         new GzipError(GzipError.CorruptStream, 'Native gzip decompression failed: Trailing junk'),
       ),
-    ).toContain('wieloczęściowym kontenerem gzip');
+    ).toContain('multi-member gzip container');
     expect(describeFileActionError(new GzipError(GzipError.CrcMismatch, 'crc mismatch'))).toContain(
-      'wieloczęściowy kontener',
+      'multi-member container',
     );
     expect(describeFileActionError(new GzipError(GzipError.SizeMismatch, 'size mismatch'))).toContain(
-      'wieloczęściowy kontener',
+      'multi-member container',
     );
     expect(describeFileActionError(new GzipError(GzipError.TruncatedStream, 'short'))).toContain(
-      'ucięty',
+      'truncated',
     );
     expect(describeFileActionError(new GzipError(GzipError.UnsupportedMethod, 'bad method'))).toContain(
-      'Nieobsługiwana metoda',
+      'Unsupported gzip compression method',
     );
     expect(describeFileActionError(new GzipError(GzipError.CorruptStream, 'bad deflate'))).toContain(
       'bad deflate',

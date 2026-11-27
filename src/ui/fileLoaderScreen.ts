@@ -54,7 +54,7 @@ export interface FileLoaderScreenOptions {
    */
   readonly onReopenRememberedFile?: () => Promise<void>;
   /**
-   * Optional callback invoked when the user clicks "Wyczyść dane" to purge local cache and saved file handle.
+   * Optional callback invoked when the user clicks "Clear Data" to purge local cache and saved file handle.
    */
   readonly onClearData?: () => Promise<void>;
 }
@@ -73,7 +73,7 @@ function createCapabilitiesSection(capabilities: BrowserCapabilities): HTMLEleme
 
   const heading = document.createElement('h2');
   heading.className = 'ogt2-cap-title';
-  heading.textContent = 'Możliwości przeglądarki';
+  heading.textContent = 'Browser Capabilities';
 
   const list = document.createElement('ul');
   list.className = 'ogt2-cap-list';
@@ -113,13 +113,13 @@ function createCapabilitiesSection(capabilities: BrowserCapabilities): HTMLEleme
     const status = document.createElement('span');
     if (row.supported) {
       status.className = 'ogt2-cap-badge is-ok';
-      status.textContent = 'Dostępne';
+      status.textContent = 'Available';
     } else if (row.required) {
       status.className = 'ogt2-cap-badge is-error';
-      status.textContent = 'Brak (wymagane)';
+      status.textContent = 'Missing (required)';
     } else {
       status.className = 'ogt2-cap-badge is-warn';
-      status.textContent = 'Brak (fallback)';
+      status.textContent = 'Missing (fallback)';
     }
 
     item.append(name, status);
@@ -158,12 +158,12 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   const title = document.createElement('h1');
   title.id = 'ogt2-title';
   title.className = 'ogt2-title';
-  title.textContent = 'Wczytaj swój GT2.VOL';
+  title.textContent = 'Load Your GT2.VOL';
 
   const subtitle = document.createElement('p');
   subtitle.className = 'ogt2-subtitle';
   subtitle.textContent =
-    'Silnik działa wyłącznie w przeglądarce na podstawie Twojego lokalnego pliku archiwum gry.';
+    'Pure browser engine running locally from your user-supplied game archive.';
 
   header.append(badge, title, subtitle);
 
@@ -171,15 +171,15 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   dropzone.className = 'ogt2-dropzone';
   dropzone.dataset['testid'] = 'dropzone';
   dropzone.setAttribute('role', 'region');
-  dropzone.setAttribute('aria-label', 'Strefa upuszczania pliku GT2.VOL');
+  dropzone.setAttribute('aria-label', 'GT2.VOL file drop zone');
 
   const dropPrompt = document.createElement('p');
   dropPrompt.className = 'ogt2-drop-prompt';
-  dropPrompt.textContent = 'Przeciągnij i upuść plik GT2.VOL tutaj';
+  dropPrompt.textContent = 'Drag and drop your GT2.VOL file here';
 
   const dropHint = document.createElement('p');
   dropHint.className = 'ogt2-drop-hint';
-  dropHint.textContent = 'lub wybierz plik z dysku — zawartość nie jest ładowana w całości do RAM.';
+  dropHint.textContent = 'or choose a local file — archive contents are streamed on demand, never loaded wholly into RAM.';
 
   const fileInput = document.createElement('input');
   fileInput.id = 'ogt2-vol-file-input';
@@ -188,13 +188,13 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   fileInput.className = 'ogt2-file-input';
   fileInput.dataset['testid'] = 'file-input';
   fileInput.accept = '.vol,.VOL';
-  fileInput.setAttribute('aria-label', 'Wybierz lokalny plik GT2.VOL');
+  fileInput.setAttribute('aria-label', 'Select local GT2.VOL file');
 
   const selectButton = document.createElement('button');
   selectButton.type = 'button';
   selectButton.className = 'ogt2-button ogt2-button-primary';
   selectButton.dataset['testid'] = 'select-file-button';
-  selectButton.textContent = 'Wybierz plik GT2.VOL';
+  selectButton.textContent = 'Select GT2.VOL File';
 
   const rememberedPanel = document.createElement('div');
   rememberedPanel.className = 'ogt2-remembered';
@@ -208,7 +208,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   reopenButton.type = 'button';
   reopenButton.className = 'ogt2-button';
   reopenButton.dataset['testid'] = 'reopen-file-button';
-  reopenButton.textContent = 'Otwórz ponownie';
+  reopenButton.textContent = 'Reopen';
 
   const rememberedNote = document.createElement('p');
   rememberedNote.className = 'ogt2-remembered-note';
@@ -230,12 +230,12 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
   const privacyNote = document.createElement('p');
   privacyNote.className = 'ogt2-legal-strong';
-  privacyNote.textContent = 'Plik nie opuszcza Twojego komputera.';
+  privacyNote.textContent = 'Your file never leaves your computer.';
 
   const disclaimer = document.createElement('p');
   disclaimer.className = 'ogt2-legal-text';
   disclaimer.textContent =
-    'OpenGT2 to niezależny projekt open-source, niepowiązany z Sony Interactive Entertainment ani Polyphony Digital. Wymaga własnej, legalnej kopii pliku GT2.VOL.';
+    'OpenGT2 is an independent open-source project not affiliated with Sony Interactive Entertainment or Polyphony Digital. Requires your own legal copy of GT2.VOL.';
 
   legalFooter.append(privacyNote, disclaimer);
 
@@ -250,13 +250,13 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
   const storageHint = document.createElement('p');
   storageHint.className = 'ogt2-storage-hint';
-  storageHint.textContent = 'Lokalna pamięć podręczna i zapamiętany uchwyt pliku (IndexedDB).';
+  storageHint.textContent = 'Local cache and remembered file handle (IndexedDB).';
 
   const clearDataButton = document.createElement('button');
   clearDataButton.type = 'button';
   clearDataButton.className = 'ogt2-button ogt2-button-subtle';
   clearDataButton.dataset['testid'] = 'clear-data-button';
-  clearDataButton.textContent = 'Wyczyść dane';
+  clearDataButton.textContent = 'Clear Data';
 
   const clearDataStatus = document.createElement('p');
   clearDataStatus.className = 'ogt2-storage-status';
@@ -274,21 +274,21 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   const inspectorNav = document.createElement('nav');
   inspectorNav.className = 'ogt2-inspector-nav';
   inspectorNav.dataset['testid'] = 'inspector-nav';
-  inspectorNav.setAttribute('aria-label', 'Przełącznik widoku');
+  inspectorNav.setAttribute('aria-label', 'View switcher');
   inspectorNav.hidden = true;
 
   const inspectorViewerBtn = document.createElement('button');
   inspectorViewerBtn.type = 'button';
   inspectorViewerBtn.className = 'ogt2-button ogt2-button-subtle';
   inspectorViewerBtn.dataset['testid'] = 'inspector-nav-viewer';
-  inspectorViewerBtn.textContent = '← Przeglądarka 3D';
+  inspectorViewerBtn.textContent = '← 3D Viewer';
 
   const inspectorSelfBtn = document.createElement('button');
   inspectorSelfBtn.type = 'button';
   inspectorSelfBtn.className = 'ogt2-button ogt2-button-subtle is-active';
   inspectorSelfBtn.dataset['testid'] = 'inspector-nav-inspector';
   inspectorSelfBtn.setAttribute('aria-pressed', 'true');
-  inspectorSelfBtn.textContent = 'Inspektor archiwum';
+  inspectorSelfBtn.textContent = 'Archive Inspector';
 
   inspectorNav.append(inspectorViewerBtn, inspectorSelfBtn);
 
@@ -359,17 +359,17 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
   const onClearDataButtonClick = (): void => {
     if (options.onClearData === undefined) {
-      setClearDataStatus('Wyczyszczono lokalne dane.');
+      setClearDataStatus('Local data cleared.');
       return;
     }
     clearDataButton.disabled = true;
     void options
       .onClearData()
       .then(() => {
-        setClearDataStatus('Wyczyszczono lokalną pamięć podręczną i zapamiętany uchwyt pliku.');
+        setClearDataStatus('Local cache and remembered file handle cleared.');
       })
       .catch(() => {
-        setClearDataStatus('Nie udało się wyczyścić wszystkich lokalnych danych.');
+        setClearDataStatus('Failed to clear all local data.');
       })
       .finally(() => {
         clearDataButton.disabled = false;
@@ -448,7 +448,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
         const heading = document.createElement('h2');
         heading.className = 'ogt2-status-title';
-        heading.textContent = 'Wczytywanie metadanych pliku…';
+        heading.textContent = 'Reading file metadata…';
 
         const details = document.createElement('p');
         details.className = 'ogt2-status-text';
@@ -464,19 +464,19 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
         const heading = document.createElement('h2');
         heading.className = 'ogt2-status-title';
-        heading.textContent = 'Wybrano plik archiwum';
+        heading.textContent = 'Archive Selected';
 
         const metaList = document.createElement('dl');
         metaList.className = 'ogt2-meta-list';
 
         const nameTerm = document.createElement('dt');
-        nameTerm.textContent = 'Nazwa pliku';
+        nameTerm.textContent = 'File Name';
         const nameValue = document.createElement('dd');
         nameValue.dataset['testid'] = 'file-name';
         nameValue.textContent = state.file.name;
 
         const sizeTerm = document.createElement('dt');
-        sizeTerm.textContent = 'Rozmiar';
+        sizeTerm.textContent = 'Size';
         const sizeValue = document.createElement('dd');
         sizeValue.dataset['testid'] = 'file-size';
         sizeValue.textContent = formatSizeMB(state.file.size);
@@ -485,7 +485,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
         if (state.file.fingerprint !== undefined) {
           const fpTerm = document.createElement('dt');
-          fpTerm.textContent = 'Odcisk pliku';
+          fpTerm.textContent = 'Fingerprint';
           const fpValue = document.createElement('dd');
           fpValue.dataset['testid'] = 'file-fingerprint';
           fpValue.dataset['fullFingerprint'] = state.file.fingerprint;
@@ -501,7 +501,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
         changeButton.type = 'button';
         changeButton.className = 'ogt2-button';
         changeButton.dataset['testid'] = 'reset-file-button';
-        changeButton.textContent = 'Zmień plik';
+        changeButton.textContent = 'Change File';
         changeButton.addEventListener('click', onReset);
 
         actions.append(changeButton);
@@ -515,7 +515,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
 
         const heading = document.createElement('h2');
         heading.className = 'ogt2-status-title ogt2-status-error';
-        heading.textContent = 'Nie można uruchomić aplikacji';
+        heading.textContent = 'Unable to Start Application';
 
         const message = document.createElement('p');
         message.className = 'ogt2-error-message';
@@ -539,7 +539,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
           retryButton.type = 'button';
           retryButton.className = 'ogt2-button';
           retryButton.dataset['testid'] = 'reset-file-button';
-          retryButton.textContent = 'Wróć do wyboru pliku';
+          retryButton.textContent = 'Back to File Selection';
           retryButton.addEventListener('click', onReset);
 
           actions.append(retryButton);
@@ -559,8 +559,8 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
       return;
     }
     rememberedPanel.hidden = false;
-    rememberedLabel.textContent = `Zapamiętany plik: ${info.name}`;
-    reopenButton.textContent = `Otwórz ponownie (${info.name})`;
+    rememberedLabel.textContent = `Remembered file: ${info.name}`;
+    reopenButton.textContent = `Reopen (${info.name})`;
     if (info.note !== undefined && info.note.length > 0) {
       rememberedNote.hidden = false;
       rememberedNote.textContent = info.note;

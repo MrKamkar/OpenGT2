@@ -50,9 +50,11 @@ describe('volArchiveSession (M2.8)', () => {
     expect(listSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('maps VolError, RpcWorkerError, and generic errors to clear Polish UI messages', () => {
+  it('maps VolError, RpcWorkerError, and generic errors to clear English UI messages', () => {
     expect(describeVolOpenError(new VolError(VolError.BadMagic, 'bad magic'))).toContain('GTFS');
-    expect(describeVolOpenError(new VolError(VolError.TruncatedHeader, 'short'))).toContain('ucięty nagłówek');
+    expect(describeVolOpenError(new VolError(VolError.TruncatedHeader, 'short'))).toContain(
+      'truncated header',
+    );
     expect(describeVolOpenError(new VolError(VolError.InvalidTocBounds, 'toc overflow'))).toContain('toc overflow');
     expect(
       describeVolOpenError(Object.assign(new Error('worker crashed'), { name: 'RpcWorkerError' })),

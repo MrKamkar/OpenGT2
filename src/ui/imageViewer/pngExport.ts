@@ -82,12 +82,12 @@ export function buildPngExportFilename(options: PngExportFilenameOptions): strin
 function canvasToPngBlob(canvas: PngCanvasSource): Promise<Blob> {
   return new Promise<Blob>((resolve, reject) => {
     if (canvas.width <= 0 || canvas.height <= 0) {
-      reject(new Error('Brak wyrenderowanego obrazu do eksportu PNG.'));
+      reject(new Error('No rendered image available for PNG export.'));
       return;
     }
     canvas.toBlob((blob) => {
       if (blob === null) {
-        reject(new Error('Przeglądarka nie zwróciła danych PNG z canvasa 2D.'));
+        reject(new Error('Browser returned no PNG data from the 2D canvas.'));
         return;
       }
       resolve(blob);

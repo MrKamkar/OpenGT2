@@ -206,7 +206,7 @@ export function queryExplorer(
   return out;
 }
 
-/** Parent scope used by the "W górę" action (`all` → root, nested dir → its parent). */
+/** Parent scope used by the "Up" action (`all` → root, nested dir → its parent). */
 export function parentScopeOf(scope: ExplorerScope): ExplorerScope {
   if (scope.kind === 'all') {
     return ROOT_SCOPE;

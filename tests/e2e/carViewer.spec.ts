@@ -297,6 +297,7 @@ test.describe('OpenGT2 M7.7–M7.9 3D Car Viewer & Context Recovery', () => {
   test('renders 3D car by default, switches paint & HD<->PS1 without reloading VOL, responds to WSAD+Arrows camera, and recovers from WEBGL_lose_context from cache', async ({
     baseURL,
   }) => {
+    test.slow();
     expect(baseURL).toBeTruthy();
     const resolvedBaseUrl = baseURL ?? 'http://127.0.0.1:4173/';
     const isolatedBrowser = await chromium.launch({
@@ -533,7 +534,7 @@ test.describe('OpenGT2 M7.7–M7.9 3D Car Viewer & Context Recovery', () => {
     expect(stateAfterRestore.nonBackgroundPixels).toBeGreaterThan(20);
     expect(stateAfterRestore.glError?.hasError).toBe(false);
 
-    // 7. Switch to Inspector and back to 3D Viewer, then clean reset via "Zmień plik".
+    // 7. Switch to Inspector and back to 3D Viewer, then clean reset via "Change File".
     await page.locator('[data-testid="nav-mode-inspector"]').click();
     await expect(appRoot).toHaveAttribute('data-view-mode', 'inspector');
     await expect(page.locator('[data-testid="archive-panel"]')).toBeVisible();

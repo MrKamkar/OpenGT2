@@ -55,11 +55,11 @@ interface SortColumnDef {
 }
 
 const SORT_COLUMNS: readonly SortColumnDef[] = [
-  { key: 'name', label: 'Nazwa / carId', testId: 'car-sort-name', defaultDir: 'asc' },
-  { key: 'year', label: 'Rok', testId: 'car-sort-year', defaultDir: 'desc' },
-  { key: 'weightKg', label: 'Masa (kg)', testId: 'car-sort-weight', defaultDir: 'asc' },
-  { key: 'ps', label: 'Moc (PS)', testId: 'car-sort-ps', defaultDir: 'desc' },
-  { key: 'newPrice', label: 'Cena', testId: 'car-sort-price', defaultDir: 'asc' },
+  { key: 'name', label: 'Name / carId', testId: 'car-sort-name', defaultDir: 'asc' },
+  { key: 'year', label: 'Year', testId: 'car-sort-year', defaultDir: 'desc' },
+  { key: 'weightKg', label: 'Weight (kg)', testId: 'car-sort-weight', defaultDir: 'asc' },
+  { key: 'ps', label: 'Power (PS)', testId: 'car-sort-ps', defaultDir: 'desc' },
+  { key: 'newPrice', label: 'Price', testId: 'car-sort-price', defaultDir: 'asc' },
 ];
 
 /**
@@ -69,7 +69,7 @@ const SORT_COLUMNS: readonly SortColumnDef[] = [
 export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalogPanelHandle {
   const panel = el('section', 'ogt2-car-catalog');
   panel.dataset['testid'] = 'car-catalog-panel';
-  panel.setAttribute('aria-label', 'Katalog aut GT2');
+  panel.setAttribute('aria-label', 'GT2 Car Catalog');
   options.container.append(panel);
 
   let disposed = false;
@@ -86,7 +86,7 @@ export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalo
   // ----- Toolbar -------------------------------------------------------------------------------
   const toolbar = el('div', 'ogt2-car-toolbar');
 
-  const regionLabel = el('label', 'ogt2-car-region-label', 'Wariant:');
+  const regionLabel = el('label', 'ogt2-car-region-label', 'Region:');
   regionLabel.htmlFor = 'ogt2-car-catalog-region';
 
   const regionSelect = el('select', 'ogt2-scanner-select');
@@ -108,8 +108,8 @@ export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalo
   searchInput.name = 'carCatalogSearch';
   searchInput.type = 'search';
   searchInput.dataset['testid'] = 'car-catalog-search';
-  searchInput.placeholder = 'Filtruj po nazwie, carId, silniku…';
-  searchInput.setAttribute('aria-label', 'Filtruj katalog aut');
+  searchInput.placeholder = 'Filter by name, carId, engine…';
+  searchInput.setAttribute('aria-label', 'Filter car catalog');
   searchInput.autocomplete = 'off';
   searchInput.spellcheck = false;
 
@@ -200,7 +200,7 @@ export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalo
         : null;
     if (selected === null) {
       details.append(
-        el('p', 'ogt2-details-placeholder', 'Wybierz auto z tabeli, aby zobaczyć szczegóły i pola E3/E2/E0.'),
+        el('p', 'ogt2-details-placeholder', 'Select a car from the table to inspect details and E3/E2/E0 fields.'),
       );
       return;
     }
@@ -210,7 +210,7 @@ export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalo
     const sub = el(
       'p',
       'ogt2-car-detail-sub',
-      `${selected.carIdHex} · Wariant ${activeVariant?.label ?? '—'}`,
+      `${selected.carIdHex} · Region ${activeVariant?.label ?? '—'}`,
     );
     details.append(title, sub);
 
@@ -236,13 +236,13 @@ export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalo
     renderSortHeaders();
     countLabel.textContent =
       visibleCars.length === allCars.length
-        ? `${String(allCars.length)} aut`
-        : `${String(visibleCars.length)} / ${String(allCars.length)} aut`;
+        ? `${String(allCars.length)} cars`
+        : `${String(visibleCars.length)} / ${String(allCars.length)} cars`;
 
     tbody.replaceChildren();
     if (visibleCars.length === 0) {
       const emptyRow = el('tr');
-      const cell = el('td', 'ogt2-car-empty', 'Brak aut pasujących do filtra.');
+      const cell = el('td', 'ogt2-car-empty', 'No cars matching filter.');
       cell.colSpan = SORT_COLUMNS.length;
       emptyRow.append(cell);
       tbody.append(emptyRow);
@@ -314,7 +314,7 @@ export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalo
     if (variant === undefined) {
       allCars = [];
       selectedCarId = null;
-      statusLine.textContent = 'Brak bazy aut (gtmode_data) w tym archiwum.';
+      statusLine.textContent = 'No car database (gtmode_data) found in this archive.';
       statusLine.hidden = false;
       refreshTable();
       renderDetails();
@@ -323,7 +323,7 @@ export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalo
 
     const controller = new AbortController();
     loadController = controller;
-    statusLine.textContent = `Dekodowanie katalogu (${variant.label}) w Workerze…`;
+    statusLine.textContent = `Decoding catalog (${variant.label}) in Worker…`;
     statusLine.classList.remove('is-error');
     statusLine.hidden = false;
 
@@ -356,7 +356,7 @@ export function mountCarCatalogPanel(options: CarCatalogPanelOptions): CarCatalo
         loadController = null;
         allCars = [];
         selectedCarId = null;
-        statusLine.textContent = `Błąd dekodowania bazy aut: ${errorMessageOf(error)}`;
+        statusLine.textContent = `Failed to decode car database: ${errorMessageOf(error)}`;
         statusLine.classList.add('is-error');
         statusLine.hidden = false;
         refreshTable();

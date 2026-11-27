@@ -376,7 +376,7 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
     await unpackBtn.click();
     const status = page.locator('[data-testid="action-status"]');
     await expect(status).toHaveAttribute('data-status', 'error', { timeout: 5_000 });
-    await expect(status).toContainText('wieloczęściowym kontenerem gzip');
+    await expect(status).toContainText('multi-member gzip container');
 
     const multiRawPromise = page.waitForEvent('download');
     await page.locator('[data-testid="action-download-raw"]').click();
@@ -475,7 +475,7 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
       String(0x20),
     );
 
-    // 6. Narrow viewport keeps NAZWA column visible
+    // 6. Narrow viewport keeps Name column visible
     await page.setViewportSize({ width: 375, height: 812 });
     const nameBox = await page
       .locator('[data-testid="explorer-row"][data-path="cars/research.dat.gz"] .ogt2-col-name')
@@ -966,7 +966,7 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
 
     await page.locator('[data-testid="archive-tab-cars"]').click();
     await expect(page.locator('[data-testid="car-catalog-panel"]')).toBeVisible();
-    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('3 aut', {
+    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('3 cars', {
       timeout: 10_000,
     });
     await expect(page.locator('[data-testid="car-catalog-region"]')).toHaveValue('eng');
@@ -988,7 +988,7 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
     const carSearch = page.locator('[data-testid="car-catalog-search"]');
     await carSearch.click();
     await carSearch.pressSequentially('gamma');
-    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('1 / 3 aut');
+    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('1 / 3 cars');
     await expect(page.locator('[data-testid="car-catalog-row"]')).toHaveCount(1);
     const inputSnapshot = await page.evaluate(() => window.__input?.getSnapshot());
     expect(inputSnapshot?.pressedCodes).toEqual([]);
@@ -997,7 +997,7 @@ test.describe('OpenGT2 M2.8 Explorer', () => {
     // Switch regional variant to USA
     await carSearch.fill('');
     await page.locator('[data-testid="car-catalog-region"]').selectOption('usa');
-    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('1 aut', {
+    await expect(page.locator('[data-testid="car-catalog-count"]')).toHaveText('1 cars', {
       timeout: 10_000,
     });
     await expect(page.locator('[data-testid="car-catalog-row"]').first()).toContainText('Metric Delta');

@@ -55,7 +55,7 @@ export function buildHexPreviewHash(entryPath: string, offset = 0): string {
 
 /**
  * Maps errors from file actions (including worker `RpcError` preserving `GzipError`/`VolError`)
- * to clear Polish UI messages without emitting `console.error`.
+ * to clear UI error messages without emitting `console.error`.
  */
 export function describeFileActionError(error: unknown): string {
   const name = readErrorField(error, 'name');
@@ -65,28 +65,28 @@ export function describeFileActionError(error: unknown): string {
 
   if (name === 'GzipError') {
     if (code === 'InvalidMagic') {
-      return 'Wybrany plik nie jest strumieniem gzip (brak sygnatury 1F 8B).';
+      return 'Selected file is not a gzip stream (missing 1F 8B signature).';
     }
     if (code === 'CorruptStream' && /junk|trailing/i.test(message)) {
-      return 'Plik jest wieloczęściowym kontenerem gzip (dodatkowe dane po pierwszym członie — pełne rozpakowanie zaplanowane w M3/M4). Możesz pobrać plik surowy.';
+      return 'File is a multi-member gzip container (trailing data after first member). You can still download the raw file.';
     }
     if (code === 'CrcMismatch' || code === 'SizeMismatch') {
-      return 'Nie udało się rozpakować jako pojedynczy strumień gzip (niezgodna suma kontrolna CRC/rozmiar — możliwy wieloczęściowy kontener lub uszkodzony plik). Możesz pobrać plik surowy.';
+      return 'Failed to decompress as a single gzip stream (CRC/size mismatch — possibly a multi-member container or corrupted file). You can download the raw file.';
     }
     if (code === 'TruncatedStream') {
-      return 'Strumień gzip jest ucięty lub niekompletny.';
+      return 'Gzip stream is truncated or incomplete.';
     }
     if (code === 'UnsupportedMethod') {
-      return 'Nieobsługiwana metoda kompresji gzip.';
+      return 'Unsupported gzip compression method.';
     }
-    return `Nie udało się rozpakować pliku gzip: ${message}`;
+    return `Failed to decompress gzip file: ${message}`;
   }
 
   if (name === 'VolError') {
-    return `Błąd odczytu pliku z archiwum: ${message}`;
+    return `Archive file read error: ${message}`;
   }
 
-  return `Nie udało się wykonać akcji na pliku: ${message}`;
+  return `File action failed: ${message}`;
 }
 
 export interface BlobDownloadAnchor {

@@ -43,11 +43,11 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
 
   const panel = el('section', 'ogt2-tool-panel');
   panel.dataset['testid'] = 'evidence-panel';
-  panel.setAttribute('aria-label', 'Eksporter Evidence Pack');
+  panel.setAttribute('aria-label', 'Evidence Pack Exporter');
 
   const header = el('div', 'ogt2-tool-header');
-  const title = el('h3', 'ogt2-tool-title', 'Evidence Pack (eksport odkryć, próbka ≤ 64 B)');
-  const countBadge = el('span', 'ogt2-hex-size', '0 wpisów');
+  const title = el('h3', 'ogt2-tool-title', 'Evidence Pack (findings export, sample ≤ 64 B)');
+  const countBadge = el('span', 'ogt2-hex-size', '0 entries');
   countBadge.dataset['testid'] = 'evidence-count';
   header.append(title, countBadge);
 
@@ -55,18 +55,18 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
 
   const rowTop = el('div', 'ogt2-scanner-form');
 
-  const pathLabel = el('label', 'ogt2-hex-field-label', 'Plik');
+  const pathLabel = el('label', 'ogt2-hex-field-label', 'File');
   pathLabel.htmlFor = 'ogt2-evidence-path';
   const pathInput = el('input', 'ogt2-hex-input ogt2-evidence-path-input');
   pathInput.id = 'ogt2-evidence-path';
   pathInput.name = 'evidencePath';
   pathInput.type = 'text';
-  pathInput.placeholder = 'np. cars/a2bgn.cdo.gz';
+  pathInput.placeholder = 'e.g. cars/a2bgn.cdo.gz';
   pathInput.autocomplete = 'off';
   pathInput.spellcheck = false;
   pathInput.dataset['testid'] = 'evidence-path-input';
 
-  const modeLabel = el('label', 'ogt2-hex-field-label', 'Tryb');
+  const modeLabel = el('label', 'ogt2-hex-field-label', 'Mode');
   modeLabel.htmlFor = 'ogt2-evidence-mode';
   const modeSelect = el('select', 'ogt2-scanner-select');
   modeSelect.id = 'ogt2-evidence-mode';
@@ -89,7 +89,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
   offsetInput.spellcheck = false;
   offsetInput.dataset['testid'] = 'evidence-offset-input';
 
-  const lenLabel = el('label', 'ogt2-hex-field-label', 'Długość');
+  const lenLabel = el('label', 'ogt2-hex-field-label', 'Length');
   lenLabel.htmlFor = 'ogt2-evidence-length';
   const lengthInput = el('input', 'ogt2-hex-input ogt2-hex-input-short');
   lengthInput.id = 'ogt2-evidence-length';
@@ -100,7 +100,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
   lengthInput.spellcheck = false;
   lengthInput.dataset['testid'] = 'evidence-length-input';
 
-  const levelLabel = el('label', 'ogt2-hex-field-label', 'Pewność');
+  const levelLabel = el('label', 'ogt2-hex-field-label', 'Confidence');
   levelLabel.htmlFor = 'ogt2-evidence-level';
   const levelSelect = el('select', 'ogt2-scanner-select');
   levelSelect.id = 'ogt2-evidence-level';
@@ -127,24 +127,24 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
   );
 
   const rowMid = el('div', 'ogt2-scanner-form');
-  const sigLabel = el('label', 'ogt2-hex-field-label', 'Sygnatura');
+  const sigLabel = el('label', 'ogt2-hex-field-label', 'Signature');
   sigLabel.htmlFor = 'ogt2-evidence-signature';
   const signatureInput = el('input', 'ogt2-hex-input ogt2-evidence-wide-input');
   signatureInput.id = 'ogt2-evidence-signature';
   signatureInput.name = 'evidenceSignature';
   signatureInput.type = 'text';
-  signatureInput.placeholder = 'np. 10 00 00 00 (TIM) lub magic';
+  signatureInput.placeholder = 'e.g. 10 00 00 00 (TIM) or magic';
   signatureInput.autocomplete = 'off';
   signatureInput.spellcheck = false;
   signatureInput.dataset['testid'] = 'evidence-signature-input';
 
-  const hypLabel = el('label', 'ogt2-hex-field-label', 'Hipoteza');
+  const hypLabel = el('label', 'ogt2-hex-field-label', 'Hypothesis');
   hypLabel.htmlFor = 'ogt2-evidence-hypothesis';
   const hypothesisInput = el('input', 'ogt2-hex-input ogt2-evidence-wide-input');
   hypothesisInput.id = 'ogt2-evidence-hypothesis';
   hypothesisInput.name = 'evidenceHypothesis';
   hypothesisInput.type = 'text';
-  hypothesisInput.placeholder = 'Opis obserwacji / hipotezy badawczej';
+  hypothesisInput.placeholder = 'Observation or research hypothesis description';
   hypothesisInput.autocomplete = 'off';
   hypothesisInput.dataset['testid'] = 'evidence-hypothesis-input';
 
@@ -155,12 +155,12 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
   const sampleLabel = el(
     'label',
     'ogt2-hex-field-label',
-    `Próbka hex (opcjonalna, twardy limit ≤ ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B)`,
+    `Hex sample (optional, hard cap ≤ ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B)`,
   );
   sampleLabel.htmlFor = 'ogt2-evidence-sample';
   const sampleMeter = el('span', 'ogt2-hex-size', `0 / ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B`);
   sampleMeter.dataset['testid'] = 'evidence-sample-meter';
-  const trimBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Przytnij do 64 B');
+  const trimBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Trim to 64 B');
   trimBtn.type = 'button';
   trimBtn.dataset['testid'] = 'evidence-trim-sample';
   sampleHeader.append(sampleLabel, sampleMeter, trimBtn);
@@ -169,27 +169,27 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
   sampleInput.id = 'ogt2-evidence-sample';
   sampleInput.name = 'evidenceHexSample';
   sampleInput.rows = 2;
-  sampleInput.placeholder = 'np. 10 00 00 00 08 00 00 00 (maks. 64 bajty)';
+  sampleInput.placeholder = 'e.g. 10 00 00 00 08 00 00 00 (max 64 bytes)';
   sampleInput.spellcheck = false;
   sampleInput.dataset['testid'] = 'evidence-sample-input';
   sampleRow.append(sampleHeader, sampleInput);
 
   const buttonsRow = el('div', 'ogt2-scanner-form');
-  const addBtn = el('button', 'ogt2-button ogt2-button-subtle', '+ Dodaj wpis');
+  const addBtn = el('button', 'ogt2-button ogt2-button-subtle', '+ Add Entry');
   addBtn.type = 'submit';
   addBtn.dataset['testid'] = 'evidence-add-button';
 
-  const copyJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Kopiuj JSON');
+  const copyJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Copy JSON');
   copyJsonBtn.type = 'button';
   copyJsonBtn.dataset['testid'] = 'evidence-copy-json';
   copyJsonBtn.disabled = true;
 
-  const downloadJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Pobierz Evidence Pack (JSON)');
+  const downloadJsonBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Download Evidence Pack (JSON)');
   downloadJsonBtn.type = 'button';
   downloadJsonBtn.dataset['testid'] = 'evidence-download-json';
   downloadJsonBtn.disabled = true;
 
-  const clearBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Wyczyść listę');
+  const clearBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Clear List');
   clearBtn.type = 'button';
   clearBtn.dataset['testid'] = 'evidence-clear';
   clearBtn.disabled = true;
@@ -251,14 +251,14 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
       sampleMeter.classList.remove('is-over-limit');
     } catch {
       const compactLen = Math.ceil(raw.replace(/\s+/g, '').length / 2);
-      sampleMeter.textContent = `${String(compactLen)} / ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B (błąd/limit)`;
+      sampleMeter.textContent = `${String(compactLen)} / ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B (error/limit)`;
       sampleMeter.classList.add('is-over-limit');
     }
   };
 
   const renderEntries = (): void => {
     list.replaceChildren();
-    countBadge.textContent = `${String(entries.length)} ${entries.length === 1 ? 'wpis' : 'wpisów'}`;
+    countBadge.textContent = `${String(entries.length)} ${entries.length === 1 ? 'entry' : 'entries'}`;
     const empty = entries.length === 0;
     copyJsonBtn.disabled = empty;
     downloadJsonBtn.disabled = empty;
@@ -276,7 +276,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
         'ogt2-hex-path',
         `${item.path} [${item.mode}] @ ${formatHexOffset(item.offset, 1)} (${String(item.length)} B)`,
       );
-      const removeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Usuń');
+      const removeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Remove');
       removeBtn.type = 'button';
       removeBtn.addEventListener('click', () => {
         entries = entries.filter((candidate) => candidate.id !== item.id);
@@ -289,7 +289,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
         const desc = el(
           'p',
           'ogt2-status-text',
-          `${item.signature.length > 0 ? `Sygnatura: ${item.signature}` : ''}${item.signature.length > 0 && item.hypothesis.length > 0 ? ' · ' : ''}${item.hypothesis}`,
+          `${item.signature.length > 0 ? `Signature: ${item.signature}` : ''}${item.signature.length > 0 && item.hypothesis.length > 0 ? ' · ' : ''}${item.hypothesis}`,
         );
         li.append(desc);
       }
@@ -320,12 +320,12 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
 
     const parsedOffset = parseOffsetInput(offsetInput.value);
     if (parsedOffset === null) {
-      setError('Nieprawidłowy offset — podaj liczbę dziesiętną lub 0x...');
+      setError('Invalid offset — enter a decimal or 0x... hex value.');
       return;
     }
     const parsedLength = parseOffsetInput(lengthInput.value);
     if (parsedLength === null) {
-      setError('Nieprawidłowa długość.');
+      setError('Invalid length.');
       return;
     }
 
@@ -347,7 +347,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
       nextEntryNum += 1;
       entries = [...entries, entry];
       renderEntries();
-      setStatus(`Dodano wpis Evidence Pack (${entry.evidence}).`);
+      setStatus(`Added Evidence Pack entry (${entry.evidence}).`);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : String(error));
     }
@@ -360,7 +360,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
       updateSampleMeter();
       setError(null);
       if (parsed.truncated) {
-        setStatus(`Przycięto próbkę do ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B.`);
+        setStatus(`Trimmed sample to ${String(EVIDENCE_MAX_HEX_SAMPLE_BYTES)} B.`);
       }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : String(error));
@@ -376,11 +376,11 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
       setError(null);
       if (typeof navigator !== 'undefined' && navigator.clipboard !== undefined) {
         void navigator.clipboard.writeText(json).then(
-          () => setStatus('Skopiowano Evidence Pack JSON do schowka.'),
-          () => setStatus('Nie udało się uzyskać dostępu do schowka — użyj „Pobierz Evidence Pack (JSON)”.'),
+          () => setStatus('Copied Evidence Pack JSON to clipboard.'),
+          () => setStatus('Clipboard access failed — use "Download Evidence Pack (JSON)".'),
         );
       } else {
-        setStatus('Schowek niedostępny — użyj „Pobierz Evidence Pack (JSON)”.');
+        setStatus('Clipboard unavailable — use "Download Evidence Pack (JSON)".');
       }
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : String(error));
@@ -396,7 +396,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
       setError(null);
       const bytes = new TextEncoder().encode(json);
       triggerLocalBlobDownload(bytes, 'evidence-pack.json');
-      setStatus(`Pobrano lokalnie evidence-pack.json (${String(entries.length)} wpisów, próbki ≤ 64 B).`);
+      setStatus(`Downloaded evidence-pack.json locally (${String(entries.length)} entries, samples ≤ 64 B).`);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : String(error));
     }
@@ -406,7 +406,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
     entries = [];
     renderEntries();
     setError(null);
-    setStatus('Wyczyszczono listę Evidence Pack.');
+    setStatus('Cleared Evidence Pack list.');
   };
 
   sampleInput.addEventListener('input', updateSampleMeter);
@@ -455,7 +455,7 @@ export function mountEvidencePackPanel(options: EvidencePackPanelOptions): Evide
         updateSampleMeter();
         renderEntries();
         setStatus(
-          `Dodano wpis z narzędzia (${entry.path} @ ${formatHexOffset(entry.offset, 1)}, próbka ≤ 64 B).`,
+          `Added entry from tool (${entry.path} @ ${formatHexOffset(entry.offset, 1)}, sample ≤ 64 B).`,
         );
       } catch (error: unknown) {
         setError(error instanceof Error ? error.message : String(error));

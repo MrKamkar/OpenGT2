@@ -75,7 +75,7 @@ export function mountThumbnailGalleryPanel(
 
   const panel = el('div', 'ogt2-gallery-shell');
   panel.dataset['testid'] = 'thumbnail-gallery';
-  panel.setAttribute('aria-label', 'Galeria miniatur bieżącego katalogu');
+  panel.setAttribute('aria-label', 'Current directory thumbnail gallery');
   panel.hidden = true;
 
   const statusBar = el('div', 'ogt2-gallery-status-bar');
@@ -90,7 +90,7 @@ export function mountThumbnailGalleryPanel(
   const gridLayer = el('div', 'ogt2-gallery-grid');
   spacer.append(gridLayer);
 
-  const emptyMsg = el('p', 'ogt2-vlist-empty', 'Brak plików w bieżącym widoku.');
+  const emptyMsg = el('p', 'ogt2-vlist-empty', 'No files in the current view.');
   emptyMsg.dataset['testid'] = 'gallery-empty';
   emptyMsg.hidden = true;
 
@@ -133,7 +133,7 @@ export function mountThumbnailGalleryPanel(
     if (!value.supported) {
       releaseCardCanvas(card);
       card.status.hidden = false;
-      card.status.textContent = 'Nie-obraz';
+      card.status.textContent = 'Non-image';
       card.meta.textContent = '—';
       card.root.dataset['thumbState'] = 'unsupported';
       card.drawn = true;
@@ -159,7 +159,7 @@ export function mountThumbnailGalleryPanel(
 
   const updateStatusBar = (): void => {
     const stats = cache.getStats();
-    statusInfo.textContent = `Pliki: ${String(fileItems.length)} · W pamięci: ${String(stats.entries)}/${String(stats.maxEntries)} miniatur (${String(Math.round(stats.bytes / 1024))} KiB)`;
+    statusInfo.textContent = `Files: ${String(fileItems.length)} · Cached: ${String(stats.entries)}/${String(stats.maxEntries)} thumbnails (${String(Math.round(stats.bytes / 1024))} KiB)`;
   };
 
   const pumpQueue = (): void => {
@@ -190,7 +190,7 @@ export function mountThumbnailGalleryPanel(
       const controller = new AbortController();
       inFlight.set(nextPath, controller);
       card.status.hidden = false;
-      card.status.textContent = 'Dekodowanie…';
+      card.status.textContent = 'Decoding…';
       card.root.dataset['thumbState'] = 'loading';
 
       const idxCandidates = selectIdxCandidates(allEntries, card.entry.path);
@@ -241,7 +241,7 @@ export function mountThumbnailGalleryPanel(
           if (liveCard !== undefined) {
             releaseCardCanvas(liveCard);
             liveCard.status.hidden = false;
-            liveCard.status.textContent = 'Błąd';
+            liveCard.status.textContent = 'Error';
             liveCard.root.dataset['thumbState'] = 'error';
           }
         })
@@ -341,7 +341,7 @@ export function mountThumbnailGalleryPanel(
     const canvas = el('canvas', 'ogt2-gallery-canvas');
     canvas.dataset['testid'] = 'gallery-card-canvas';
     canvas.hidden = true;
-    const status = el('span', 'ogt2-gallery-card-status', 'Oczekuje…');
+    const status = el('span', 'ogt2-gallery-card-status', 'Queued…');
     stage.append(canvas, status);
 
     const name = el('span', 'ogt2-gallery-card-name', item.name);

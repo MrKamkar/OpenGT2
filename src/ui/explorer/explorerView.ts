@@ -116,7 +116,7 @@ interface ExplorerController {
 
 function describeScope(scope: ExplorerScope): string {
   if (scope.kind === 'all') {
-    return 'Wszystkie pliki';
+    return 'All Files';
   }
   return scope.path.length === 0 ? '/' : `/${scope.path}`;
 }
@@ -163,14 +163,14 @@ function mountExplorer(
   const summary = el('div', 'ogt2-archive-summary');
   summary.dataset['testid'] = 'archive-summary';
   const summaryList = el('dl', 'ogt2-meta-list ogt2-archive-meta');
-  appendMetaRow(summaryList, 'Pliki (nagłówek)', String(info.fileCount), 'vol-file-count');
-  appendMetaRow(summaryList, 'Wpisy TOC (nagłówek)', String(info.entryCount), 'vol-entry-count');
-  appendMetaRow(summaryList, 'Pliki na liście', String(index.fileCount), 'vol-listed-files');
-  appendMetaRow(summaryList, 'Katalogi', String(index.dirCount), 'vol-dir-count');
+  appendMetaRow(summaryList, 'Files (header)', String(info.fileCount), 'vol-file-count');
+  appendMetaRow(summaryList, 'TOC entries (header)', String(info.entryCount), 'vol-entry-count');
+  appendMetaRow(summaryList, 'Listed files', String(index.fileCount), 'vol-listed-files');
+  appendMetaRow(summaryList, 'Directories', String(index.dirCount), 'vol-dir-count');
   appendMetaRow(
     summaryList,
-    'Ostrzeżenia spójności',
-    info.warnings.length === 0 ? 'brak' : String(info.warnings.length),
+    'Consistency warnings',
+    info.warnings.length === 0 ? 'none' : String(info.warnings.length),
     'vol-warning-count',
   );
   summary.append(summaryList);
@@ -186,7 +186,7 @@ function mountExplorer(
   // ----- Tree ----------------------------------------------------------------------------------
   const tree = el('nav', 'ogt2-explorer-tree');
   tree.dataset['testid'] = 'explorer-tree';
-  tree.setAttribute('aria-label', 'Drzewo katalogów archiwum');
+  tree.setAttribute('aria-label', 'Archive directory tree');
 
   const treeButtons: { readonly scope: ExplorerScope; readonly button: HTMLButtonElement }[] = [];
   const addTreeButton = (target: ExplorerScope, label: string, count: number, depth: number, testId: string): void => {
@@ -208,11 +208,11 @@ function mountExplorer(
     tree.append(button);
   };
 
-  addTreeButton(ALL_FILES_SCOPE, 'Wszystkie pliki', index.fileCount, 0, 'tree-all');
+  addTreeButton(ALL_FILES_SCOPE, 'All Files', index.fileCount, 0, 'tree-all');
   for (const node of flattenDirTree(index.tree)) {
     addTreeButton(
       { kind: 'dir', path: node.path },
-      node.path.length === 0 ? '/ (katalog główny)' : node.name,
+      node.path.length === 0 ? '/ (root)' : node.name,
       node.totalFileCount,
       node.depth,
       'tree-dir',
@@ -223,7 +223,7 @@ function mountExplorer(
   const main = el('div', 'ogt2-explorer-main');
   const toolbar = el('div', 'ogt2-explorer-toolbar');
 
-  const upButton = el('button', 'ogt2-button ogt2-button-subtle', '↑ W górę');
+  const upButton = el('button', 'ogt2-button ogt2-button-subtle', '↑ Up');
   upButton.type = 'button';
   upButton.dataset['testid'] = 'explorer-up';
   upButton.addEventListener('click', () => {
@@ -238,8 +238,8 @@ function mountExplorer(
   searchInput.name = 'explorerSearch';
   searchInput.type = 'search';
   searchInput.dataset['testid'] = 'explorer-search';
-  searchInput.placeholder = 'Szukaj po nazwie lub ścieżce…';
-  searchInput.setAttribute('aria-label', 'Szukaj w archiwum po nazwie lub ścieżce');
+  searchInput.placeholder = 'Search by name or path…';
+  searchInput.setAttribute('aria-label', 'Search archive by name or path');
   searchInput.autocomplete = 'off';
   searchInput.spellcheck = false;
 
@@ -254,12 +254,12 @@ function mountExplorer(
   toolbar.append(upButton, scopeLabel, searchInput, countLabel);
   if (source.imageDecoder !== undefined) {
     const viewSwitch = el('div', 'ogt2-hex-mode-group');
-    viewListButton = el('button', 'ogt2-button ogt2-button-subtle is-active', 'Lista');
+    viewListButton = el('button', 'ogt2-button ogt2-button-subtle is-active', 'List');
     viewListButton.type = 'button';
     viewListButton.dataset['testid'] = 'explorer-view-list';
     viewListButton.setAttribute('aria-pressed', 'true');
 
-    viewGalleryButton = el('button', 'ogt2-button ogt2-button-subtle', 'Galeria miniatur');
+    viewGalleryButton = el('button', 'ogt2-button ogt2-button-subtle', 'Thumbnail Gallery');
     viewGalleryButton.type = 'button';
     viewGalleryButton.dataset['testid'] = 'explorer-view-gallery';
     viewGalleryButton.setAttribute('aria-pressed', 'false');
@@ -275,22 +275,22 @@ function mountExplorer(
   const header = el('div', 'ogt2-vlist-header');
   header.setAttribute('aria-hidden', 'true');
   header.append(
-    el('span', 'ogt2-col-name', 'Nazwa'),
-    el('span', 'ogt2-col-size', 'Rozmiar'),
-    el('span', 'ogt2-col-date', 'Data (UTC)'),
+    el('span', 'ogt2-col-name', 'Name'),
+    el('span', 'ogt2-col-size', 'Size'),
+    el('span', 'ogt2-col-date', 'Date (UTC)'),
     el('span', 'ogt2-col-gzip', 'gzip'),
   );
 
   const list = el('div', 'ogt2-vlist');
   list.dataset['testid'] = 'explorer-list';
   list.setAttribute('role', 'listbox');
-  list.setAttribute('aria-label', 'Pliki i katalogi archiwum');
+  list.setAttribute('aria-label', 'Archive files and directories');
   list.tabIndex = 0;
 
   const spacer = el('div', 'ogt2-vlist-spacer');
   const rowsLayer = el('div', 'ogt2-vlist-rows');
   spacer.append(rowsLayer);
-  const emptyMessage = el('p', 'ogt2-vlist-empty', 'Brak pozycji do wyświetlenia.');
+  const emptyMessage = el('p', 'ogt2-vlist-empty', 'No entries to display.');
   emptyMessage.dataset['testid'] = 'explorer-empty';
   emptyMessage.hidden = true;
   list.append(spacer, emptyMessage);
@@ -322,15 +322,15 @@ function mountExplorer(
   if (carVariants.length > 0 && source.loadCarCatalog !== undefined) {
     const tabBar = el('div', 'ogt2-archive-tabs');
     tabBar.setAttribute('role', 'tablist');
-    tabBar.setAttribute('aria-label', 'Widoki archiwum GT2.VOL');
+    tabBar.setAttribute('aria-label', 'GT2.VOL archive views');
 
-    const explorerTabBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', 'Eksplorator plików');
+    const explorerTabBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', 'VOL Explorer');
     explorerTabBtn.type = 'button';
     explorerTabBtn.dataset['testid'] = 'archive-tab-explorer';
     explorerTabBtn.setAttribute('role', 'tab');
     explorerTabBtn.setAttribute('aria-selected', 'true');
 
-    const carsTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Katalog aut');
+    const carsTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Car Catalog');
     carsTabBtn.type = 'button';
     carsTabBtn.dataset['testid'] = 'archive-tab-cars';
     carsTabBtn.setAttribute('role', 'tab');
@@ -399,14 +399,14 @@ function mountExplorer(
   const gzipCellContent = (path: string): { readonly text: string; readonly title: string; readonly state: string } => {
     switch (statCache.getGzipState(path)) {
       case 'gzip':
-        return { text: 'gzip', title: 'Sygnatura gzip 1F 8B potwierdzona', state: 'gzip' };
+        return { text: 'gzip', title: 'gzip 1F 8B signature verified', state: 'gzip' };
       case 'plain':
-        return { text: UNKNOWN_VALUE_LABEL, title: 'Brak sygnatury gzip (1F 8B)', state: 'plain' };
+        return { text: UNKNOWN_VALUE_LABEL, title: 'No gzip signature (1F 8B)', state: 'plain' };
       case 'error':
-        return { text: '?', title: 'Nie udało się odczytać sygnatury', state: 'error' };
+        return { text: '?', title: 'Failed to probe signature', state: 'error' };
       case 'pending':
       case 'unknown':
-        return { text: '…', title: 'Sprawdzanie sygnatury przy wyświetleniu', state: 'unknown' };
+        return { text: '…', title: 'Probing signature on display', state: 'unknown' };
     }
   };
 
@@ -505,7 +505,7 @@ function mountExplorer(
     scopeLabel.textContent = describeScope(scope);
     scopeLabel.title = describeScope(scope);
     upButton.disabled = isRootScope(scope);
-    const noun = normalizeSearchQuery(query).length > 0 ? 'wyników' : 'pozycji';
+    const noun = normalizeSearchQuery(query).length > 0 ? 'matches' : 'items';
     countLabel.textContent = `${String(rows.length)} ${noun}`;
     countLabel.dataset['count'] = String(rows.length);
     for (const { scope: buttonScope, button } of treeButtons) {
@@ -547,7 +547,7 @@ function mountExplorer(
         triggerLocalBlobDownload(bytes, filename);
         actionFeedback = {
           kind: 'ok',
-          message: `Pobrano lokalnie: ${filename} (${formatByteSize(bytes.byteLength)}, ${formatBytesExact(bytes.byteLength)}).`,
+          message: `Downloaded locally: ${filename} (${formatByteSize(bytes.byteLength)}, ${formatBytesExact(bytes.byteLength)}).`,
         };
       })
       .catch((error: unknown) => {
@@ -575,7 +575,7 @@ function mountExplorer(
     const selected = selectedPath === null ? undefined : entryByPath.get(selectedPath);
     if (selected === undefined || selected.entry.kind !== 'file') {
       delete details.dataset['path'];
-      details.append(el('p', 'ogt2-status-text', 'Zaznacz plik na liście, aby zobaczyć szczegóły.'));
+      details.append(el('p', 'ogt2-status-text', 'Select a file from the list to inspect details.'));
       return;
     }
     const entry = selected.entry;
@@ -583,19 +583,19 @@ function mountExplorer(
     const title = el('h3', 'ogt2-details-title', selected.name);
     title.dataset['testid'] = 'details-name';
     const meta = el('dl', 'ogt2-meta-list ogt2-details-meta');
-    appendMetaRow(meta, 'Ścieżka', entry.path, 'details-path');
-    appendMetaRow(meta, 'Rozmiar', `${formatByteSize(entry.size)} (${formatBytesExact(entry.size)})`, 'details-size');
-    appendMetaRow(meta, 'Data (UTC)', formatUnixTimeUtc(entry.unixTime), 'details-date');
-    appendMetaRow(meta, 'Adres w VOL', `0x${entry.address.toString(16).toUpperCase()}`, 'details-address');
+    appendMetaRow(meta, 'Path', entry.path, 'details-path');
+    appendMetaRow(meta, 'Size', `${formatByteSize(entry.size)} (${formatBytesExact(entry.size)})`, 'details-size');
+    appendMetaRow(meta, 'Date (UTC)', formatUnixTimeUtc(entry.unixTime), 'details-date');
+    appendMetaRow(meta, 'VOL Offset', `0x${entry.address.toString(16).toUpperCase()}`, 'details-address');
     const gzipState = statCache.getGzipState(entry.path);
     const gzipLabel =
       gzipState === 'gzip'
-        ? 'tak (sygnatura 1F 8B zweryfikowana)'
+        ? 'yes (1F 8B signature verified)'
         : gzipState === 'plain'
-          ? 'nie (zweryfikowano)'
+          ? 'no (verified)'
           : gzipState === 'error'
-            ? 'nie udało się zweryfikować'
-            : 'sprawdzanie…';
+            ? 'verification failed'
+            : 'checking…';
     const gzipValue = appendMetaRow(meta, 'gzip', gzipLabel, 'details-gzip');
     gzipValue.dataset['gzip'] = gzipState;
 
@@ -609,7 +609,7 @@ function mountExplorer(
     const formatText =
       classification !== null
         ? `${classification.formatName} [${classification.evidence}]`
-        : 'sprawdzanie…';
+        : 'checking…';
     const formatValue = appendMetaRow(meta, 'Format', formatText, 'details-format');
     if (classification !== null) {
       formatValue.dataset['formatId'] = classification.id;
@@ -621,7 +621,7 @@ function mountExplorer(
     actions.dataset['testid'] = 'details-actions';
 
     if (imageViewerPanel !== null) {
-      const imageBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Podgląd obrazu');
+      const imageBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Image Preview');
       imageBtn.type = 'button';
       imageBtn.dataset['testid'] = 'action-image-preview';
       imageBtn.setAttribute('aria-expanded', String(imageViewerPanel.isOpenFor(entry.path)));
@@ -636,7 +636,7 @@ function mountExplorer(
       actions.append(imageBtn);
     }
 
-    const hexButton = el('button', 'ogt2-button ogt2-button-subtle', 'Podgląd hex');
+    const hexButton = el('button', 'ogt2-button ogt2-button-subtle', 'Hex View');
     hexButton.type = 'button';
     hexButton.dataset['testid'] = 'action-hex-preview';
     const isHexOpenForEntry = hexPanel.isOpen() && hexPanel.getCurrentRoute()?.path === entry.path;
@@ -661,7 +661,7 @@ function mountExplorer(
     const downloadRawButton = el(
       'button',
       'ogt2-button ogt2-button-subtle',
-      actionBusy === 'raw' ? 'Pobieranie surowego…' : 'Pobierz surowy',
+      actionBusy === 'raw' ? 'Downloading raw…' : 'Download Raw',
     );
     downloadRawButton.type = 'button';
     downloadRawButton.dataset['testid'] = 'action-download-raw';
@@ -673,19 +673,19 @@ function mountExplorer(
     const downloadUnpackedButton = el(
       'button',
       'ogt2-button ogt2-button-subtle',
-      actionBusy === 'decompressed' ? 'Rozpakowywanie…' : 'Pobierz rozpakowany',
+      actionBusy === 'decompressed' ? 'Decompressing…' : 'Download Unpacked',
     );
     downloadUnpackedButton.type = 'button';
     downloadUnpackedButton.dataset['testid'] = 'action-download-decompressed';
     downloadUnpackedButton.disabled = gzipState !== 'gzip' || actionBusy !== null;
     if (gzipState === 'plain') {
-      downloadUnpackedButton.title = 'Plik nie ma sygnatury gzip (1F 8B).';
+      downloadUnpackedButton.title = 'File does not have a gzip signature (1F 8B).';
     } else if (gzipState === 'error') {
-      downloadUnpackedButton.title = 'Nie udało się zweryfikować sygnatury gzip.';
+      downloadUnpackedButton.title = 'Failed to verify gzip signature.';
     } else if (gzipState !== 'gzip') {
-      downloadUnpackedButton.title = 'Trwa sprawdzanie sygnatury gzip…';
+      downloadUnpackedButton.title = 'Checking gzip signature…';
     } else {
-      downloadUnpackedButton.title = 'Rozpakuj strumień gzip w wątku roboczym i pobierz lokalnie';
+      downloadUnpackedButton.title = 'Decompress gzip stream in Worker and download locally';
     }
     downloadUnpackedButton.addEventListener('click', () => {
       runFileDownload('decompressed', entry.path);
@@ -1023,7 +1023,7 @@ function mountExplorer(
 export function mountArchivePanel(options: ArchivePanelOptions): ArchivePanelHandle {
   const panel = el('section', 'ogt2-archive');
   panel.dataset['testid'] = 'archive-panel';
-  panel.setAttribute('aria-label', 'Eksplorator archiwum GT2.VOL');
+  panel.setAttribute('aria-label', 'GT2.VOL Archive Explorer');
   panel.hidden = true;
   panel.dataset['volState'] = 'empty';
   options.container.append(panel);
@@ -1042,20 +1042,20 @@ export function mountArchivePanel(options: ArchivePanelOptions): ArchivePanelHan
   return {
     showLoading(fileName: string): void {
       reset('loading');
-      const text = el('p', 'ogt2-status-text', `Otwieranie archiwum ${fileName} w wątku roboczym…`);
+      const text = el('p', 'ogt2-status-text', `Opening archive ${fileName} in Worker…`);
       text.dataset['testid'] = 'archive-loading';
-      panel.append(el('h2', 'ogt2-status-title', 'Eksplorator GT2.VOL'), text);
+      panel.append(el('h2', 'ogt2-status-title', 'VOL Explorer'), text);
     },
     showError(message: string): void {
       reset('error');
       const text = el('p', 'ogt2-error-message', message);
       text.dataset['testid'] = 'archive-error';
       text.setAttribute('role', 'alert');
-      panel.append(el('h2', 'ogt2-status-title ogt2-status-error', 'Nie można otworzyć archiwum'), text);
+      panel.append(el('h2', 'ogt2-status-title ogt2-status-error', 'Unable to Open Archive'), text);
     },
     showArchive(info: VolInfo, entries: readonly VolEntry[], source: ArchiveExplorerSource): void {
       reset('ready');
-      panel.append(el('h2', 'ogt2-status-title', 'Eksplorator GT2.VOL'));
+      panel.append(el('h2', 'ogt2-status-title', 'VOL Explorer'));
       controller = mountExplorer(panel, info, entries, source);
     },
     clear(): void {

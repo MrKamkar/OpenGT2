@@ -417,7 +417,7 @@ export class FileHandleStore {
       const message =
         error instanceof Error
           ? error.message
-          : 'Nie można otworzyć zapamiętanego pliku archiwum.';
+          : 'Unable to reopen the remembered archive file.';
       return { status: 'error', message, handle };
     }
   }

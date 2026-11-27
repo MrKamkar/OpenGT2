@@ -65,7 +65,7 @@ const VOL_STRUCTURE_ERROR_CODES: ReadonlySet<string> = new Set([
 
 /**
  * Maps errors from `VolReader.open()` (local `VolError` or worker `RpcError` preserving
- * `name`/`code`) to a readable Polish UI message.
+ * `name`/`code`) to a readable UI error message.
  */
 export function describeVolOpenError(error: unknown): string {
   const name = readErrorField(error, 'name');
@@ -73,16 +73,16 @@ export function describeVolOpenError(error: unknown): string {
   const message = errorMessageOf(error);
 
   if (name === 'VolError' && code === 'BadMagic') {
-    return 'Wybrany plik nie jest archiwum GT2.VOL (brak nagłówka „GTFS\\0\\0\\0\\0”). Wybierz właściwy plik GT2.VOL.';
+    return 'Selected file is not a GT2.VOL archive (missing "GTFS\\0\\0\\0\\0" header). Select a valid GT2.VOL file.';
   }
   if (name === 'VolError' && code === 'TruncatedHeader') {
-    return 'Plik jest zbyt mały, aby był archiwum GT2.VOL (ucięty nagłówek).';
+    return 'File is too small to be a GT2.VOL archive (truncated header).';
   }
   if (name === 'VolError' && code !== undefined && VOL_STRUCTURE_ERROR_CODES.has(code)) {
-    return `Archiwum GT2.VOL jest uszkodzone lub ma nieobsługiwany układ: ${message}`;
+    return `GT2.VOL archive is corrupted or uses an unsupported layout: ${message}`;
   }
   if (name === 'RpcWorkerError') {
-    return `Nie udało się uruchomić wątku roboczego archiwum: ${message}`;
+    return `Failed to start archive worker thread: ${message}`;
   }
-  return `Nie udało się otworzyć archiwum: ${message}`;
+  return `Failed to open archive: ${message}`;
 }

@@ -143,7 +143,7 @@ test.describe('OpenGT2 M0 smoke suite', () => {
     });
     expect(capOverflowCount).toBe(0);
 
-    // M1.7: verify "Wyczyść dane" clears local storage/cache cleanly with UI confirmation.
+    // M1.7: verify "Clear Local Data" clears local storage/cache cleanly with UI confirmation.
     await page.locator('[data-testid="clear-data-button"]').click();
     await expect(page.locator('[data-testid="clear-data-status"]')).toBeVisible();
 

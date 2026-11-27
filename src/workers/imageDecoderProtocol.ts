@@ -345,7 +345,7 @@ export function bindImageDecoderRpcServer(
 
     const warnings: string[] = [];
     if (gm.trailingBytes > 0) {
-      warnings.push(`GM zawiera ${String(gm.trailingBytes)} dodatkowych bajtów na końcu pliku.`);
+      warnings.push(`GM contains ${String(gm.trailingBytes)} trailing bytes at the end of the file.`);
     }
 
     return buildSuccessResult(
@@ -417,7 +417,7 @@ export function bindImageDecoderRpcServer(
       if (entrySlice.size < 4) {
         return {
           supported: false,
-          reason: 'Plik jest zbyt mały, aby zawierał rozpoznawalny obraz.',
+          reason: 'File is too small to contain a recognized image.',
         };
       }
 
@@ -500,7 +500,7 @@ export function bindImageDecoderRpcServer(
           const warnings: string[] = [];
           if (gm.trailingBytes > 0) {
             warnings.push(
-              `GM zawiera ${String(gm.trailingBytes)} dodatkowych bajtów na końcu wpisu #${String(entryIndex)}.`,
+              `GM contains ${String(gm.trailingBytes)} trailing bytes at the end of entry #${String(entryIndex)}.`,
             );
           }
 
@@ -530,7 +530,7 @@ export function bindImageDecoderRpcServer(
         if (entrySlice.size > MAX_SINGLE_IMAGE_BYTES) {
           return {
             supported: false,
-            reason: `Plik TIM przekracza bezpieczny limit bufora pojedynczego obrazu (${String(entrySlice.size)} B).`,
+            reason: `TIM file exceeds the single-image buffer safety limit (${String(entrySlice.size)} B).`,
           };
         }
         const bytes = await entrySlice.read(0, entrySlice.size);
@@ -556,7 +556,7 @@ export function bindImageDecoderRpcServer(
           return {
             supported: false,
             reason:
-              'Duży kontener gzip bez sparowanej tablicy .idx (nie wczytano w całości do RAM).',
+              'Large gzip container without a paired .idx table (not loaded wholly into RAM).',
           };
         }
 
@@ -575,14 +575,14 @@ export function bindImageDecoderRpcServer(
           }
           return {
             supported: false,
-            reason: 'Rozpakowany plik gzip nie ma sygnatury obsługiwanego obrazu (TIM, GM, GTMP).',
+            reason: 'Decompressed gzip file has no supported image signature (TIM, GM, GTMP).',
           };
         } catch {
           throwIfAborted(context.signal);
           if (entrySlice.size > MAX_MULTI_GZIP_CONTAINER_BYTES) {
             return {
               supported: false,
-              reason: 'Plik gzip jest wieloczłonowy lub uszkodzony i przekracza limit kontenera TIM.',
+              reason: 'Gzip file is multi-member or corrupted and exceeds the TIM container limit.',
             };
           }
 
@@ -598,13 +598,13 @@ export function bindImageDecoderRpcServer(
               if (selectedMember === undefined || !isTimMagic(selectedMember.data)) {
                 return {
                   supported: false,
-                  reason: 'Człon kontenera multi-gzip nie zawiera poprawnego nagłówka TIM.',
+                  reason: 'Multi-gzip container member does not contain a valid TIM header.',
                 };
               }
               return decodeTimPayload(
                 selectedMember.data,
                 'tim-multi-gz',
-                'PS1 TIM (kontener multi-gzip)',
+                'PS1 TIM (multi-gzip container)',
                 params,
                 members.length,
                 entryIndex,
@@ -613,20 +613,20 @@ export function bindImageDecoderRpcServer(
           } catch {
             return {
               supported: false,
-              reason: 'Nie udało się rozpakować strumienia gzip jako obrazu TIM/GM.',
+              reason: 'Failed to decompress gzip stream as a TIM/GM image.',
             };
           }
 
           return {
             supported: false,
-            reason: 'Kontener multi-gzip nie zawiera obrazów TIM.',
+            reason: 'Multi-gzip container does not contain TIM images.',
           };
         }
       }
 
       return {
         supported: false,
-        reason: 'Plik nie jest obsługiwanym formatem obrazu (TIM, GM, GTMP).',
+        reason: 'File is not a supported image format (TIM, GM, GTMP).',
       };
     },
   });

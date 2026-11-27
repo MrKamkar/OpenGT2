@@ -24,7 +24,7 @@ describe('evidencePack (M3.6)', () => {
       offset: 0x40,
       length: 8,
       signature: '10 00 00 00',
-      hypothesis: 'Nagłówek podobny do TIM',
+      hypothesis: 'TIM-like header',
       evidence: 'E1',
       hexSample: exact64,
     });
@@ -63,7 +63,7 @@ describe('evidencePack (M3.6)', () => {
         offset: 0,
         length: 65,
         signature: 'FF',
-        hypothesis: 'Za długa próbka',
+        hypothesis: 'Sample too long',
         evidence: 'E0',
         hexSample: tooLongHex,
       }),
@@ -104,7 +104,7 @@ describe('evidencePack (M3.6)', () => {
         offset: 0x10,
         length: 128,
         signature: '42 42',
-        hypothesis: 'Przycięte bezpiecznie',
+        hypothesis: 'Safely truncated',
         evidence: 'E1',
         hexSample: bytes,
       },
@@ -132,7 +132,7 @@ describe('evidencePack (M3.6)', () => {
         hypothesis: '',
         evidence: 'E0',
       }),
-    ).toThrow(/Ścieżka/);
+    ).toThrow(/path/i);
     expect(() =>
       createEvidenceEntry({
         path: 'a.bin',

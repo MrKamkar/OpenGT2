@@ -76,14 +76,14 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
 
   const panel = el('section', 'ogt2-tool-panel');
   panel.dataset['testid'] = 'image-viewer-panel';
-  panel.setAttribute('aria-label', 'Podgląd obrazu 2D');
+  panel.setAttribute('aria-label', '2D Image Preview');
   panel.hidden = true;
 
   const header = el('div', 'ogt2-tool-header');
-  const title = el('h3', 'ogt2-tool-title', 'Podgląd obrazu 2D (Worker, canvas 2D)');
+  const title = el('h3', 'ogt2-tool-title', '2D Image Preview (Worker, 2D canvas)');
   const targetLabel = el('code', 'ogt2-hex-path');
   targetLabel.dataset['testid'] = 'image-viewer-target';
-  const closeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Zamknij');
+  const closeBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Close');
   closeBtn.type = 'button';
   closeBtn.dataset['testid'] = 'image-viewer-close';
   const headerRight = el('div', 'ogt2-hex-actions');
@@ -98,11 +98,11 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   entryNav.dataset['testid'] = 'image-entry-nav';
   entryNav.hidden = true;
 
-  const prevEntryBtn = el('button', 'ogt2-button ogt2-button-subtle', '← Poprzedni');
+  const prevEntryBtn = el('button', 'ogt2-button ogt2-button-subtle', '← Prev');
   prevEntryBtn.type = 'button';
   prevEntryBtn.dataset['testid'] = 'image-entry-prev';
 
-  const entryLabel = el('label', 'ogt2-hex-field-label', 'Wpis #');
+  const entryLabel = el('label', 'ogt2-hex-field-label', 'Entry #');
   entryLabel.htmlFor = 'ogt2-img-entry-input';
 
   const entryInput = el('input', 'ogt2-hex-input ogt2-hex-input-short');
@@ -117,7 +117,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   const entryTotalLabel = el('span', 'ogt2-hex-field-label', '/ 1');
   entryTotalLabel.dataset['testid'] = 'image-entry-total';
 
-  const nextEntryBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Następny →');
+  const nextEntryBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Next →');
   nextEntryBtn.type = 'button';
   nextEntryBtn.dataset['testid'] = 'image-entry-next';
 
@@ -128,15 +128,15 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   viewModeGroup.dataset['testid'] = 'image-view-mode-group';
   viewModeGroup.hidden = true;
 
-  const viewModeLabel = el('label', 'ogt2-hex-field-label', 'Widok');
+  const viewModeLabel = el('label', 'ogt2-hex-field-label', 'View');
   viewModeLabel.htmlFor = 'ogt2-img-view-mode';
   const viewModeSelect = el('select', 'ogt2-scanner-select');
   viewModeSelect.id = 'ogt2-img-view-mode';
   viewModeSelect.name = 'imageViewMode';
   viewModeSelect.dataset['testid'] = 'image-view-mode-select';
-  const optComposed = el('option', undefined, 'Złożone płótno');
+  const optComposed = el('option', undefined, 'Composed Canvas');
   optComposed.value = 'composed';
-  const optTileSheet = el('option', undefined, 'Arkusz kafelków (tileSheet)');
+  const optTileSheet = el('option', undefined, 'Tile Sheet');
   optTileSheet.value = 'tileSheet';
   viewModeSelect.append(optComposed, optTileSheet);
   viewModeGroup.append(viewModeLabel, viewModeSelect);
@@ -146,7 +146,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   paletteGroup.dataset['testid'] = 'image-palette-group';
   paletteGroup.hidden = true;
 
-  const paletteLabel = el('label', 'ogt2-hex-field-label', 'Paleta CLUT');
+  const paletteLabel = el('label', 'ogt2-hex-field-label', 'CLUT Palette');
   paletteLabel.htmlFor = 'ogt2-img-palette';
   const paletteSelect = el('select', 'ogt2-scanner-select');
   paletteSelect.id = 'ogt2-img-palette';
@@ -156,16 +156,16 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
 
   // Transparency selector
   const transpGroup = el('div', 'ogt2-imgviewer-group');
-  const transpLabel = el('label', 'ogt2-hex-field-label', 'Przezroczystość');
+  const transpLabel = el('label', 'ogt2-hex-field-label', 'Transparency');
   transpLabel.htmlFor = 'ogt2-img-transparency';
   const transpSelect = el('select', 'ogt2-scanner-select');
   transpSelect.id = 'ogt2-img-transparency';
   transpSelect.name = 'imageTransparency';
   transpSelect.dataset['testid'] = 'image-transparency-select';
   for (const [val, text] of [
-    ['transparent-zero', '0x0000 przezroczysty'],
-    ['opaque', 'Nieprzezroczysty'],
-    ['stp-semi-transparent', 'Bit STP (półprzezroczysty)'],
+    ['transparent-zero', '0x0000 transparent'],
+    ['opaque', 'Opaque'],
+    ['stp-semi-transparent', 'STP bit (semi-transparent)'],
   ] as const) {
     const opt = el('option', undefined, text);
     opt.value = val;
@@ -175,7 +175,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
 
   // Zoom bar
   const zoomBar = el('div', 'ogt2-blind-zoom-bar');
-  zoomBar.append(el('span', 'ogt2-hex-field-label', 'Powiększenie:'));
+  zoomBar.append(el('span', 'ogt2-hex-field-label', 'Zoom:'));
   const zoomButtons = new Map<ImageViewerZoom, HTMLButtonElement>();
   for (const factor of [1, 2, 4] as const) {
     const btn = el('button', 'ogt2-button ogt2-button-subtle', `${String(factor)}×`);
@@ -185,11 +185,11 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
     zoomBar.append(btn);
   }
 
-  const exportBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Eksportuj PNG');
+  const exportBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Export PNG');
   exportBtn.type = 'button';
   exportBtn.dataset['testid'] = 'image-export-png';
   exportBtn.disabled = true;
-  exportBtn.title = 'Zapisz aktualnie wyświetlany obraz w oryginalnej rozdzielczości 1:1 jako PNG';
+  exportBtn.title = 'Save the currently displayed image at native 1:1 resolution as PNG';
 
   controls.append(entryNav, viewModeGroup, paletteGroup, transpGroup, zoomBar, exportBtn);
 
@@ -198,10 +198,10 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   metaList.dataset['testid'] = 'image-viewer-meta';
   metaList.hidden = true;
   const metaFormat = appendMetaField(metaList, 'Format', 'image-meta-format');
-  const metaDimensions = appendMetaField(metaList, 'Wymiary', 'image-meta-dimensions');
-  const metaBpp = appendMetaField(metaList, 'Głębia', 'image-meta-bpp');
-  const metaPalettes = appendMetaField(metaList, 'Liczba palet', 'image-meta-palettes');
-  const metaContainerDt = el('dt', undefined, 'Kontener / .idx');
+  const metaDimensions = appendMetaField(metaList, 'Dimensions', 'image-meta-dimensions');
+  const metaBpp = appendMetaField(metaList, 'Depth', 'image-meta-bpp');
+  const metaPalettes = appendMetaField(metaList, 'Palettes', 'image-meta-palettes');
+  const metaContainerDt = el('dt', undefined, 'Container / .idx');
   const metaContainerDd = el('dd', undefined, '—');
   metaContainerDd.dataset['testid'] = 'image-meta-container';
   metaList.append(metaContainerDt, metaContainerDd);
@@ -223,7 +223,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
   canvasBox.hidden = true;
   const previewCanvas = el('canvas', 'ogt2-imgviewer-canvas');
   previewCanvas.dataset['testid'] = 'image-viewer-canvas';
-  previewCanvas.setAttribute('aria-label', 'Podgląd zdekodowanego obrazu');
+  previewCanvas.setAttribute('aria-label', 'Decoded image preview');
   canvasBox.append(previewCanvas);
 
   panel.append(header, controls, metaList, warningsList, statusText, errorText, canvasBox);
@@ -300,7 +300,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
     if (paletteSelect.options.length !== paletteCount) {
       const frag = document.createDocumentFragment();
       for (let i = 0; i < paletteCount; i += 1) {
-        const opt = el('option', undefined, `Paleta ${String(i)}`);
+        const opt = el('option', undefined, `Palette ${String(i)}`);
         opt.value = String(i);
         frag.append(opt);
       }
@@ -311,8 +311,8 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
     const disabledInComposed = supportsTileSheet && viewMode === 'composed';
     paletteSelect.disabled = disabledInComposed;
     paletteSelect.title = disabledInComposed
-      ? 'W trybie złożonego płótna każdy kafelek używa własnej palety; przełącz widok na „Arkusz kafelków”, aby wybierać paletę.'
-      : 'Wybierz aktywną paletę CLUT';
+      ? 'In composed canvas mode each tile uses its own palette; switch view to "Tile Sheet" to pick a palette.'
+      : 'Select active CLUT palette';
   };
 
   const clearRenderedOutput = (): void => {
@@ -343,7 +343,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
 
     cancelActive();
     setError(null);
-    setStatus('Dekodowanie obrazu w Workerze…');
+    setStatus('Decoding image in Worker…');
 
     const target = currentEntry;
     const controller = new AbortController();
@@ -392,7 +392,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
 
         const ctx = previewCanvas.getContext('2d');
         if (ctx === null) {
-          throw new Error('Brak obsługi kontekstu Canvas 2D w przeglądarce.');
+          throw new Error('Canvas 2D context is unavailable in this browser.');
         }
 
         previewCanvas.width = result.width;
@@ -417,7 +417,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
         if (showEntryNav) {
           entryInput.max = String(result.entryCount - 1);
           entryInput.value = String(result.entryIndex);
-          entryTotalLabel.textContent = `/ ${String(result.entryCount - 1)} (${String(result.entryCount)} wpisów)`;
+          entryTotalLabel.textContent = `/ ${String(result.entryCount - 1)} (${String(result.entryCount)} entries)`;
           prevEntryBtn.disabled = result.entryIndex <= 0;
           nextEntryBtn.disabled = result.entryIndex >= result.entryCount - 1;
         }
@@ -586,7 +586,7 @@ export function mountImageViewerPanel(options: ImageViewerPanelOptions): ImageVi
       .then(() => {
         if (!disposed && currentEntry?.path === exportPath) {
           setStatus(
-            `Wyeksportowano lokalnie PNG 1:1 (${String(renderedWidth)}×${String(renderedHeight)} px): ${filename}`,
+            `Exported 1:1 PNG locally (${String(renderedWidth)}×${String(renderedHeight)} px): ${filename}`,
           );
         }
       })

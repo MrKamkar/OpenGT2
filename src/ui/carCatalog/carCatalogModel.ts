@@ -144,18 +144,18 @@ export function buildCarDetailSections(entry: CarCatalogEntry): CarDetailSection
 
   const identification: CarDetailField[] = [
     {
-      label: 'Nazwa',
+      label: 'Name',
       value: entry.name.isFallback ? `${entry.name.displayName} (fallback hex)` : entry.name.displayName,
       evidence: entry.name.isFallback ? 'E3' : 'E2',
     },
     { label: 'carId (uint32)', value: `${entry.carIdHex} (${String(entry.carId)})`, evidence: 'E3' },
-    { label: 'Rok modelowy', value: formatCarYear(carData.year), evidence: 'E3' },
-    { label: 'Cena bazowa (newPrice)', value: carData.newPrice.toLocaleString('en-US'), evidence: 'E3' },
-    { label: 'SpecialCar', value: carData.specialCar === 1 ? '1 (specjalne)' : String(carData.specialCar), evidence: 'E3' },
+    { label: 'Model Year', value: formatCarYear(carData.year), evidence: 'E3' },
+    { label: 'Base Price (newPrice)', value: carData.newPrice.toLocaleString('en-US'), evidence: 'E3' },
+    { label: 'SpecialCar', value: carData.specialCar === 1 ? '1 (special)' : String(carData.specialCar), evidence: 'E3' },
     { label: 'manufacturerId', value: String(carData.manufacturerId), evidence: 'E2' },
     { label: 'rimsCode3', value: String(carData.rimsCode3), evidence: 'E2' },
     {
-      label: 'Indeksy nazw (unistrdb)',
+      label: 'Name Indices (unistrdb)',
       value: `${String(carData.nameFirstPartIndex)} / ${String(carData.nameSecondPartIndex)}`,
       evidence: 'E2',
     },
@@ -163,12 +163,12 @@ export function buildCarDetailSections(entry: CarCatalogEntry): CarDetailSection
 
   const dimensionsFields: CarDetailField[] =
     dimensions === null
-      ? [{ label: 'CarDimensions', value: 'Brak rekordu dla carId', evidence: 'E3' }]
+      ? [{ label: 'CarDimensions', value: 'No record for carId', evidence: 'E3' }]
       : [
-          { label: 'Masa bazowa', value: `${String(dimensions.weightKg)} kg`, evidence: 'E3' },
-          { label: 'Długość', value: `${String(dimensions.length)} mm`, evidence: 'E3' },
-          { label: 'Wysokość', value: `${String(dimensions.height)} mm`, evidence: 'E3' },
-          { label: 'Mnożnik masy RM', value: String(dimensions.rmWeightMultiplier), evidence: 'E3' },
+          { label: 'Stock Weight', value: `${String(dimensions.weightKg)} kg`, evidence: 'E3' },
+          { label: 'Length', value: `${String(dimensions.length)} mm`, evidence: 'E3' },
+          { label: 'Height', value: `${String(dimensions.height)} mm`, evidence: 'E3' },
+          { label: 'RM Weight Multiplier', value: String(dimensions.rmWeightMultiplier), evidence: 'E3' },
           { label: 'unk_0x04', value: toHex32(dimensions.unk_0x04), evidence: 'E0' },
           { label: 'unk_0x0c', value: toHex16(dimensions.unk_0x0c), evidence: 'E0' },
           { label: 'unk_0x11', value: toHex8(dimensions.unk_0x11), evidence: 'E0' },
@@ -177,33 +177,33 @@ export function buildCarDetailSections(entry: CarCatalogEntry): CarDetailSection
 
   const engineFields: CarDetailField[] =
     engine === null
-      ? [{ label: 'CarEngineData', value: 'Brak rekordu dla carId', evidence: 'E3' }]
+      ? [{ label: 'CarEngineData', value: 'No record for carId', evidence: 'E3' }]
       : [
-          { label: 'Moc bazowa (PS)', value: `${String(engine.ps)} PS`, evidence: 'E3' },
-          { label: 'Pojemność (engineCc)', value: `${String(engine.engineCc)} cc`, evidence: 'E3' },
+          { label: 'Base Power (PS)', value: `${String(engine.ps)} PS`, evidence: 'E3' },
+          { label: 'Displacement (engineCc)', value: `${String(engine.engineCc)} cc`, evidence: 'E3' },
           {
-            label: 'Obroty mocy max',
+            label: 'Peak Power RPM',
             value: `${String(engineSummary?.maxPowerRpm ?? engine.maxPowerRpmRaw * 10)} rpm (raw ${String(engine.maxPowerRpmRaw)})`,
             evidence: 'E3',
           },
           {
-            label: 'Moment (torqueKgm)',
+            label: 'Peak Torque (torqueKgm)',
             value: `${(engineSummary?.torqueKgm ?? engine.torqueKgmRaw / 10).toFixed(1)} kg·m`,
             evidence: 'E3',
           },
           {
-            label: 'Typ silnika (unistrdb)',
+            label: 'Engine Type (unistrdb)',
             value:
               [engineSummary?.typeName, engineSummary?.typeName2].filter((x) => x !== null && x !== undefined).join(' ') ||
               `${String(engine.engineTypeNameIndex)} / ${String(engine.engineTypeName2Index)}`,
             evidence: 'E2',
           },
           {
-            label: 'RPM momentu (unistrdb)',
+            label: 'Torque RPM (unistrdb)',
             value: engineSummary?.torqueRpmLabel ?? String(engine.torqueRpmStringIndex),
             evidence: 'E2',
           },
-          { label: 'Punkty krzywej (bandPointCount)', value: String(engine.bandPointCount), evidence: 'E2' },
+          { label: 'Curve Points (bandPointCount)', value: String(engine.bandPointCount), evidence: 'E2' },
           {
             label: 'baseUnits',
             value: engine.baseUnits.map((b) => toHex8(b)).join(' '),
@@ -215,7 +215,7 @@ export function buildCarDetailSections(entry: CarCatalogEntry): CarDetailSection
 
   const rawCarDataFields: CarDetailField[] = [
     {
-      label: 'Indeksy domyślnych części (E3)',
+      label: 'Default Part Indices (E3)',
       value: [
         `brake=${String(carData.brakePart)}`,
         `weight=${String(carData.weightPartId)}`,
@@ -269,17 +269,17 @@ export function buildCarDetailSections(entry: CarCatalogEntry): CarDetailSection
 
   if (partsFields.length === 0) {
     partsFields.push({
-      label: 'Warianty części',
-      value: 'Brak powiązanych rekordów skrzyń/zawieszeń/opon',
+      label: 'Part Variants',
+      value: 'No linked gearbox/suspension/tyre records',
       evidence: 'E3',
     });
   }
 
   return [
-    { title: 'Identyfikacja i ceny', fields: identification },
-    { title: 'Wymiary i masa (CarDimensions)', fields: dimensionsFields },
-    { title: 'Silnik (CarEngineData)', fields: engineFields },
-    { title: 'Indeksy i surowe pola CarData', fields: rawCarDataFields },
-    { title: 'Warianty skrzyń, zawieszeń i opon', fields: partsFields },
+    { title: 'Identification & Pricing', fields: identification },
+    { title: 'Dimensions & Weight (CarDimensions)', fields: dimensionsFields },
+    { title: 'Engine (CarEngineData)', fields: engineFields },
+    { title: 'CarData Indices & Raw Fields', fields: rawCarDataFields },
+    { title: 'Gearbox, Suspension & Tyre Variants', fields: partsFields },
   ];
 }

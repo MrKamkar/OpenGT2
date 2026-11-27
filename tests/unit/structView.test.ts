@@ -162,7 +162,7 @@ describe('structview decoder (M3.5)', () => {
         count: 1,
         fields: [{ name: 'a', offset: 2, type: 'u32' }],
       }),
-    ).toThrow(/wykracza/i);
+    ).toThrow(/exceeds/i);
 
     expect(() =>
       validateStructSchema({
@@ -172,7 +172,7 @@ describe('structview decoder (M3.5)', () => {
         count: 1,
         fields: [],
       }),
-    ).toThrow(/co najmniej jedno pole/i);
+    ).toThrow(/at least one field/i);
   });
 });
 
@@ -221,7 +221,7 @@ describe('structview JSON schema serialization & parsing (M3.5)', () => {
     expect(() => parseStructSchemaJson('{not json')).toThrow(/JSON/i);
     expect(() =>
       parseStructSchemaJson(JSON.stringify({ endianness: 'big', baseOffset: 0, stride: 4, count: 1, fields: [] })),
-    ).toThrow(/endianness|kolejność/i);
+    ).toThrow(/endianness/i);
     expect(() =>
       parseStructSchemaJson(
         JSON.stringify({
@@ -232,6 +232,6 @@ describe('structview JSON schema serialization & parsing (M3.5)', () => {
           fields: [{ name: 'x', offset: 0, type: 'bogus_type' }],
         }),
       ),
-    ).toThrow(/typ/i);
+    ).toThrow(/type/i);
   });
 });

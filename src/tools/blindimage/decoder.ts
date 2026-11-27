@@ -45,12 +45,12 @@ export function decodePs1Color15(
 export function validateBlindImageDimensions(width: number, height: number): void {
   if (!Number.isSafeInteger(width) || width < 1 || width > BLIND_IMAGE_MAX_WIDTH) {
     throw new Error(
-      `Szerokość obrazu musi mieścić się w zakresie 1..${String(BLIND_IMAGE_MAX_WIDTH)} px.`,
+      `Image width must be within 1..${String(BLIND_IMAGE_MAX_WIDTH)} px.`,
     );
   }
   if (!Number.isSafeInteger(height) || height < 1 || height > BLIND_IMAGE_MAX_HEIGHT) {
     throw new Error(
-      `Wysokość obrazu musi mieścić się w zakresie 1..${String(BLIND_IMAGE_MAX_HEIGHT)} px.`,
+      `Image height must be within 1..${String(BLIND_IMAGE_MAX_HEIGHT)} px.`,
     );
   }
 }
@@ -60,7 +60,7 @@ export function validateBlindImageDimensions(width: number, height: number): voi
  */
 export function computeBlindImageRowBytes(width: number, bpp: BlindImageBpp): number {
   if (!Number.isSafeInteger(width) || width < 1) {
-    throw new Error('Szerokość obrazu musi być dodatnią liczbą całkowitą.');
+    throw new Error('Image width must be a positive integer.');
   }
   switch (bpp) {
     case 4:

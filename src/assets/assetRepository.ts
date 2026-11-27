@@ -196,7 +196,7 @@ export class AssetRepository {
 
     if (modelEntry === null) {
       throw new Error(
-        `Brak modelu ${variant === 'day' ? '.cdo' : '.cno'} dla nadwozia "${normalizedCode}".`,
+        `Missing ${variant === 'day' ? '.cdo' : '.cno'} model for body "${normalizedCode}".`,
       );
     }
 

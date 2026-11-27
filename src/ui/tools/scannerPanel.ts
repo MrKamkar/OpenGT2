@@ -55,11 +55,11 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
 
   const panel = el('section', 'ogt2-tool-panel');
   panel.dataset['testid'] = 'scanner-panel';
-  panel.setAttribute('aria-label', 'Skaner sygnatur');
+  panel.setAttribute('aria-label', 'Signature Scanner');
   panel.hidden = true;
 
   const header = el('div', 'ogt2-tool-header');
-  const title = el('h3', 'ogt2-tool-title', 'Skaner sygnatur (Worker)');
+  const title = el('h3', 'ogt2-tool-title', 'Signature Scanner (Worker)');
   const targetLabel = el('code', 'ogt2-hex-path');
   targetLabel.dataset['testid'] = 'scanner-target';
   header.append(title, targetLabel);
@@ -79,7 +79,7 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
 
   // Controls form
   const form = el('form', 'ogt2-scanner-form');
-  const patternLabel = el('label', 'ogt2-hex-field-label', 'Wzorzec hex');
+  const patternLabel = el('label', 'ogt2-hex-field-label', 'Hex Pattern');
   patternLabel.htmlFor = 'ogt2-scanner-pattern';
   const patternInput = el('input', 'ogt2-hex-input ogt2-scanner-pattern-input');
   patternInput.id = 'ogt2-scanner-pattern';
@@ -91,23 +91,23 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
   patternInput.spellcheck = false;
   patternInput.dataset['testid'] = 'scanner-pattern-input';
 
-  const modeLabel = el('label', 'ogt2-hex-field-label', 'Tryb');
+  const modeLabel = el('label', 'ogt2-hex-field-label', 'Mode');
   modeLabel.htmlFor = 'ogt2-scanner-mode';
   const modeSelect = el('select', 'ogt2-scanner-select');
   modeSelect.id = 'ogt2-scanner-mode';
   modeSelect.name = 'scannerMode';
   modeSelect.dataset['testid'] = 'scanner-mode-select';
-  const optRaw = el('option', undefined, 'Surowy');
+  const optRaw = el('option', undefined, 'Raw');
   optRaw.value = 'raw';
-  const optGunzip = el('option', undefined, 'Rozpakowany (gzip)');
+  const optGunzip = el('option', undefined, 'Decompressed (gzip)');
   optGunzip.value = 'gunzip';
   modeSelect.append(optRaw, optGunzip);
 
-  const runBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Skanuj');
+  const runBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Scan');
   runBtn.type = 'submit';
   runBtn.dataset['testid'] = 'scanner-run-button';
 
-  const cancelBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Anuluj');
+  const cancelBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Cancel');
   cancelBtn.type = 'button';
   cancelBtn.dataset['testid'] = 'scanner-cancel-button';
   cancelBtn.disabled = true;
@@ -157,13 +157,13 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
     hitsList.replaceChildren();
     if (result.hits.length === 0) {
       statusText.hidden = false;
-      statusText.textContent = `Przeskanowano ${String(result.bytesScanned)} / ${String(result.totalBytes)} B — brak trafień.`;
+      statusText.textContent = `Scanned ${String(result.bytesScanned)} / ${String(result.totalBytes)} B — no matches.`;
       return;
     }
 
-    const suffix = result.truncated ? ' (limit wyników osiągnięty)' : '';
+    const suffix = result.truncated ? ' (hit limit reached)' : '';
     statusText.hidden = false;
-    statusText.textContent = `Znaleziono ${String(result.hits.length)} trafień w ${String(result.bytesScanned)} B${suffix}.`;
+    statusText.textContent = `Found ${String(result.hits.length)} hits in ${String(result.bytesScanned)} B${suffix}.`;
 
     const mode = decompress ? 'gunzip' : 'raw';
     for (const hit of result.hits) {
@@ -239,7 +239,7 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
     runBtn.disabled = true;
     cancelBtn.disabled = false;
     statusText.hidden = false;
-    statusText.textContent = 'Skanowanie w toku…';
+    statusText.textContent = 'Scanning…';
 
     void scanEntry(targetEntry, {
       decompress,
@@ -250,7 +250,7 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
           return;
         }
         statusText.hidden = false;
-        statusText.textContent = `Postęp: ${String(progress.bytesScanned)} / ${String(progress.totalBytes)} B · trafień: ${String(progress.hitsFound)}`;
+        statusText.textContent = `Progress: ${String(progress.bytesScanned)} / ${String(progress.totalBytes)} B · hits: ${String(progress.hitsFound)}`;
       },
     })
       .then((result) => {
@@ -265,7 +265,7 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
         }
         if (isAbortLikeError(error)) {
           statusText.hidden = false;
-          statusText.textContent = 'Skanowanie anulowane.';
+          statusText.textContent = 'Scan cancelled.';
           return;
         }
         setError(describeFileActionError(error));
@@ -283,7 +283,7 @@ export function mountScannerPanel(options: ScannerPanelOptions): ScannerPanelHan
   const onCancelClick = (): void => {
     cancelScan();
     statusText.hidden = false;
-    statusText.textContent = 'Skanowanie anulowane.';
+    statusText.textContent = 'Scan cancelled.';
   };
 
   form.addEventListener('submit', onFormSubmit);

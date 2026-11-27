@@ -57,7 +57,7 @@ function renderEntropySvg(report: FileAnalysisReport): SVGSVGElement {
     viewBox: `0 0 ${String(width)} ${String(height)}`,
     class: 'ogt2-analyzer-svg',
     role: 'img',
-    'aria-label': 'Wykres entropii Shannona w oknach (0..8 bit/B)',
+    'aria-label': 'Windowed Shannon entropy chart (0..8 bit/B)',
   });
   svg.dataset['testid'] = 'analyzer-entropy-chart';
 
@@ -122,7 +122,7 @@ function renderHistogramSvg(report: FileAnalysisReport): SVGSVGElement {
     viewBox: `0 0 ${String(width)} ${String(height)}`,
     class: 'ogt2-analyzer-svg',
     role: 'img',
-    'aria-label': 'Histogram bajtów (0x00..0xFF)',
+    'aria-label': 'Byte value histogram (0x00..0xFF)',
   });
   svg.dataset['testid'] = 'analyzer-histogram-chart';
 
@@ -156,29 +156,29 @@ export function mountAnalyzerPanel(options: AnalyzerPanelOptions): AnalyzerPanel
 
   const panel = el('section', 'ogt2-tool-panel');
   panel.dataset['testid'] = 'analyzer-panel';
-  panel.setAttribute('aria-label', 'Analizator entropii, histogramu i stride');
+  panel.setAttribute('aria-label', 'Entropy, histogram, and stride analyzer');
   panel.hidden = true;
 
   const header = el('div', 'ogt2-tool-header');
-  const title = el('h3', 'ogt2-tool-title', 'Analizator pliku (entropia, histogram, stride)');
+  const title = el('h3', 'ogt2-tool-title', 'File Analyzer (entropy, histogram, stride)');
   const targetLabel = el('code', 'ogt2-hex-path');
   targetLabel.dataset['testid'] = 'analyzer-target';
   header.append(title, targetLabel);
 
   const controls = el('div', 'ogt2-scanner-form');
-  const modeLabel = el('label', 'ogt2-hex-field-label', 'Tryb');
+  const modeLabel = el('label', 'ogt2-hex-field-label', 'Mode');
   modeLabel.htmlFor = 'ogt2-analyzer-mode';
   const modeSelect = el('select', 'ogt2-scanner-select');
   modeSelect.id = 'ogt2-analyzer-mode';
   modeSelect.name = 'analyzerMode';
   modeSelect.dataset['testid'] = 'analyzer-mode-select';
-  const optRaw = el('option', undefined, 'Surowy');
+  const optRaw = el('option', undefined, 'Raw');
   optRaw.value = 'raw';
-  const optGunzip = el('option', undefined, 'Rozpakowany (gzip)');
+  const optGunzip = el('option', undefined, 'Decompressed (gzip)');
   optGunzip.value = 'gunzip';
   modeSelect.append(optRaw, optGunzip);
 
-  const runBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Analizuj');
+  const runBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Analyze');
   runBtn.type = 'button';
   runBtn.dataset['testid'] = 'analyzer-run-button';
 
@@ -238,34 +238,34 @@ export function mountAnalyzerPanel(options: AnalyzerPanelOptions): AnalyzerPanel
     };
 
     const scopeNote = truncated
-      ? `${formatBytesExact(report.totalBytes)} z ${formatBytesExact(totalFileBytes)} (limit okna 1 MiB)`
+      ? `${formatBytesExact(report.totalBytes)} of ${formatBytesExact(totalFileBytes)} (1 MiB window cap)`
       : formatBytesExact(report.totalBytes);
-    addMetric('Przeanalizowano', scopeNote, 'analyzer-bytes');
-    addMetric('Entropia globalna', `${report.entropy.globalEntropy.toFixed(3)} bit/B`, 'analyzer-entropy-value');
-    addMetric('Unikalne bajty', `${String(report.histogram.uniqueValues)} / 256`, 'analyzer-unique-bytes');
-    addMetric('Bajty 0x00', `${(report.histogram.zeroRatio * 100).toFixed(1)}%`);
-    addMetric('ASCII drukowalne', `${(report.histogram.printableAsciiRatio * 100).toFixed(1)}%`);
+    addMetric('Analyzed', scopeNote, 'analyzer-bytes');
+    addMetric('Global entropy', `${report.entropy.globalEntropy.toFixed(3)} bit/B`, 'analyzer-entropy-value');
+    addMetric('Unique bytes', `${String(report.histogram.uniqueValues)} / 256`, 'analyzer-unique-bytes');
+    addMetric('0x00 bytes', `${(report.histogram.zeroRatio * 100).toFixed(1)}%`);
+    addMetric('Printable ASCII', `${(report.histogram.printableAsciiRatio * 100).toFixed(1)}%`);
 
     const chartsGrid = el('div', 'ogt2-analyzer-charts');
     const entCard = el('div', 'ogt2-analyzer-chart-card');
     entCard.append(
-      el('p', 'ogt2-hex-insp-title', `Entropia w oknach (${String(report.entropy.windowSize)} B)`),
+      el('p', 'ogt2-hex-insp-title', `Windowed entropy (${String(report.entropy.windowSize)} B)`),
       renderEntropySvg(report),
     );
     const histCard = el('div', 'ogt2-analyzer-chart-card');
     histCard.append(
-      el('p', 'ogt2-hex-insp-title', 'Histogram bajtów (0x00–0xFF)'),
+      el('p', 'ogt2-hex-insp-title', 'Byte histogram (0x00–0xFF)'),
       renderHistogramSvg(report),
     );
     chartsGrid.append(entCard, histCard);
 
     const stridesSection = el('div', 'ogt2-analyzer-strides-wrap');
-    stridesSection.append(el('p', 'ogt2-hex-insp-title', 'Wykryte stride’y (autokorelacja)'));
+    stridesSection.append(el('p', 'ogt2-hex-insp-title', 'Detected strides (autocorrelation)'));
     const stridesList = el('ul', 'ogt2-analyzer-strides');
     stridesList.dataset['testid'] = 'analyzer-strides';
 
     if (report.strides.length === 0) {
-      stridesList.append(el('li', 'ogt2-status-text', 'Brak wyraźnych powtarzalnych stride’ów.'));
+      stridesList.append(el('li', 'ogt2-status-text', 'No significant repeating strides detected.'));
     } else {
       for (const candidate of report.strides) {
         const li = el('li', 'ogt2-analyzer-stride-item');
@@ -273,9 +273,9 @@ export function mountAnalyzerPanel(options: AnalyzerPanelOptions): AnalyzerPanel
         li.dataset['stride'] = String(candidate.stride);
         const harmonicNote =
           candidate.isHarmonic && candidate.fundamentalStride !== undefined
-            ? ` (harmoniczna od ${formatHexOffset(candidate.fundamentalStride, 1)})`
+            ? ` (harmonic of ${formatHexOffset(candidate.fundamentalStride, 1)})`
             : '';
-        li.textContent = `${formatHexOffset(candidate.stride, 1)} (${String(candidate.stride)} B) — wynik ${(candidate.excessScore * 100).toFixed(1)}%, zgodność ${(candidate.matchRate * 100).toFixed(1)}%${harmonicNote}`;
+        li.textContent = `${formatHexOffset(candidate.stride, 1)} (${String(candidate.stride)} B) — score ${(candidate.excessScore * 100).toFixed(1)}%, match ${(candidate.matchRate * 100).toFixed(1)}%${harmonicNote}`;
         stridesList.append(li);
       }
     }
@@ -301,7 +301,7 @@ export function mountAnalyzerPanel(options: AnalyzerPanelOptions): AnalyzerPanel
     activeController = controller;
     runBtn.disabled = true;
     statusText.hidden = false;
-    statusText.textContent = 'Analizowanie danych…';
+    statusText.textContent = 'Analyzing data…';
 
     const readPromise = decompress
       ? source.readDecompressedRange(targetEntry.path, 0, ANALYZER_MAX_BYTES, controller.signal)
