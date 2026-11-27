@@ -132,11 +132,11 @@ export function computeTyreForces(input: TyreForceInput): TyreForceOutput {
   let lateralC = Math.min(1.28, input.compound.pacejkaC);
   let lateralE = Math.min(0.45, input.compound.pacejkaE);
   if (input.axle === 'front') {
-    lateralB = input.compound.pacejkaB * 1.32;
-    lateralC = Math.min(1.32, input.compound.pacejkaC);
-    lateralE = Math.min(0.20, input.compound.pacejkaE);
+    lateralB = input.compound.pacejkaB * 1.46;
+    lateralC = Math.min(1.36, input.compound.pacejkaC);
+    lateralE = Math.min(0.12, input.compound.pacejkaE);
   } else if (input.axle === 'rear') {
-    lateralB = input.compound.pacejkaB * 1.62;
+    lateralB = input.compound.pacejkaB * 1.56;
     lateralC = Math.min(1.38, input.compound.pacejkaC);
     lateralE = -0.05;
   }

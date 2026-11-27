@@ -64,6 +64,15 @@ export const BRAKE_HOLD_SPEED_THRESHOLD_MPS = 0.18;
 /** Exponential damping rate (1/s) applied when brakes are held stationary. */
 export const BRAKE_HOLD_DAMPING_RATE = 25.0;
 
+/** Minimum longitudinal contact-patch speed (m/s) above which ABS modulates footbrake pressure. */
+const ABS_MIN_SPEED_MPS = 2.5;
+/** Target braking slip ratio (`-slipRatio`) where per-wheel ABS begins releasing footbrake torque. */
+const ABS_TARGET_SLIP_RATIO = 0.17;
+/** Excess braking slip band over which ABS linearly ramps torque down to `ABS_MIN_TORQUE_SCALE`. */
+const ABS_RELEASE_BAND = 0.14;
+/** Minimum footbrake torque fraction retained when ABS detects deep lockup. */
+const ABS_MIN_TORQUE_SCALE = 0.18;
+
 /** Nominal chassis underbody/sill clearance above the tyre-bottom road plane at static ride height (m). */
 export const CHASSIS_UNDERBODY_REST_CLEARANCE_METERS = 0.072;
 
@@ -283,7 +292,7 @@ export class VehicleSimulation {
         Math.abs(preStepBodySlipRad) > 0.10 && steer * preStepBodySlipRad < -0.02;
 
       if (steerMag > 0.05 && !isCountersteeringIntoSlide) {
-        const peakFrontSlipRad = clamp(0.175 - (forwardSpeedMps - 12) * 0.0018, 0.118, 0.18);
+        const peakFrontSlipRad = clamp(0.195 - (forwardSpeedMps - 14) * 0.0014, 0.145, 0.2);
         // Scale by 1.8 so speed-sensitive keyboard steering (0.32..1.0) still hits peak grip at full lock.
         const desiredSlipRad =
           Math.sign(steer) * peakFrontSlipRad * Math.min(1, steerMag * 1.8);
@@ -364,13 +373,13 @@ export class VehicleSimulation {
       const susp = this.suspension[i]!;
       const driveTorque = this.drivetrain.wheelDriveTorquesNm[i] ?? 0;
 
-      const brakeTorque =
+      const rawFootBrakeTorque =
         wheelSpec.axle === 'front'
           ? brake * this.spec.brakes.maxFrontWheelTorqueNm
-          : Math.max(
-              brake * this.spec.brakes.maxRearWheelTorqueNm,
-              handbrake * this.spec.brakes.handbrakeRearWheelTorqueNm,
-            );
+          : brake * this.spec.brakes.maxRearWheelTorqueNm;
+      const handbrakeTorque =
+        wheelSpec.axle === 'rear' ? handbrake * this.spec.brakes.handbrakeRearWheelTorqueNm : 0;
+      const isRearHandbrakeActive = wheelSpec.axle === 'rear' && handbrake >= 0.1;
 
       const localFwd = wheelSpec.steerable ? steeredForwardLocal : VEC3_FORWARD;
       const localRight = wheelSpec.steerable ? steeredRightLocal : VEC3_RIGHT;
@@ -391,7 +400,7 @@ export class VehicleSimulation {
         const nextOmega = stepWheelSpin(
           this.wheelAngularSpeeds[i] ?? 0,
           driveTorque,
-          brakeTorque,
+          Math.max(rawFootBrakeTorque, handbrakeTorque),
           0,
           wheelSpec.radiusMeters,
           effectiveWheelInertia,
@@ -423,7 +432,8 @@ export class VehicleSimulation {
       // speed to prevent high-load explicit Euler longitudinal slip chatter from starving lateral grip.
       const isFreeRollingCorner =
         !isDrivenWheel &&
-        brakeTorque === 0 &&
+        rawFootBrakeTorque === 0 &&
+        handbrakeTorque === 0 &&
         wheelSpec.radiusMeters > 0.05 &&
         (Math.abs(steer) > 0.02 || Math.abs(patchRightSpeed) > 0.4);
       if (isFreeRollingCorner) {
@@ -454,12 +464,33 @@ export class VehicleSimulation {
       );
       applyWorldForceAtPoint(this.body, worldTyreForce, susp.contactPoint);
 
+      // Per-wheel ABS modulates footbrake torque only; rear handbrake stays unmodulated for crisp drift lockup.
+      let effectiveFootBrakeTorque = rawFootBrakeTorque;
+      if (
+        rawFootBrakeTorque > 0 &&
+        !isRearHandbrakeActive &&
+        Math.abs(patchForwardSpeed) > ABS_MIN_SPEED_MPS
+      ) {
+        const brakingSlip = Math.max(0, -tyreOut.slipRatio);
+        if (brakingSlip > ABS_TARGET_SLIP_RATIO) {
+          const absScale = clamp(
+            1 - (brakingSlip - ABS_TARGET_SLIP_RATIO) / ABS_RELEASE_BAND,
+            ABS_MIN_TORQUE_SCALE,
+            1,
+          );
+          effectiveFootBrakeTorque *= absScale;
+        }
+        const gripTorqueCap = susp.normalForce * tyreOut.effectiveMu * wheelSpec.radiusMeters * 1.4;
+        effectiveFootBrakeTorque = Math.min(effectiveFootBrakeTorque, gripTorqueCap);
+      }
+      const appliedBrakeTorque = Math.max(effectiveFootBrakeTorque, handbrakeTorque);
+
       const nextOmega = isFreeRollingCorner
         ? patchForwardSpeed / wheelSpec.radiusMeters
         : stepWheelSpin(
             this.wheelAngularSpeeds[i] ?? 0,
             driveTorque,
-            brakeTorque,
+            appliedBrakeTorque,
             tyreOut.longitudinalForceN,
             wheelSpec.radiusMeters,
             effectiveWheelInertia,
