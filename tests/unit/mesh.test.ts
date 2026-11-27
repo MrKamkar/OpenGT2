@@ -534,4 +534,61 @@ describe('CarRenderMesh & buildCarMeshData (M7.2)', () => {
     expect(mock.deletedBuffers).toHaveLength(3);
     expect(mock.deletedVaos).toHaveLength(1);
   });
+
+  it('computes geometric triangle normals for double-sided unindexed faces without altering single-sided or empty-normal meshes (M9.24)', () => {
+    const sampleVerts: readonly (readonly [number, number, number, number])[] = [
+      [0, 0, 0, 0],
+      [1000, 0, 0, 0],
+      [0, 1000, 0, 0],
+      [-1000, 0, 0, 0],
+    ];
+    // lod.normals[0] points along +Y, while the double-sided triangle lies in the XY plane facing +Z
+    const sampleNorms: readonly (readonly [number, number, number])[] = [[0, 500, 0]];
+    const cdo = parseCdo(
+      buildSyntheticCdo({
+        lods: [
+          {
+            scale: 16,
+            vertices: sampleVerts,
+            normals: sampleNorms,
+            triangles: [
+              {
+                vertices: [0, 3, 2, 0],
+                normals: [0, 0, 0, 0],
+                faceType: CDO_FACE_TYPE_TRI,
+                renderFlags: CAR_RENDER_FLAG_SINGLE_SIDED,
+              },
+              {
+                vertices: [0, 1, 2, 0],
+                normals: [0, 0, 0, 0],
+                faceType: CDO_FACE_TYPE_TRI,
+                renderFlags: 0,
+              },
+            ],
+            quads: [],
+            uvTriangles: [],
+            uvQuads: [],
+          },
+          { vertices: sampleVerts, normals: sampleNorms, triangles: [], quads: [], uvTriangles: [], uvQuads: [] },
+          { vertices: sampleVerts, normals: sampleNorms, triangles: [], quads: [], uvTriangles: [], uvQuads: [] },
+        ],
+      }),
+    );
+
+    const meshData = buildCarMeshData(buildCarModel(cdo), 0);
+    // First triangle (single-sided) reads lod.normals[0] = (0, 1, 0)
+    for (let k = 0; k < 3; k += 1) {
+      const idx = meshData.indicesUint16[k]!;
+      expect(meshData.normalsFloat32[idx * 3]).toBeCloseTo(0, 4);
+      expect(meshData.normalsFloat32[idx * 3 + 1]).toBeCloseTo(1, 4);
+      expect(meshData.normalsFloat32[idx * 3 + 2]).toBeCloseTo(0, 4);
+    }
+    // Second triangle (double-sided unindexed) gets geometric normal (0, 0, +1) instead of (0, 1, 0)
+    for (let k = 3; k < 6; k += 1) {
+      const idx = meshData.indicesUint16[k]!;
+      expect(meshData.normalsFloat32[idx * 3]).toBeCloseTo(0, 4);
+      expect(meshData.normalsFloat32[idx * 3 + 1]).toBeCloseTo(0, 4);
+      expect(Math.abs(meshData.normalsFloat32[idx * 3 + 2] ?? 0)).toBeCloseTo(1, 4);
+    }
+  });
 });

@@ -7,7 +7,12 @@ import {
   encodeCarId,
 } from '../../src/formats/gtdb';
 import type { VolEntry } from '../../src/formats/vol';
-import { resolveAutoLodIndex } from '../../src/renderer';
+import {
+  AUTO_LOD0_RADIUS_MULTIPLIER,
+  AUTO_LOD1_RADIUS_MULTIPLIER,
+  OrbitCamera,
+  resolveAutoLodIndex,
+} from '../../src/renderer';
 import {
   buildCarBodyOptions,
   filterViewerCars,
@@ -142,6 +147,40 @@ describe('CarViewerModel (M7.7)', () => {
     expect(resolveAutoLodIndex(15.0, lods)).toBe(1);
     expect(resolveAutoLodIndex(25.0, lods)).toBe(2);
     expect(resolveAutoLodIndex(999, lods)).toBe(2);
+
+    // Calibrated real-car bounding boxes keep LOD0 at default OrbitCamera framing for both scale=16 and scale=17 (M9.25)
+    for (const vertexScale of [1, 2]) {
+      const halfRawX = 3600 / vertexScale;
+      const halfRawZ = 8800 / vertexScale;
+      const rawTopY = 5300 / vertexScale;
+      const scaledLods = [
+        {
+          maxDistance: 5,
+          vertexScale,
+          boundingBox: {
+            low: { x: -halfRawX, y: 0, z: -halfRawZ },
+            high: { x: halfRawX, y: rawTopY, z: halfRawZ },
+          },
+        } as unknown as CarModelLod,
+        { maxDistance: 15, vertexScale } as unknown as CarModelLod,
+        { maxDistance: 300, vertexScale } as unknown as CarModelLod,
+      ];
+      const radiusMeters =
+        0.5 *
+        Math.hypot(
+          (halfRawX * 2 * vertexScale) / 4096,
+          (rawTopY * vertexScale) / 4096,
+          (halfRawZ * 2 * vertexScale) / 4096,
+        );
+      const camera = new OrbitCamera({ aspect: 16 / 9 });
+      camera.fitToBounds(
+        [-(halfRawX * vertexScale) / 4096, 0, -(halfRawZ * vertexScale) / 4096],
+        [(halfRawX * vertexScale) / 4096, (rawTopY * vertexScale) / 4096, (halfRawZ * vertexScale) / 4096],
+      );
+      expect(resolveAutoLodIndex(camera.getState().distance, scaledLods)).toBe(0);
+      expect(resolveAutoLodIndex(radiusMeters * AUTO_LOD0_RADIUS_MULTIPLIER + 0.2, scaledLods)).toBe(1);
+      expect(resolveAutoLodIndex(radiusMeters * AUTO_LOD1_RADIUS_MULTIPLIER + 0.5, scaledLods)).toBe(2);
+    }
   });
 
   it('formats paint labels and extracts representative CSS swatch colors', () => {

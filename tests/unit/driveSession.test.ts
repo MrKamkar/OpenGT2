@@ -800,6 +800,52 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
     expect(texturedRimVerts).toBeGreaterThan(10);
     expect(untexturedVerts).toBeGreaterThan(20);
 
+    // Verify all 24 tread barrel triangles have outward CCW winding and lit rubber colors (M9.23)
+    let treadTrianglesChecked = 0;
+    let litTreadVerts = 0;
+    for (let i = 0; i < wheelData.vertexCount; i += 1) {
+      const nx = wheelData.normalsFloat32[i * 3] ?? 0;
+      const mode = wheelData.materialsUint8[i * 2 + 1] ?? 0;
+      if (mode === CAR_FACE_MODE_UNTEXTURED && Math.abs(nx) < 0.1) {
+        expect(wheelData.colorsUint8[i * 3] ?? 0).toBeGreaterThanOrEqual(48);
+        litTreadVerts += 1;
+      }
+    }
+    expect(litTreadVerts).toBe(CAR_WHEEL_SEGMENTS * 2);
+
+    for (let ti = 0; ti + 2 < wheelData.indicesUint16.length; ti += 3) {
+      const i0 = wheelData.indicesUint16[ti]!;
+      const i1 = wheelData.indicesUint16[ti + 1]!;
+      const i2 = wheelData.indicesUint16[ti + 2]!;
+      const nx0 = Math.abs(wheelData.normalsFloat32[i0 * 3] ?? 0);
+      const nx1 = Math.abs(wheelData.normalsFloat32[i1 * 3] ?? 0);
+      const nx2 = Math.abs(wheelData.normalsFloat32[i2 * 3] ?? 0);
+      if (nx0 < 0.1 && nx1 < 0.1 && nx2 < 0.1) {
+        const ax = wheelData.positionsInt16[i0 * 3]!;
+        const ay = wheelData.positionsInt16[i0 * 3 + 1]!;
+        const az = wheelData.positionsInt16[i0 * 3 + 2]!;
+        const bx = wheelData.positionsInt16[i1 * 3]!;
+        const by = wheelData.positionsInt16[i1 * 3 + 1]!;
+        const bz = wheelData.positionsInt16[i1 * 3 + 2]!;
+        const cx = wheelData.positionsInt16[i2 * 3]!;
+        const cy = wheelData.positionsInt16[i2 * 3 + 1]!;
+        const cz = wheelData.positionsInt16[i2 * 3 + 2]!;
+        const ux = bx - ax;
+        const uy = by - ay;
+        const uz = bz - az;
+        const vx = cx - ax;
+        const vy = cy - ay;
+        const vz = cz - az;
+        const ny = uz * vx - ux * vz;
+        const nz = ux * vy - uy * vx;
+        const midY = (ay + by + cy) / 3;
+        const midZ = (az + bz + cz) / 3;
+        expect(ny * midY + nz * midZ).toBeGreaterThan(0);
+        treadTrianglesChecked += 1;
+      }
+    }
+    expect(treadTrianglesChecked).toBe(CAR_WHEEL_SEGMENTS * 2);
+
     // Transform checks: det = +1, left outward normal -> -X, spin > 0 rolls top -> -Z, steer > 0 turns -Z -> -X
     const transformVec = (m: Float32Array, x: number, y: number, z: number, w: number) => ({
       x: (m[0] ?? 0) * x + (m[4] ?? 0) * y + (m[8] ?? 0) * z + (m[12] ?? 0) * w,

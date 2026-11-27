@@ -647,4 +647,83 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(maxBodySlipDeg).toBeLessThanOrEqual(52);
     expect(recoveredSlipDeg).toBeLessThan(10);
   });
+
+  it('preserves front turn-in during ABS trail-braking while leaving handbrake drift lockup unaffected (M9.22)', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const index = createFlatAsphaltCollisionIndex(4000, 400);
+    const radToDeg = 180 / Math.PI;
+
+    // Part A: Full footbrake + full steer (trail-braking from > 115 km/h) must not lock front wheels
+    const trailSim = new VehicleSimulation(spec, index, {
+      initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+    });
+    for (let i = 0; i < 1200; i += 1) {
+      trailSim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      if (trailSim.getSnapshot().speedMps >= 32) break;
+    }
+    const trailStartHeading = (() => {
+      const fwd = quatRotateVec3(trailSim.getSnapshot().pose.orientation, VEC3_FORWARD);
+      return Math.atan2(-fwd.x, -fwd.z);
+    })();
+    let prevAngle = trailStartHeading;
+    let headingDeltaRad = 0;
+    let minFrontSlipRatio = 0;
+    let peakLatG = 0;
+
+    for (let i = 0; i < 120; i += 1) {
+      trailSim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 1 }, FIXED_DT);
+      const snap = trailSim.getSnapshot();
+      const frontMin = Math.min(snap.wheels[0].slipRatio, snap.wheels[1].slipRatio);
+      if (frontMin < minFrontSlipRatio) minFrontSlipRatio = frontMin;
+      const latG = (snap.speedMps * Math.abs(snap.angularVelocity.y)) / GRAVITY_MPS2;
+      if (latG > peakLatG) peakLatG = latG;
+
+      const fwd = quatRotateVec3(snap.pose.orientation, VEC3_FORWARD);
+      const ang = Math.atan2(-fwd.x, -fwd.z);
+      let dAng = ang - prevAngle;
+      if (dAng > Math.PI) dAng -= Math.PI * 2;
+      if (dAng < -Math.PI) dAng += Math.PI * 2;
+      headingDeltaRad += dAng;
+      prevAngle = ang;
+    }
+
+    expect(minFrontSlipRatio).toBeGreaterThan(-0.38);
+    expect(peakLatG).toBeGreaterThanOrEqual(0.78);
+    expect(headingDeltaRad * radToDeg).toBeGreaterThanOrEqual(12);
+
+    // Part B: Rear handbrake lockup must remain unmodulated by ABS so drift initiation stays crisp
+    const hbSim = new VehicleSimulation(spec, index, {
+      initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+    });
+    for (let i = 0; i < 1200; i += 1) {
+      hbSim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      if (hbSim.getSnapshot().speedMps >= 26.4) break;
+    }
+    let minRearSlipRatio = 0;
+    let peakBodySlipDeg = 0;
+    const measureSlipDeg = () => {
+      const snap = hbSim.getSnapshot();
+      const right = quatRotateVec3(snap.pose.orientation, VEC3_RIGHT);
+      const latSpeed = vec3Dot(snap.linearVelocity, right);
+      return Math.abs(
+        Math.atan2(latSpeed, Math.max(Math.abs(snap.forwardSpeedMps), 1.0)) * radToDeg,
+      );
+    };
+    for (let i = 0; i < 36; i += 1) {
+      hbSim.stepFixed({ throttle: 0, brake: 0, handbrake: 1, steer: 1 }, FIXED_DT);
+      const snap = hbSim.getSnapshot();
+      const rearMin = Math.min(snap.wheels[2].slipRatio, snap.wheels[3].slipRatio);
+      if (rearMin < minRearSlipRatio) minRearSlipRatio = rearMin;
+      const slipDeg = measureSlipDeg();
+      if (slipDeg > peakBodySlipDeg) peakBodySlipDeg = slipDeg;
+    }
+    for (let i = 0; i < 60; i += 1) {
+      hbSim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 1 }, FIXED_DT);
+      const slipDeg = measureSlipDeg();
+      if (slipDeg > peakBodySlipDeg) peakBodySlipDeg = slipDeg;
+    }
+
+    expect(minRearSlipRatio).toBeLessThan(-0.45);
+    expect(peakBodySlipDeg).toBeGreaterThanOrEqual(15);
+  });
 });

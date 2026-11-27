@@ -4,7 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TrackAssetIndex } from '../../src/assets/trackAssetIndex';
-import { buildCarModel, parseCdo } from '../../src/formats/car';
+import { WheelAssetIndex } from '../../src/assets/wheelAssetIndex';
+import {
+  buildCarModel,
+  cdpToIndexedImage,
+  parseCdo,
+  parseCdp,
+  withCarModelTexture,
+} from '../../src/formats/car';
 import {
   buildCarAssetIndex,
   buildCarCatalogFromBuffers,
@@ -13,6 +20,8 @@ import {
   selectDefaultGtdbVariant,
 } from '../../src/formats/gtdb';
 import { gunzip } from '../../src/formats/gzip';
+import { decodeIndexedImageToRgba } from '../../src/formats/ps1';
+import { parseTim, timToIndexedImage } from '../../src/formats/tim';
 import { buildCollisionMesh, parseTro, troRawToEngineVec3 } from '../../src/formats/track';
 import { VolReader } from '../../src/formats/vol';
 import {
@@ -24,6 +33,7 @@ import {
 import {
   CollisionIndex,
   FIXED_DT,
+  GRAVITY_MPS2,
   RAD_S_TO_RPM,
   VEC3_FORWARD,
   VEC3_RIGHT,
@@ -36,10 +46,15 @@ import {
   quatRotateVec3,
 } from '../../src/physics';
 import {
+  CAR_WHEEL_CDP_PALETTE_INDEX,
+  OrbitCamera,
+  buildCarMeshData,
   buildCarWorldModelMatrix,
   computeCarVisualBottomY,
   computeWheelArchMaxUpJounce,
   computeWheelCenterLateralX,
+  hasCdpWheelPalette,
+  resolveAutoLodIndex,
 } from '../../src/renderer';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -1020,5 +1035,335 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
     expect(archCheckedWheels).toBeGreaterThan(1000);
     expect(archClearWheels / archCheckedWheels).toBeGreaterThanOrEqual(0.95);
     expect(groundContactSampleTested).toBe(true);
+  }, 60_000);
+
+  it('keeps wheels planted without bump-stop chatter across Catalog Track #0 crests and dips (M9.21)', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    expect(preferred).toBeDefined();
+
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const assetIndex = buildCarAssetIndex(allEntries);
+    const trackIndex = new TrackAssetIndex(allEntries);
+    const track0Entry = trackIndex.listTracks()[0]!;
+    const troBytes = await gunzip(
+      await cachedSource.read(track0Entry.troEntry.address, track0Entry.troEntry.address + track0Entry.troEntry.size),
+    );
+    const tro = parseTro(troBytes);
+    const mesh = buildCollisionMesh(tro);
+    const colIndex = new CollisionIndex(mesh);
+
+    const cars = catalog.listCars();
+    const testEntries = [
+      cars[1]!,
+      cars.find(
+        (c) =>
+          c.carData.specialCar === 0 &&
+          c.engine !== null &&
+          c.engine.ps >= 240 &&
+          c.dimensions !== null &&
+          c.dimensions.weightKg >= 1100 &&
+          assetIndex.resolve(c.carId).dayModel !== null,
+      )!,
+    ];
+
+    const segCenters = tro.segments.map((s) =>
+      troRawToEngineVec3(s.centerlineCenterRaw.x, s.centerlineCenterRaw.y, s.centerlineCenterRaw.z),
+    );
+
+    const crestStartSegments = [17, 67, 127];
+    for (const carEntry of testEntries) {
+      const assets = assetIndex.resolve(carEntry.carId);
+      const cdoBytes = await gunzip(
+        await cachedSource.read(assets.dayModel!.address, assets.dayModel!.address + assets.dayModel!.size),
+      );
+      const spec = buildCarPhysicsSpec(carEntry, { carModel: buildCarModel(parseCdo(cdoBytes)) });
+
+      for (const startSeg of crestStartSegments) {
+        const c0 = segCenters[startSeg]!;
+        const cNext = segCenters[(startSeg + 2) % segCenters.length]!;
+        const fx = cNext.x - c0.x;
+        const fz = cNext.z - c0.z;
+        const fLen = Math.hypot(fx, fz);
+        const yaw = Math.atan2(-(fx / fLen), -(fz / fLen));
+        const hit = colIndex.raycastWheelDown({ x: c0.x, y: c0.y + 8, z: c0.z }, { x: 0, y: -1, z: 0 }, 24);
+        expect(hit).not.toBeNull();
+
+        const sim = new VehicleSimulation(spec, colIndex, {
+          initialPosition: { x: hit!.point.x, y: hit!.point.y + spec.comHeightMeters + 0.02, z: hit!.point.z },
+          initialYawRad: yaw,
+        });
+
+        for (let w = 0; w < 24; w += 1) {
+          sim.stepFixed({ throttle: 0, brake: 0, handbrake: 1, steer: 0 }, FIXED_DT);
+        }
+
+        let totalWheelFrames = 0;
+        let groundedWheelFrames = 0;
+        let allAirborneFrames = 0;
+        let bumpStopFrames = 0;
+        let pitchSqSum = 0;
+        const totalSteps = 600; // 5.0 seconds over each crested section
+
+        for (let step = 0; step < totalSteps; step += 1) {
+          const snap = sim.getSnapshot();
+          const pos = snap.pose.position;
+          let nearestIdx = startSeg;
+          let nearestDist = Infinity;
+          for (let offset = -5; offset <= 30; offset += 1) {
+            const idx = (startSeg + offset + segCenters.length) % segCenters.length;
+            const pt = segCenters[idx]!;
+            const d = Math.hypot(pt.x - pos.x, pt.z - pos.z);
+            if (d < nearestDist) {
+              nearestDist = d;
+              nearestIdx = idx;
+            }
+          }
+          const targetPt = segCenters[(nearestIdx + 2) % segCenters.length]!;
+          const right = quatRotateVec3(snap.pose.orientation, VEC3_RIGHT);
+          const toTargetX = targetPt.x - pos.x;
+          const toTargetZ = targetPt.z - pos.z;
+          const toLen = Math.max(0.1, Math.hypot(toTargetX, toTargetZ));
+          const rightDot = (toTargetX / toLen) * right.x + (toTargetZ / toLen) * right.z;
+          const steer = Math.max(-0.85, Math.min(0.85, -rightDot * 1.8));
+          const targetSpeedMps = 25.0; // ~90 km/h
+          const throttle = snap.speedMps < targetSpeedMps ? 1 : 0;
+
+          sim.stepFixed({ throttle, brake: 0, handbrake: 0, steer }, FIXED_DT);
+
+          const post = sim.getSnapshot();
+          let stepGrounded = 0;
+          for (let wi = 0; wi < 4; wi += 1) {
+            totalWheelFrames += 1;
+            const w = post.wheels[wi]!;
+            if (w.grounded) {
+              groundedWheelFrames += 1;
+              stepGrounded += 1;
+            }
+            const axle = spec.wheels[wi]!.axle;
+            if (w.compression >= spec.suspension[axle].maxTravelMeters * 0.85) {
+              bumpStopFrames += 1;
+            }
+          }
+          if (stepGrounded === 0) {
+            allAirborneFrames += 1;
+          }
+          const postFwd = quatRotateVec3(post.pose.orientation, VEC3_FORWARD);
+          const roadHit = colIndex.raycastWheelDown(
+            { x: post.pose.position.x, y: post.pose.position.y + 4, z: post.pose.position.z },
+            { x: 0, y: -1, z: 0 },
+            10,
+          );
+          const roadSin =
+            roadHit !== null
+              ? postFwd.x * roadHit.normal.x + postFwd.y * roadHit.normal.y + postFwd.z * roadHit.normal.z
+              : postFwd.y;
+          const pitchRad = Math.asin(Math.max(-1, Math.min(1, roadSin)));
+          pitchSqSum += pitchRad * pitchRad;
+        }
+
+        const wheelContactPct = (groundedWheelFrames / totalWheelFrames) * 100;
+        const bumpStopPct = (bumpStopFrames / totalWheelFrames) * 100;
+        const airAllPct = (allAirborneFrames / totalSteps) * 100;
+        const pitchRmsDeg = (Math.sqrt(pitchSqSum / totalSteps) * 180) / Math.PI;
+
+        expect(bumpStopPct).toBeLessThan(5);
+        expect(wheelContactPct).toBeGreaterThanOrEqual(92);
+        expect(airAllPct).toBeLessThan(2);
+        expect(pitchRmsDeg).toBeLessThan(5);
+      }
+    }
+  }, 60_000);
+
+  it('achieves crisp ABS trail-braking turn-in on flat asphalt across real GT2 cars (M9.22)', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const assetIndex = buildCarAssetIndex(allEntries);
+    const cars = catalog.listCars();
+    const sampleCars = [
+      cars[1]!,
+      cars.find(
+        (c) =>
+          c.engine !== null &&
+          c.engine.ps >= 240 &&
+          c.dimensions !== null &&
+          assetIndex.resolve(c.carId).dayModel !== null,
+      )!,
+    ];
+
+    const colIndex = createFlatAsphaltCollisionIndex(6000, 400);
+    for (const carEntry of sampleCars) {
+      const assets = assetIndex.resolve(carEntry.carId);
+      const cdoBytes = await gunzip(
+        await cachedSource.read(assets.dayModel!.address, assets.dayModel!.address + assets.dayModel!.size),
+      );
+      const spec = buildCarPhysicsSpec(carEntry, { carModel: buildCarModel(parseCdo(cdoBytes)) });
+      const sim = new VehicleSimulation(spec, colIndex, {
+        initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      });
+
+      for (let i = 0; i < 1800; i += 1) {
+        sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+        if (sim.getSnapshot().speedMps >= 37) break; // ~133 km/h
+      }
+
+      let peakLatG = 0;
+      let minFrontSlip = 0;
+      for (let i = 0; i < 96; i += 1) {
+        sim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 1 }, FIXED_DT);
+        const snap = sim.getSnapshot();
+        const latG = (snap.speedMps * Math.abs(snap.angularVelocity.y)) / GRAVITY_MPS2;
+        if (latG > peakLatG) peakLatG = latG;
+        const fMin = Math.min(snap.wheels[0].slipRatio, snap.wheels[1].slipRatio);
+        if (fMin < minFrontSlip) minFrontSlip = fMin;
+      }
+
+      expect(peakLatG).toBeGreaterThanOrEqual(0.8);
+      expect(minFrontSlip).toBeGreaterThan(-0.35);
+    }
+  }, 60_000);
+
+  it('decodes CDP palette 0 stock alloy rims (distinct from palette 15 brake lights) and carwheel/*.tim assets cleanly (M9.23)', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const assetIndex = buildCarAssetIndex(allEntries);
+    const wheelIndex = new WheelAssetIndex(allEntries);
+    expect(CAR_WHEEL_CDP_PALETTE_INDEX).toBe(0);
+
+    // Check Catalog Car #1 plus first 20 textured cars
+    const cars = catalog.listCars();
+    let validRimCount = 0;
+    let checked = 0;
+    for (let ci = 1; ci < cars.length && checked < 20; ci += 1) {
+      const assets = assetIndex.resolve(cars[ci]!.carId);
+      if (assets.dayModel === null || assets.dayTexture === null) continue;
+      const [cdoBytes, cdpBytes] = await Promise.all([
+        gunzip(await cachedSource.read(assets.dayModel.address, assets.dayModel.address + assets.dayModel.size)),
+        gunzip(await cachedSource.read(assets.dayTexture.address, assets.dayTexture.address + assets.dayTexture.size)),
+      ]);
+      const cdo = parseCdo(cdoBytes);
+      const cdp = parseCdp(cdpBytes);
+      const model = withCarModelTexture(buildCarModel(cdo), cdp, { variant: 'day' });
+      checked += 1;
+
+      if (!hasCdpWheelPalette(model, 0)) continue;
+      validRimCount += 1;
+
+      const indexed = cdpToIndexedImage(cdp, 0);
+      const rimRgba = decodeIndexedImageToRgba(indexed, 0, { transparencyMode: 'transparent-zero' });
+      let opaquePixels = 0;
+      let sumR = 0;
+      let sumB = 0;
+      for (let py = 4; py < 44; py += 1) {
+        for (let px = 4; px < 44; px += 1) {
+          const base = (py * rimRgba.width + px) * 4;
+          if ((rimRgba.rgba[base + 3] ?? 0) >= 128) {
+            opaquePixels += 1;
+            sumR += rimRgba.rgba[base] ?? 0;
+            sumB += rimRgba.rgba[base + 2] ?? 0;
+          }
+        }
+      }
+      expect(opaquePixels).toBeGreaterThan(200);
+      if (ci === 1) {
+        // Catalog Car #1 palette 0 is a neutral stock rim (not reddish brake-light palette 15)
+        const avgR = sumR / opaquePixels;
+        const avgB = sumB / opaquePixels;
+        expect(Math.abs(avgR - avgB)).toBeLessThan(35);
+      }
+    }
+    expect(validRimCount).toBeGreaterThanOrEqual(18);
+
+    // Sample 10 carwheel/*.tim files
+    const wheelPaths = wheelIndex.listPaths().slice(0, 10);
+    expect(wheelPaths.length).toBe(10);
+    const entryMap = new Map(allEntries.map((e) => [e.path, e]));
+    for (const wp of wheelPaths) {
+      const entry = entryMap.get(wp)!;
+      const raw = await cachedSource.read(entry.address, entry.address + entry.size);
+      const bytes = entry.isGzip ? await gunzip(raw) : raw;
+      const decoded = decodeIndexedImageToRgba(timToIndexedImage(parseTim(bytes)), 0, {
+        transparencyMode: 'transparent-zero',
+      });
+      expect(decoded.width).toBe(48);
+      expect(decoded.height).toBe(48);
+      let opaque = 0;
+      for (let p = 3; p < decoded.rgba.length; p += 4) {
+        if ((decoded.rgba[p] ?? 0) >= 128) opaque += 1;
+      }
+      expect(opaque).toBeGreaterThan(200);
+    }
+  }, 60_000);
+
+  it('verifies CDO renderFlags & 0x08 normal bijection, finite geometric normals, and Auto LOD0 framing (M9.24–M9.25)', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const assetIndex = buildCarAssetIndex(allEntries);
+
+    let checkedModels = 0;
+    for (const carEntry of catalog.listCars()) {
+      if (checkedModels >= 40) break;
+      const assets = assetIndex.resolve(carEntry.carId);
+      if (assets.dayModel === null) continue;
+      const cdoBytes = await gunzip(
+        await cachedSource.read(assets.dayModel.address, assets.dayModel.address + assets.dayModel.size),
+      );
+      const cdo = parseCdo(cdoBytes);
+      const carModel = buildCarModel(cdo);
+      const lod0 = carModel.lods[0];
+      if (lod0 === undefined || lod0.vertexCount === 0) continue;
+      checkedModels += 1;
+
+      const allTris = [...lod0.untexturedTriangles, ...lod0.texturedTriangles];
+      for (const tri of allTris) {
+        if (tri.singleSided) {
+          expect(tri.normals.some((n) => n !== 0)).toBe(true);
+        } else {
+          expect(tri.normals).toEqual([0, 0, 0]);
+        }
+      }
+
+      const meshData = buildCarMeshData(carModel, 0);
+      for (let vi = 0; vi < meshData.vertexCount; vi += 1) {
+        const nx = meshData.normalsFloat32[vi * 3] ?? 0;
+        const ny = meshData.normalsFloat32[vi * 3 + 1] ?? 0;
+        const nz = meshData.normalsFloat32[vi * 3 + 2] ?? 0;
+        const len = Math.hypot(nx, ny, nz);
+        expect(len).toBeGreaterThan(0.9);
+        expect(len).toBeLessThan(1.1);
+      }
+
+      const camera = new OrbitCamera({ aspect: 16 / 9 });
+      camera.fitToBounds(meshData.boundsMeters.min, meshData.boundsMeters.max);
+      expect(resolveAutoLodIndex(camera.getState().distance, carModel.lods)).toBe(0);
+    }
+    expect(checkedModels).toBe(40);
   }, 60_000);
 });

@@ -233,4 +233,59 @@ describe('4-wheel spring-damper suspension (M9.4)', () => {
       expect(h!.normal.y).toBeGreaterThan(0.9);
     }
   });
+
+  it('settles a 20 cm drop with critically damped overshoot and filters 2 cm road seams smoothly (M9.21)', () => {
+    const spec = createTestCarSpec();
+    const rbParams = createRigidBodyParamsFromSpec(spec);
+    const body = createRigidBodyState({ x: 0, y: spec.comHeightMeters + 0.2, z: 0 });
+    const groundIndex = createFlatGroundIndex();
+    let susp = createInitialSuspensionStates(spec);
+
+    let minY = Infinity;
+    let overshootTroughs = 0;
+    let prevVy = 0;
+    for (let i = 0; i < 300; i += 1) {
+      applyGravityForce(body, rbParams);
+      const hits = castSuspensionRays(body, spec, groundIndex);
+      susp = solveSuspension(body, spec, hits, susp, FIXED_DT);
+      integrateRigidBody(body, rbParams, FIXED_DT);
+      if (body.position.y < minY) {
+        minY = body.position.y;
+      }
+      if (prevVy < 0 && body.linearVelocity.y >= 0 && body.position.y < spec.comHeightMeters - 0.004) {
+        overshootTroughs += 1;
+      }
+      prevVy = body.linearVelocity.y;
+    }
+
+    expect(overshootTroughs).toBeLessThanOrEqual(1);
+    expect(Math.abs(body.position.y - spec.comHeightMeters)).toBeLessThan(0.015);
+
+    // Sudden 2 cm upward road step: raw compression derivative = 0.02 / FIXED_DT = 2.4 m/s must be seam-filtered
+    const flatBody = createRigidBodyState({ x: 0, y: spec.comHeightMeters, z: 0 });
+    const flatHits = castSuspensionRays(flatBody, spec, groundIndex);
+    const steadySusp = solveSuspension(
+      flatBody,
+      spec,
+      flatHits,
+      createInitialSuspensionStates(spec),
+      FIXED_DT,
+    );
+    const seamHits: WheelRaycastHit[] = flatHits.map((hit) => ({
+      ...hit!,
+      distance: Math.max(0.02, hit!.distance - 0.02),
+      point: { x: hit!.point.x, y: hit!.point.y + 0.02, z: hit!.point.z },
+    }));
+    const seamSusp = solveSuspension(
+      flatBody,
+      spec,
+      [seamHits[0]!, seamHits[1]!, seamHits[2]!, seamHits[3]!],
+      steadySusp,
+      FIXED_DT,
+    );
+    for (const w of seamSusp) {
+      expect(Math.abs(w.compressionVelocity)).toBeLessThan(2.0);
+      expect(w.normalForce).toBeLessThan(spec.massKg * GRAVITY_MPS2 * 0.7);
+    }
+  });
 });
