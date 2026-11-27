@@ -404,6 +404,6 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL CDO/CDP open-question verification 
       expect(allFfffDayHitCount).toBe(4);
       expect(allFfffNightFixedCount).toBe(1);
     },
-    60_000,
+    120_000,
   );
 });

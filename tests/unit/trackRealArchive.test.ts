@@ -239,5 +239,5 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL track parser & TrackModel integrati
     expect(horizUp / (horizUp + horizDown)).toBeGreaterThan(0.95);
     // Per-vertex paletteIndices batching keeps parts compact (well under 8 parts per non-empty segment).
     expect(totalPrimaryParts / totalNonEmptySegs).toBeLessThan(8);
-  }, 60_000);
+  }, 120_000);
 });

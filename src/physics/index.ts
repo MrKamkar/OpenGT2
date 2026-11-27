@@ -9,3 +9,4 @@ export * from './suspension';
 export * from './drivetrain';
 export * from './tyres';
 export * from './vehicleSim';
+export * from './driveControls';

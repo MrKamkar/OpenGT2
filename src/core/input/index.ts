@@ -28,6 +28,20 @@ export {
   type InputDebugApi,
   type InputDebugWindowHost,
 } from './debugHook';
+export {
+  DEFAULT_GAMEPAD_BUTTON_THRESHOLD,
+  DEFAULT_GAMEPAD_DEADZONE,
+  DEFAULT_GAMEPAD_TRIGGER_THRESHOLD,
+  DISCONNECTED_GAMEPAD_DRIVE_STATE,
+  applyStickDeadzone,
+  defaultGamepadProvider,
+  pollGamepadDriveState,
+  type GamepadButtonLike,
+  type GamepadConfig,
+  type GamepadDriveState,
+  type GamepadLike,
+  type GamepadProvider,
+} from './gamepadBridge';
 export type {
   AnalogAxes,
   BindingConflict,
