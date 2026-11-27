@@ -5,9 +5,11 @@ import {
   buildCarPhysicsSpec,
 } from '../../src/physics/carSpec';
 import {
+  AUTO_REVERSE_HOLD_SECONDS,
   AUTO_SHIFT_COOLDOWN_SECONDS,
   createDrivetrainState,
   getGearRatio,
+  resolveDrivetrainPedals,
   sampleEngineTorqueNm,
   stepDrivetrain,
 } from '../../src/physics/drivetrain';
@@ -160,48 +162,102 @@ describe('Drivetrain model (M9.5)', () => {
     }
   });
 
-  it('engages reverse deterministically only when near-stationary and braking, and never creeps under brake', () => {
+  it('engages reverse in auto mode after holding brake near standstill, routes S to reverse throttle and W to brake, and returns to 1st cleanly', () => {
     const spec = createTestSpec();
     const state = createDrivetrainState(spec, 'auto');
 
     // Moving forward at 10 m/s and braking must NOT engage reverse
     const fastOmega = 10 / spec.wheels[2].radiusMeters;
-    stepDrivetrain(
-      state,
-      spec,
-      { throttle: 0, brake: 1, handbrake: 0, steer: 0 },
-      [fastOmega, fastOmega, fastOmega, fastOmega],
-      10,
-      FIXED_DT,
-    );
+    for (let i = 0; i < 30; i += 1) {
+      stepDrivetrain(
+        state,
+        spec,
+        { throttle: 0, brake: 1, handbrake: 0, steer: 0 },
+        [fastOmega, fastOmega, fastOmega, fastOmega],
+        10,
+        FIXED_DT,
+      );
+      expect(state.gear).toBe(1);
+    }
+
+    // Brief brake pulse (< 0.15 s) at standstill stays in 1st gear
+    for (let i = 0; i < 12; i += 1) {
+      stepDrivetrain(
+        state,
+        spec,
+        { throttle: 0, brake: 1, handbrake: 0, steer: 0 },
+        [0, 0, 0, 0],
+        0.1,
+        FIXED_DT,
+      );
+    }
     expect(state.gear).toBe(1);
 
-    // Near-stationary + braking engages Reverse (-1), and delivers zero torque while brake=1, throttle=0
-    stepDrivetrain(
-      state,
-      spec,
-      { throttle: 0, brake: 1, handbrake: 0, steer: 0 },
-      [0, 0, 0, 0],
-      0.1,
-      FIXED_DT,
-    );
+    // Holding brake past AUTO_REVERSE_HOLD_SECONDS at standstill shifts to Reverse (-1),
+    // clears service brake, and outputs negative reverse wheel torque
+    const holdSteps = Math.ceil(AUTO_REVERSE_HOLD_SECONDS / FIXED_DT) + 4;
+    for (let i = 0; i < holdSteps; i += 1) {
+      stepDrivetrain(
+        state,
+        spec,
+        { throttle: 0, brake: 1, handbrake: 0, steer: 0 },
+        [0, 0, 0, 0],
+        0.1,
+        FIXED_DT,
+      );
+    }
     expect(state.gear).toBe(-1);
-    expect(state.wheelDriveTorquesNm).toEqual([0, 0, 0, 0]);
+    expect(state.effectiveBrake).toBe(0);
     expect(getGearRatio(spec, -1)).toBeLessThan(0);
+    expect(state.wheelDriveTorquesNm[2]).toBeLessThan(0);
+    expect(resolveDrivetrainPedals('auto', -1, 0, 1)).toEqual({
+      engineThrottle: 1,
+      serviceBrake: 0,
+    });
 
-    // Wait out shift cooldown, then apply forward throttle -> returns cleanly to 1st gear
+    // While reversing at -5 m/s, pressing W (throttle=1) applies service brake and stays in R until ~0 m/s
+    const revOmega = -5 / spec.wheels[2].radiusMeters;
     for (let i = 0; i < 35; i += 1) {
       stepDrivetrain(
         state,
         spec,
-        { throttle: 0.6, brake: 0, handbrake: 0, steer: 0 },
+        { throttle: 1, brake: 0, handbrake: 0, steer: 0 },
+        [revOmega, revOmega, revOmega, revOmega],
+        -5,
+        FIXED_DT,
+      );
+      expect(state.gear).toBe(-1);
+      expect(state.effectiveBrake).toBe(1);
+      expect(state.wheelDriveTorquesNm).toEqual([0, 0, 0, 0]);
+    }
+
+    // Once speed drops near 0 (-0.1 m/s) with W held, shifts back to 1st and drives forward
+    stepDrivetrain(
+      state,
+      spec,
+      { throttle: 0.6, brake: 0, handbrake: 0, steer: 0 },
+      [0, 0, 0, 0],
+      -0.1,
+      FIXED_DT,
+    );
+    expect(state.gear).toBe(1);
+    expect(state.effectiveBrake).toBe(0);
+    expect(state.wheelDriveTorquesNm[2]).toBeGreaterThan(0);
+
+    // Manual mode must never auto-shift into or out of Reverse via brake/throttle holds
+    const manualState = createDrivetrainState(spec, 'manual');
+    for (let i = 0; i < 40; i += 1) {
+      stepDrivetrain(
+        manualState,
+        spec,
+        { throttle: 0, brake: 1, handbrake: 0, steer: 0 },
         [0, 0, 0, 0],
         0,
         FIXED_DT,
       );
     }
-    expect(state.gear).toBe(1);
-    expect(state.wheelDriveTorquesNm[2]).toBeGreaterThan(0);
+    expect(manualState.gear).toBe(1);
+    expect(manualState.effectiveBrake).toBe(1);
   });
 
   it('respects manual shifting bounds and caps RPM at rev limiter', () => {

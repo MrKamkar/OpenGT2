@@ -354,6 +354,12 @@ export class VehicleSimulation {
       drivenSlipRatio,
     );
 
+    const effectiveBrake = this.drivetrain.effectiveBrake;
+    const effectiveThrottle =
+      this.drivetrain.transmissionMode === 'auto' && this.drivetrain.gear === -1
+        ? brake
+        : throttle;
+
     const reflectedInertia = computeReflectedWheelInertiaKgM2(
       this.spec,
       this.drivetrain.gear,
@@ -375,8 +381,8 @@ export class VehicleSimulation {
 
       const rawFootBrakeTorque =
         wheelSpec.axle === 'front'
-          ? brake * this.spec.brakes.maxFrontWheelTorqueNm
-          : brake * this.spec.brakes.maxRearWheelTorqueNm;
+          ? effectiveBrake * this.spec.brakes.maxFrontWheelTorqueNm
+          : effectiveBrake * this.spec.brakes.maxRearWheelTorqueNm;
       const handbrakeTorque =
         wheelSpec.axle === 'rear' ? handbrake * this.spec.brakes.handbrakeRearWheelTorqueNm : 0;
       const isRearHandbrakeActive = wheelSpec.axle === 'rear' && handbrake >= 0.1;
@@ -471,7 +477,7 @@ export class VehicleSimulation {
         !isRearHandbrakeActive &&
         Math.abs(patchForwardSpeed) > ABS_MIN_SPEED_MPS
       ) {
-        const brakingSlip = Math.max(0, -tyreOut.slipRatio);
+        const brakingSlip = Math.max(0, -tyreOut.slipRatio * Math.sign(patchForwardSpeed));
         if (brakingSlip > ABS_TARGET_SLIP_RATIO) {
           const absScale = clamp(
             1 - (brakingSlip - ABS_TARGET_SLIP_RATIO) / ABS_RELEASE_BAND,
@@ -545,8 +551,8 @@ export class VehicleSimulation {
     // 5. Stationary brake-hold damping to eliminate low-speed numerical creep
     if (
       groundedCount >= 2 &&
-      throttle < 0.05 &&
-      (brake > 0.1 || handbrake > 0.1) &&
+      effectiveThrottle < 0.05 &&
+      (effectiveBrake > 0.1 || handbrake > 0.1) &&
       Math.hypot(this.body.linearVelocity.x, this.body.linearVelocity.z) <
         BRAKE_HOLD_SPEED_THRESHOLD_MPS
     ) {

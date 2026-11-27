@@ -168,15 +168,18 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     }
   });
 
-  it('accelerates smoothly along -Z through gears and brakes to a full stop without backward creep', () => {
+  it('accelerates smoothly along -Z through gears and brakes to a full stop without backward creep in manual mode', () => {
     const spec = buildCarPhysicsSpec(createTestEntry());
     const sim = new VehicleSimulation(spec, createWalledFlatTrackIndex(), {
       initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      transmissionMode: 'manual',
     });
 
-    // Full throttle for 7.5 seconds
+    // Full throttle for 7.5 seconds with manual upshifts
     for (let i = 0; i < 900; i += 1) {
-      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 });
+      const snap = sim.getSnapshot();
+      const needUpshift = snap.engineRpm >= spec.engine.redlineRpm * 0.93 && snap.gear < 5;
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0, shiftUp: needUpshift });
     }
     const accelSnap = sim.getSnapshot();
     expect(accelSnap.pose.position.z).toBeLessThan(-60);
@@ -184,7 +187,7 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(accelSnap.gear).toBeGreaterThanOrEqual(2);
     expect(accelSnap.engineRpm).toBeLessThanOrEqual(spec.engine.redlineRpm + 250);
 
-    // Full brake until stopped and hold brake
+    // Full brake until stopped and hold brake -> stays in manual forward gear with zero creep
     for (let i = 0; i < 480; i += 1) {
       sim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 0 });
     }
@@ -192,7 +195,6 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(stoppedSnap.speedMps).toBeLessThan(0.02);
     expect(Math.abs(stoppedSnap.forwardSpeedMps)).toBeLessThan(0.02);
 
-    // Hold brake for another 1 second -> zero backward creep
     const zAtStop = stoppedSnap.pose.position.z;
     for (let i = 0; i < 120; i += 1) {
       sim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 0 });
@@ -200,6 +202,77 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     const heldSnap = sim.getSnapshot();
     expect(Math.abs(heldSnap.pose.position.z - zAtStop)).toBeLessThan(0.01);
     expect(heldSnap.speedMps).toBeLessThan(0.01);
+    expect(heldSnap.gear).toBeGreaterThanOrEqual(1);
+  });
+
+  it('auto mode holds S past standstill to engage Reverse and holds W while reversing to brake and return to 1st without flicker', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const sim = new VehicleSimulation(spec, createWalledFlatTrackIndex(), {
+      initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      transmissionMode: 'auto',
+    });
+
+    // Accelerate forward to > 15 m/s
+    for (let i = 0; i < 480; i += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+    }
+    expect(sim.getSnapshot().forwardSpeedMps).toBeGreaterThan(15);
+
+    // Hold S/brake continuously: must brake cleanly without shifting to R at speed,
+    // then engage R (-1) shortly after reaching rest and drive backwards
+    let engagedReverseAtSpeed = false;
+    let enteredReverseStep = -1;
+    let prevGear = sim.getSnapshot().gear;
+    let reversePhaseFlickers = 0;
+
+    for (let step = 0; step < 600; step += 1) {
+      const pre = sim.getSnapshot();
+      sim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 0 }, FIXED_DT);
+      const snap = sim.getSnapshot();
+
+      if (pre.forwardSpeedMps > 0.5 && snap.gear === -1) {
+        engagedReverseAtSpeed = true;
+      }
+      if (enteredReverseStep < 0 && snap.gear === -1) {
+        engagedReverseAtSpeed = pre.forwardSpeedMps > 0.5;
+        enteredReverseStep = step;
+      } else if (enteredReverseStep >= 0 && snap.gear !== prevGear) {
+        reversePhaseFlickers += 1;
+      }
+      prevGear = snap.gear;
+    }
+
+    const revSnap = sim.getSnapshot();
+    expect(engagedReverseAtSpeed).toBe(false);
+    expect(enteredReverseStep).toBeGreaterThan(0);
+    expect(reversePhaseFlickers).toBe(0);
+    expect(revSnap.gear).toBe(-1);
+    expect(revSnap.forwardSpeedMps).toBeLessThan(-3.5);
+
+    // Now hold W/throttle while reversing: must brake to ~0 m/s in R, then shift into 1st and accelerate forward
+    let shiftedToFirstStep = -1;
+    let exitedReverseAtHighNegSpeed = false;
+    let forwardPhaseFlickers = 0;
+
+    for (let step = 0; step < 480; step += 1) {
+      const pre = sim.getSnapshot();
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      const snap = sim.getSnapshot();
+
+      if (shiftedToFirstStep < 0 && snap.gear === 1) {
+        exitedReverseAtHighNegSpeed = pre.forwardSpeedMps < -0.5;
+        shiftedToFirstStep = step;
+      } else if (shiftedToFirstStep >= 0 && snap.gear < 1) {
+        forwardPhaseFlickers += 1;
+      }
+    }
+
+    const fwdSnap = sim.getSnapshot();
+    expect(exitedReverseAtHighNegSpeed).toBe(false);
+    expect(shiftedToFirstStep).toBeGreaterThan(0);
+    expect(forwardPhaseFlickers).toBe(0);
+    expect(fwdSnap.gear).toBeGreaterThanOrEqual(1);
+    expect(fwdSnap.forwardSpeedMps).toBeGreaterThan(5.0);
   });
 
   it('steers left (+steer) smoothly into a +Y CCW turn toward -X without flipping on flat or banked tracks', () => {

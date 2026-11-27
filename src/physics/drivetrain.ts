@@ -32,11 +32,14 @@ export const LAUNCH_TRACTION_MIN_THROTTLE_SCALE = 0.52;
 /** Upper bound (kg·m^2) on flywheel inertia reflected into each driven wheel to damp single-frame spin spikes without bogging low-power launches. */
 export const MAX_REFLECTED_WHEEL_INERTIA_KG_M2 = 0.35;
 
-/** Maximum forward speed (m/s) below which automatic mode engages Reverse while braking. */
-export const REVERSE_ENGAGE_MAX_SPEED_MPS = 0.5;
+/** Maximum absolute forward speed (m/s) below which automatic mode engages Reverse while holding brake. */
+export const REVERSE_ENGAGE_MAX_SPEED_MPS = 0.35;
 
 /** Minimum forward speed (m/s) above which automatic mode exits Reverse into 1st gear under throttle. */
-export const REVERSE_EXIT_MIN_SPEED_MPS = -0.5;
+export const REVERSE_EXIT_MIN_SPEED_MPS = -0.35;
+
+/** Duration (s) brake must remain held near standstill before automatic mode shifts into Reverse. */
+export const AUTO_REVERSE_HOLD_SECONDS = 0.18;
 
 /** RPM hysteresis band below `redlineRpm` before the rev limiter re-enables combustion torque. */
 export const REV_LIMITER_HYSTERESIS_RPM = 150;
@@ -65,8 +68,26 @@ export interface DrivetrainState {
   clutchTorqueNm: number;
   revLimiterActive: boolean;
   shiftCooldown: number;
+  reverseHoldTimer: number;
+  effectiveBrake: number;
   transmissionMode: TransmissionMode;
   wheelDriveTorquesNm: WheelSlotTuple<number>;
+}
+
+/**
+ * Resolves effective engine throttle and service brake from raw pedal inputs.
+ * In `auto` mode while in Reverse (`gear === -1`), `S`/brake drives in reverse and `W`/throttle brakes to rest.
+ */
+export function resolveDrivetrainPedals(
+  transmissionMode: TransmissionMode,
+  gear: number,
+  throttle: number,
+  brake: number,
+): { readonly engineThrottle: number; readonly serviceBrake: number } {
+  if (transmissionMode === 'auto' && gear === -1) {
+    return { engineThrottle: brake, serviceBrake: throttle };
+  }
+  return { engineThrottle: throttle, serviceBrake: brake };
 }
 
 export function createDrivetrainState(
@@ -81,6 +102,8 @@ export function createDrivetrainState(
     clutchTorqueNm: 0,
     revLimiterActive: false,
     shiftCooldown: 0,
+    reverseHoldTimer: 0,
+    effectiveBrake: 0,
     transmissionMode,
     wheelDriveTorquesNm: [0, 0, 0, 0],
   };
@@ -233,6 +256,7 @@ export function stepDrivetrain(
 
   // 1. Gear selection
   if (state.transmissionMode === 'manual') {
+    state.reverseHoldTimer = 0;
     if (controls.shiftUp === true && state.gear < maxGear) {
       state.gear += 1;
       state.shiftCooldown = AUTO_SHIFT_COOLDOWN_SECONDS;
@@ -241,10 +265,12 @@ export function stepDrivetrain(
       state.shiftCooldown = AUTO_SHIFT_COOLDOWN_SECONDS;
     }
   } else {
-    // Automatic transmission with hysteresis and shift cooldown
+    // Automatic transmission with hysteresis, shift cooldown, and standstill hold-S reverse
     if (state.gear === 0) {
       state.gear = 1;
+      state.reverseHoldTimer = 0;
     } else if (state.gear === -1) {
+      state.reverseHoldTimer = 0;
       if (
         throttle > 0.1 &&
         forwardSpeedMps >= REVERSE_EXIT_MIN_SPEED_MPS &&
@@ -256,58 +282,77 @@ export function stepDrivetrain(
     } else {
       // Forward gear >= 1
       if (
-        state.gear === 1 &&
-        forwardSpeedMps <= REVERSE_ENGAGE_MAX_SPEED_MPS &&
+        Math.abs(forwardSpeedMps) < REVERSE_ENGAGE_MAX_SPEED_MPS &&
         brake > 0.5 &&
-        throttle < 0.05 &&
-        state.shiftCooldown <= 0
+        throttle < 0.05
       ) {
-        state.gear = -1;
-        state.shiftCooldown = AUTO_SHIFT_COOLDOWN_SECONDS;
-      } else if (state.shiftCooldown <= 0) {
-        const upshiftRpm = Math.max(
-          spec.engine.idleRpm + 1000,
-          spec.engine.redlineRpm * AUTO_UPSHIFT_RPM_FRACTION,
-        );
-        const currTotalRatio =
-          Math.abs(getGearRatio(spec, state.gear)) * spec.drivetrain.finalDriveRatio;
-        const drivenRadius = getDrivenWheelRadiusMeters(spec);
-        const roadRpm =
-          (Math.max(0, forwardSpeedMps) / drivenRadius) * currTotalRatio * RAD_S_TO_RPM;
-
+        if (state.gear > 1) {
+          state.gear = 1;
+        }
+        state.reverseHoldTimer += dt;
         if (
-          state.gear < maxGear &&
-          state.engineRpm >= upshiftRpm &&
-          throttle >= AUTO_UPSHIFT_MIN_THROTTLE &&
-          forwardSpeedMps > 1.0 &&
-          roadRpm >= upshiftRpm * AUTO_UPSHIFT_ROAD_RPM_FRACTION &&
-          Math.abs(drivenWheelSlipRatio) <= AUTO_UPSHIFT_MAX_SLIP_RATIO
+          state.reverseHoldTimer >= AUTO_REVERSE_HOLD_SECONDS &&
+          state.shiftCooldown <= 0
         ) {
-          state.gear += 1;
+          state.gear = -1;
           state.shiftCooldown = AUTO_SHIFT_COOLDOWN_SECONDS;
-        } else if (state.gear > 1) {
-          const currRatio = spec.drivetrain.gearRatios[state.gear - 1] ?? 1;
-          const lowerRatio = spec.drivetrain.gearRatios[state.gear - 2] ?? currRatio;
-          const postUpshiftRpm = upshiftRpm * (currRatio / Math.max(0.1, lowerRatio));
-          const downshiftRpm = clamp(
-            Math.min(
-              spec.engine.redlineRpm * AUTO_DOWNSHIFT_RPM_FRACTION,
-              postUpshiftRpm - AUTO_MIN_SHIFT_HYSTERESIS_RPM,
-            ),
-            spec.engine.idleRpm + 200,
-            upshiftRpm - AUTO_MIN_SHIFT_HYSTERESIS_RPM,
+          state.reverseHoldTimer = 0;
+        }
+      } else {
+        state.reverseHoldTimer = 0;
+        if (state.shiftCooldown <= 0) {
+          const upshiftRpm = Math.max(
+            spec.engine.idleRpm + 1000,
+            spec.engine.redlineRpm * AUTO_UPSHIFT_RPM_FRACTION,
           );
+          const currTotalRatio =
+            Math.abs(getGearRatio(spec, state.gear)) * spec.drivetrain.finalDriveRatio;
+          const drivenRadius = getDrivenWheelRadiusMeters(spec);
+          const roadRpm =
+            (Math.max(0, forwardSpeedMps) / drivenRadius) * currTotalRatio * RAD_S_TO_RPM;
 
-          const effectiveDownshiftRpm =
-            forwardSpeedMps > 2.0 ? Math.min(state.engineRpm, roadRpm) : state.engineRpm;
-          if (effectiveDownshiftRpm <= downshiftRpm) {
-            state.gear -= 1;
+          if (
+            state.gear < maxGear &&
+            state.engineRpm >= upshiftRpm &&
+            throttle >= AUTO_UPSHIFT_MIN_THROTTLE &&
+            forwardSpeedMps > 1.0 &&
+            roadRpm >= upshiftRpm * AUTO_UPSHIFT_ROAD_RPM_FRACTION &&
+            Math.abs(drivenWheelSlipRatio) <= AUTO_UPSHIFT_MAX_SLIP_RATIO
+          ) {
+            state.gear += 1;
             state.shiftCooldown = AUTO_SHIFT_COOLDOWN_SECONDS;
+          } else if (state.gear > 1) {
+            const currRatio = spec.drivetrain.gearRatios[state.gear - 1] ?? 1;
+            const lowerRatio = spec.drivetrain.gearRatios[state.gear - 2] ?? currRatio;
+            const postUpshiftRpm = upshiftRpm * (currRatio / Math.max(0.1, lowerRatio));
+            const downshiftRpm = clamp(
+              Math.min(
+                spec.engine.redlineRpm * AUTO_DOWNSHIFT_RPM_FRACTION,
+                postUpshiftRpm - AUTO_MIN_SHIFT_HYSTERESIS_RPM,
+              ),
+              spec.engine.idleRpm + 200,
+              upshiftRpm - AUTO_MIN_SHIFT_HYSTERESIS_RPM,
+            );
+
+            const effectiveDownshiftRpm =
+              forwardSpeedMps > 2.0 ? Math.min(state.engineRpm, roadRpm) : state.engineRpm;
+            if (effectiveDownshiftRpm <= downshiftRpm) {
+              state.gear -= 1;
+              state.shiftCooldown = AUTO_SHIFT_COOLDOWN_SECONDS;
+            }
           }
         }
       }
     }
   }
+
+  const { engineThrottle, serviceBrake } = resolveDrivetrainPedals(
+    state.transmissionMode,
+    state.gear,
+    throttle,
+    brake,
+  );
+  state.effectiveBrake = serviceBrake;
 
   // 2. Rev limiter with hysteresis
   if (state.engineRpm >= spec.engine.redlineRpm) {
@@ -318,17 +363,17 @@ export function stepDrivetrain(
 
   // 3. Engine combustion + idle governor + launch traction progression + engine braking
   const wotTorqueNm = sampleEngineTorqueNm(spec, state.engineRpm);
-  let effectiveThrottle = throttle;
-  if (throttle < IDLE_GOVERNOR_MAX_THROTTLE && state.engineRpm < spec.engine.idleRpm) {
+  let effectiveThrottle = engineThrottle;
+  if (engineThrottle < IDLE_GOVERNOR_MAX_THROTTLE && state.engineRpm < spec.engine.idleRpm) {
     const idleErrorFrac = clamp(
       (spec.engine.idleRpm - state.engineRpm) / 300,
       0,
       1,
     );
-    effectiveThrottle = Math.max(throttle, idleErrorFrac * IDLE_GOVERNOR_MAX_THROTTLE);
+    effectiveThrottle = Math.max(engineThrottle, idleErrorFrac * IDLE_GOVERNOR_MAX_THROTTLE);
   }
   if (
-    throttle > 0.45 &&
+    engineThrottle > 0.45 &&
     state.gear >= 1 &&
     drivenWheelSlipRatio > LAUNCH_TRACTION_SLIP_THRESHOLD
   ) {
@@ -341,7 +386,7 @@ export function stepDrivetrain(
   }
 
   const combustionTorqueNm = state.revLimiterActive ? 0 : wotTorqueNm * effectiveThrottle;
-  const offThrottleFactor = clamp(1 - throttle / 0.08, 0, 1);
+  const offThrottleFactor = clamp(1 - engineThrottle / 0.08, 0, 1);
   const rpmAboveIdleFrac = clamp(
     (state.engineRpm - spec.engine.idleRpm * 0.75) / 1500,
     0,
@@ -358,11 +403,11 @@ export function stepDrivetrain(
   const shaftOmega = computeDrivenShaftOmega(spec, wheelAngularSpeeds, totalRatio);
   const engineOmega = state.engineRpm * RPM_TO_RAD_S;
   const lockThresholdRpm =
-    spec.engine.idleRpm * 0.95 + (throttle > 0.2 ? 550 * throttle : 0);
+    spec.engine.idleRpm * 0.95 + (engineThrottle > 0.2 ? 550 * engineThrottle : 0);
 
   let clutchEngagement = 0;
   const holdingStillWithBrake =
-    throttle < 0.05 && (brake > 0.05 || Math.abs(forwardSpeedMps) < 0.35);
+    engineThrottle < 0.05 && (serviceBrake > 0.05 || Math.abs(forwardSpeedMps) < 0.35);
 
   if (state.gear !== 0 && !holdingStillWithBrake) {
     const shaftRpm = shaftOmega * RAD_S_TO_RPM;
@@ -374,7 +419,7 @@ export function stepDrivetrain(
         0,
         1,
       );
-      clutchEngagement = clamp(throttle * 0.7 + rpmLift * 0.5, 0, 1);
+      clutchEngagement = clamp(engineThrottle * 0.7 + rpmLift * 0.5, 0, 1);
     }
   }
   state.clutchEngagement = clutchEngagement;
