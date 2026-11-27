@@ -594,7 +594,7 @@ encodeCarId(code):
 
 ## GT2 Track Geometry Format: `TRO` (M8.2–M8.5)
 
-- **Confidence:** **E3** for header magic, section bounds, Section 0 layout, `TRO_UNITS_PER_METER = 64` world scale (`16.16` `trackLengthRaw` match), `0x44`-byte sub-mesh headers, 11-list strides, `SVECTOR` vertex arrays, `F3/F4/G3/G4/FT3/FT4/GT3/GT4` packed polygon bitfields, GPU command tags & RGB color layout, `subMesh0`/`subMesh1` LOD relationship and opposite winding, `(0,1,2)+(0,2,3)` / `(0,2,1)+(0,3,2)` quad triangulation, world-space cell origin `(int32 >> 22) * 4096`, `subBlock98` 2D barrier walls and outward normal winding, and `100%` 4 bpp `clut`/`tpage`/texel addressing across all `126/126` tracks; **E1** for auxiliary Sections 1–4, checkpoints, `0x48..off0`, `subBlock9C`/`A0`, list `9` sprites, and `unk5`/`unkFlags`; **E0** for list `10`, unknown header/UV tail words, and `.tro`→`raceId` cross-file mapping.
+- **Confidence:** **E3** for header magic, section bounds, Section 0 layout, `TRO_UNITS_PER_METER = 64` world scale (`16.16` `trackLengthRaw` match), `0x44`-byte sub-mesh headers, 11-list strides, `SVECTOR` vertex arrays, `F3/F4/G3/G4/FT3/FT4/GT3/GT4` packed polygon bitfields, `w1` bits `28..30` polygon `surfaceCode` (`0` asphalt, `1` kerb, `2` grass, `3` sand/gravel, `5` rally dirt), GPU command tags & RGB color layout, `subMesh0`/`subMesh1` LOD relationship and opposite winding, `(0,1,2)+(0,2,3)` / `(0,2,1)+(0,3,2)` quad triangulation, world-space cell origin `(int32 >> 22) * 4096`, `subBlock98` 2D barrier walls and outward normal winding, and `100%` 4 bpp `clut`/`tpage`/texel addressing across all `126/126` tracks; **E1** for auxiliary Sections 1–4, checkpoints, `0x48..off0`, `subBlock9C`/`A0`, list `9` sprites, `unk5`/`unkFlags` bits `23..27`, and rare `surfaceCode` `4`/`6`; **E0** for list `10`, unknown header/UV tail words, and `.tro`→`raceId` cross-file mapping.
 - **Endianness:** Little-endian.
 
 ### 1. Top-Level Header (`0x00..0x47`, 72 B) & Variable Prefix (`0x48..off0`)
@@ -669,7 +669,16 @@ encodeCarId(code):
   - List `10` (`20 B`, `2,195`): auxiliary block (`0x00` tag, **E0/E1**).
 - **Polygon Bitfields, GPU Tags & Colors (Lists `1..8`, `854,397` polygons, **E3**):**
   - `w0` (`uint32` at `+0x00`): `v0` (bits `0..8`), `v1` (bits `9..17`), `v2` (bits `18..26`), `unk5` (bits `27..31`, **E1**).
-  - `w1` (`uint32` at `+0x04`): `v3` (bits `0..8`; strictly `0` on `100%` of triangles), `uvIdx` (bits `9..22`; `0` OOB across `794,729` textured polygons), `unkFlags` (bits `23..31`, **E1**; bit `8` always `0`).
+  - `w1` (`uint32` at `+0x04`): `v3` (bits `0..8`; strictly `0` on `100%` of triangles), `uvIdx` (bits `9..22`; `0` OOB across `794,729` textured polygons), `unkFlags` bits `23..27` (**E1**), **`surfaceCode` bits `28..30` (`(w1 >>> 28) & 0x07`, **E3**)**, and bit `31 === 0` (`100%`).
+  - **Polygon `surfaceCode` (`(w1 >>> 28) & 0x07`, `702,680` primary polygons across `126/126` tracks):**
+    - `0` (`583,638` polys, `126/126` tracks): **asphalt / road & general track scenery** (**E3** — `95.7%` grey inside barriers, `5.50 m` mean lateral distance from centerline).
+    - `1` (`23,204` polys, `85/126` tracks, `95.2%` ground-exclusive): **kerb / rumble strip** (**E3** — `8.72 m` mean lateral distance; `lat(0) < lat(1)` on `82/85` = `96.5%` of tracks).
+    - `2` (`41,476` polys, `79/126` tracks, `98.0%` ground-exclusive): **grass / turf runoff** (**E3** — `11.15 m` mean lateral distance; `lat(1) < lat(2)` on `64/65` = `98.5%` of tracks).
+    - `3` (`6,333` polys, `51/126` tracks, `98.1%` ground-exclusive): **sand / gravel trap** (**E3** — `14.10 m` mean lateral distance; `lat(2) <= lat(3)` on `47/50` = `94.0%` of tracks).
+    - `4` (`241` polys, `13/126` tracks, `100.0%` ground-exclusive): rare concrete/apron ground (**E1** — conservatively mapped to asphalt).
+    - `5` (`47,696` polys, `32/126` tracks, `98.5%` ground-exclusive): **dirt / rally road** (**E3** — `6.07 m` mean lateral distance; `17/19` rally tracks center `code = 5` within `< 7.5 m`).
+    - `6` (`246` polys, `8/126` tracks, `99.6%` ground-exclusive): rare off-track rough ground (**E1** — conservatively mapped to gravel).
+    - `7` (`0` occurrences across `126/126` tracks).
   - Trailing primitive bytes after `w0, w1`: `+0x08..+0x0A` = `[R, G, B]` (`uint8[3]`), `+0x0B` = PS1 GP0 command byte (`0x20, 0x28, 0x30, 0x38, 0x24, 0x2C, 0x34, 0x3C` for lists `1..8` on `100.0%` of polygons; `0` semi-transparent tags). Gouraud lists (`3, 4, 7, 8`) store additional `[R, G, B, 0x00]` color words at `+0x0C`, `+0x10`, and (quads `4, 8`) `+0x14` (`byte +3 === 0x00` on `100%`). Textured lists use PS1 modulated brightness (`0x80` = `1.0×`).
   - **Quad Triangulation (**E3**):** Quads `[v0, v1, v2, v3]` follow perimeter order; normalized to engine `gl.CCW` via `(0,2,1)+(0,3,2)` for `subMesh0` and `(0,1,2)+(0,2,3)` for `subMesh1`.
 
