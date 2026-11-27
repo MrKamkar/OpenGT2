@@ -2,6 +2,7 @@ import type { AssetRepository, AssetRepositoryCacheStats } from '../assets';
 import type { GamepadProvider, InputManager } from '../core/input';
 import type { CarModel } from '../formats/car';
 import type { CarCatalogEntry } from '../formats/gtdb';
+import type { IndexedImage } from '../formats/ps1';
 import {
   COLLISION_SURFACE_GROUND,
   type TrackModel,
@@ -38,6 +39,7 @@ import {
   type GlErrorStatus,
   type GpuResourceCounts,
 } from './types';
+import { type DriveWheelRenderTuple, hasCdpWheelPalette } from './wheelMesh';
 
 export interface DriveSpawnPose {
   readonly position: PhysicsVec3;
@@ -320,6 +322,7 @@ export class DriveSession {
   private bodyCode: string | null = null;
   private trackStem: string | null = null;
   private activeCarModel: CarModel | null = null;
+  private activeWheelFallbackTexture: IndexedImage | null = null;
   private activeTrackModel: TrackModel | null = null;
   private activePhysicsSpec: CarPhysicsSpec | null = null;
   private collisionIndex: CollisionIndex | null = null;
@@ -618,6 +621,23 @@ export class DriveSession {
 
       const maxSlots = carModel.texture?.source.colorCount ?? 1;
       const clampedSlot = Math.max(0, Math.min(requestedSlot, Math.max(0, maxSlots - 1)));
+
+      let wheelFallbackTexture: IndexedImage | null = null;
+      if (
+        !hasCdpWheelPalette(carModel, clampedSlot) &&
+        this.assetRepository.wheelAssetIndex.getCount() > 0
+      ) {
+        const wheelPath = this.assetRepository.wheelAssetIndex.getPathByIndex(params.carEntry.carId);
+        if (wheelPath !== null) {
+          wheelFallbackTexture = await this.assetRepository.getWheelTexture(wheelPath, {
+            signal: controller.signal,
+          });
+          if (this.disposed || generation !== this.loadGeneration) {
+            return false;
+          }
+        }
+      }
+
       const spec = buildCarPhysicsSpec(params.carEntry, { carModel });
       const colIndex = new CollisionIndex(trackModel.collision);
       const spawn = findTrackSpawnPose(trackModel, colIndex, spec.comHeightMeters);
@@ -628,6 +648,7 @@ export class DriveSession {
       });
 
       this.activeCarModel = carModel;
+      this.activeWheelFallbackTexture = wheelFallbackTexture;
       this.activeTrackModel = trackModel;
       this.activePhysicsSpec = spec;
       this.collisionIndex = colIndex;
@@ -648,6 +669,7 @@ export class DriveSession {
         const renderer = this.ensureRenderer();
         renderer.setTrack(trackModel);
         renderer.setCar(carModel, { lodIndex: 0, colorSlotIndex: clampedSlot });
+        renderer.setWheelFallbackTexture(wheelFallbackTexture);
       } else {
         this.renderer?.dispose();
         this.renderer = null;
@@ -744,6 +766,7 @@ export class DriveSession {
         lodIndex: 0,
         colorSlotIndex: this.colorSlotIndex,
       });
+      renderer.setWheelFallbackTexture(this.activeWheelFallbackTexture);
     }
 
     const { width, height } = this.glContext.getSize();
@@ -754,7 +777,30 @@ export class DriveSession {
       this.renderMode === 'ps1' ? DEFAULT_PS1_DISPLAY_ASPECT : safeW / safeH,
     );
 
-    const pose = poseOverride ?? this.simulation.getPose();
+    const simSnapshot = this.simulation.getSnapshot();
+    const wheelStates: DriveWheelRenderTuple = [
+      {
+        suspensionDeltaMeters: simSnapshot.wheels[0].suspensionDeltaMeters,
+        steerAngleRad: simSnapshot.wheels[0].steerAngleRad,
+        spinAngleRad: simSnapshot.wheels[0].spinAngleRad,
+      },
+      {
+        suspensionDeltaMeters: simSnapshot.wheels[1].suspensionDeltaMeters,
+        steerAngleRad: simSnapshot.wheels[1].steerAngleRad,
+        spinAngleRad: simSnapshot.wheels[1].spinAngleRad,
+      },
+      {
+        suspensionDeltaMeters: simSnapshot.wheels[2].suspensionDeltaMeters,
+        steerAngleRad: simSnapshot.wheels[2].steerAngleRad,
+        spinAngleRad: simSnapshot.wheels[2].spinAngleRad,
+      },
+      {
+        suspensionDeltaMeters: simSnapshot.wheels[3].suspensionDeltaMeters,
+        steerAngleRad: simSnapshot.wheels[3].steerAngleRad,
+        spinAngleRad: simSnapshot.wheels[3].spinAngleRad,
+      },
+    ];
+    const pose = poseOverride ?? simSnapshot.pose;
     this.lastRenderStats = renderer.render(
       this.camera,
       pose,
@@ -767,6 +813,7 @@ export class DriveSession {
         ps1AffineMapping: this.ps1AffineMapping,
         ps1Dithering: this.ps1Dithering,
         ps1Quantize15Bit: this.ps1Dithering,
+        wheelStates,
       },
     );
 
@@ -989,6 +1036,7 @@ export class DriveSession {
     this.renderer?.dispose();
     this.renderer = null;
     this.activeCarModel = null;
+    this.activeWheelFallbackTexture = null;
     this.activeTrackModel = null;
     this.activePhysicsSpec = null;
     this.collisionIndex = null;
@@ -1038,6 +1086,7 @@ export class DriveSession {
           lodIndex: 0,
           colorSlotIndex: this.colorSlotIndex,
         });
+        renderer.setWheelFallbackTexture(this.activeWheelFallbackTexture);
       }
       this.pausedByContextLoss = false;
       this.start();

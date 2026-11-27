@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AssetRepository } from '../../src/assets';
+import { AssetRepository, WheelAssetIndex } from '../../src/assets';
 import { InputManager } from '../../src/core/input';
-import { buildCarModel, parseCdo, parseCdp } from '../../src/formats/car';
+import { buildCarModel, parseCdo, parseCdp, withCarModelTexture } from '../../src/formats/car';
 import type { CarCatalogEntry } from '../../src/formats/gtdb';
 import { buildTrackModel, parseTro, parseTrp, type TrackModel } from '../../src/formats/track';
 import type { VolEntry, VolInfo } from '../../src/formats/vol';
 import {
+  CAR_FACE_MODE_TEXTURED_RAW,
+  CAR_FACE_MODE_UNTEXTURED,
+  CAR_WHEEL_CDP_PALETTE_INDEX,
   ChaseCamera,
   DriveRenderer,
   DriveSession,
@@ -14,10 +17,14 @@ import {
   GlContext,
   type WebGL2DriveRendererContext,
   buildCarWorldModelMatrix,
+  buildWheelLocalMatrix,
+  buildWheelMeshData,
   computeCarVisualBottomY,
+  hasCdpWheelPalette,
 } from '../../src/renderer';
 import { buildSyntheticCdo } from '../fixtures/buildCdo';
 import { buildSyntheticCdp } from '../fixtures/buildCdp';
+import { buildTim } from '../fixtures/buildTim';
 import { buildSyntheticTro, type SyntheticSegmentSpec } from '../fixtures/buildTro';
 import { buildSyntheticTrp, encodeClutWord, encodeTpageWord, pack4BppPixels } from '../fixtures/buildTrp';
 
@@ -694,6 +701,201 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
     expect(session.getSnapshot().running).toBe(false);
     expect(activeRafs.size).toBe(0);
     expect(harness.getLiveCounts()).toEqual(EMPTY_GPU_RESOURCE_COUNTS);
+
+    session.dispose();
+    glContext.dispose();
+    expect(harness.getLiveCounts()).toEqual(EMPTY_GPU_RESOURCE_COUNTS);
+  });
+
+  it('builds CCW 4-wheel meshes, right-handed steering/spin transforms, and renders 4 wheels in HD & PS1 without GPU leaks', async () => {
+    const wheelData = buildWheelMeshData(0.32, 0.22, CAR_WHEEL_CDP_PALETTE_INDEX);
+    expect(wheelData.vertexScale).toBe(1);
+    expect(wheelData.triangleCount).toBeGreaterThanOrEqual(64);
+    expect(wheelData.batches).toHaveLength(1);
+    expect(wheelData.batches[0]?.singleSided).toBe(true);
+
+    let texturedRimVerts = 0;
+    let untexturedVerts = 0;
+    for (let i = 0; i < wheelData.vertexCount; i += 1) {
+      const pal = wheelData.materialsUint8[i * 2] ?? 0;
+      const mode = wheelData.materialsUint8[i * 2 + 1] ?? 0;
+      const u = wheelData.uvsUint8[i * 2] ?? 0;
+      const v = wheelData.uvsUint8[i * 2 + 1] ?? 0;
+      if (mode === CAR_FACE_MODE_TEXTURED_RAW) {
+        texturedRimVerts += 1;
+        expect(pal).toBe(CAR_WHEEL_CDP_PALETTE_INDEX);
+        expect(u).toBeGreaterThanOrEqual(1);
+        expect(u).toBeLessThanOrEqual(46);
+        expect(v).toBeGreaterThanOrEqual(1);
+        expect(v).toBeLessThanOrEqual(46);
+      } else {
+        expect(mode).toBe(CAR_FACE_MODE_UNTEXTURED);
+        untexturedVerts += 1;
+      }
+    }
+    expect(texturedRimVerts).toBeGreaterThan(10);
+    expect(untexturedVerts).toBeGreaterThan(20);
+
+    // Transform checks: det = +1, left outward normal -> -X, spin > 0 rolls top -> -Z, steer > 0 turns -Z -> -X
+    const transformVec = (m: Float32Array, x: number, y: number, z: number, w: number) => ({
+      x: (m[0] ?? 0) * x + (m[4] ?? 0) * y + (m[8] ?? 0) * z + (m[12] ?? 0) * w,
+      y: (m[1] ?? 0) * x + (m[5] ?? 0) * y + (m[9] ?? 0) * z + (m[13] ?? 0) * w,
+      z: (m[2] ?? 0) * x + (m[6] ?? 0) * y + (m[10] ?? 0) * z + (m[14] ?? 0) * w,
+    });
+    for (const isLeft of [false, true]) {
+      const m = buildWheelLocalMatrix({ x: isLeft ? -0.75 : 0.75, y: 0.32, z: -1.2 }, isLeft, 0.35, 0.25);
+      const det3 =
+        (m[0] ?? 0) * ((m[5] ?? 0) * (m[10] ?? 0) - (m[6] ?? 0) * (m[9] ?? 0)) -
+        (m[4] ?? 0) * ((m[1] ?? 0) * (m[10] ?? 0) - (m[2] ?? 0) * (m[9] ?? 0)) +
+        (m[8] ?? 0) * ((m[1] ?? 0) * (m[6] ?? 0) - (m[2] ?? 0) * (m[5] ?? 0));
+      expect(det3).toBeCloseTo(1, 5);
+
+      const spinOnly = buildWheelLocalMatrix({ x: 0, y: 0, z: 0 }, isLeft, 0, 0.3);
+      const topMoved = transformVec(spinOnly, 0, 0.32, 0, 0);
+      expect(topMoved.z).toBeLessThan(-0.05); // top edge rolls forward (-Z) on both left & right
+
+      const steerOnly = buildWheelLocalMatrix({ x: 0, y: 0, z: 0 }, isLeft, 0.4, 0);
+      const wheelFwd = transformVec(steerOnly, 0, 0, isLeft ? 1 : -1, 0);
+      expect(wheelFwd.x).toBeLessThan(-0.2); // positive steer turns forward -Z toward -X
+
+      const leftOutward = transformVec(
+        buildWheelLocalMatrix({ x: 0, y: 0, z: 0 }, true, 0, 0),
+        1,
+        0,
+        0,
+        0,
+      );
+      expect(leftOutward.x).toBeCloseTo(-1, 5);
+    }
+
+    // Synthetic 48x48 4 bpp wheel TIM bytes for fallback verification
+    const wheelPal = new Array<number>(16).fill(0x7fff);
+    wheelPal[0] = 0x0000;
+    const wheelTimBytes = buildTim({
+      pixelMode: 0,
+      clutPalettes: [wheelPal],
+      clutVramX: 640,
+      clutVramY: 480,
+      imageVramX: 640,
+      imageVramY: 0,
+      imageVramWidth: 12,
+      imageHeight: 48,
+      pixelData: pack4BppPixels(48, 48, () => 1),
+    });
+
+    const entries: VolEntry[] = [
+      { path: 'carobj/a1000.cdo.gz', kind: 'file', address: 2048, size: 100, unixTime: 0, isGzip: true },
+      { path: 'crsobj/syn_trk.tro.gz', kind: 'file', address: 4096, size: 100, unixTime: 0, isGzip: true },
+      { path: 'carwheel/w001.tim', kind: 'file', address: 8192, size: wheelTimBytes.byteLength, unixTime: 0, isGzip: false },
+    ];
+    const wheelIdx = new WheelAssetIndex(entries);
+    expect(wheelIdx.getCount()).toBe(1);
+    expect(wheelIdx.getPathByIndex(77)).toBe('carwheel/w001.tim');
+
+    // Car without palette 15 triggers fallback fetch & uploads cleanly in both HD and PS1
+    const fallbackCar = makeTestCarModel();
+    expect(hasCdpWheelPalette(fallbackCar, 0)).toBe(false);
+
+    // Car with populated palette 15 skips fallback fetch cleanly
+    const cdpPal15 = parseCdp(
+      buildSyntheticCdp({
+        colorCount: 1,
+        colorIds: [0x30],
+        slots: [
+          {
+            colorId: 0x30,
+            palettes: Array.from({ length: 16 }, () => [0x0000, 0x7fff]),
+          },
+        ],
+        pixels: new Uint8Array(256 * 224).fill(1),
+      }),
+    );
+    const rimCdpCar = withCarModelTexture(fallbackCar, cdpPal15, { variant: 'day' });
+    expect(hasCdpWheelPalette(rimCdpCar, 0)).toBe(true);
+
+    const readWheel = vi.fn(async () => wheelTimBytes);
+    const harness = createDriveGlHarness();
+    const glContext = new GlContext(harness.canvas, {
+      getDevicePixelRatio: () => 1,
+      createResizeObserver: () => ({ observe: () => {}, disconnect: () => {} }),
+    });
+    const trackModel = makeTestTrackModel(true);
+    const repo = new AssetRepository({
+      volInfo: {
+        fingerprint: 'fp_wheels_test',
+        fileCount: 3,
+        entryCount: 4,
+        warnings: [],
+        variant: 'unknown',
+      },
+      entries,
+      backend: {
+        list: async () => entries,
+        read: readWheel,
+        readDecompressed: async () => new Uint8Array(0),
+        loadCarResources: vi.fn(async () => ({ carModel: fallbackCar })),
+        loadTrackResources: vi.fn(async () => ({ trackModel })),
+      },
+    });
+
+    const input = new InputManager({ initialContext: 'race' });
+    const session = new DriveSession({
+      glContext,
+      gl: harness.gl,
+      inputManager: input,
+      assetRepository: repo,
+      gamepadProvider: () => [],
+      raf: { request: () => 1, cancel: () => {} },
+    });
+
+    session.start();
+    const ok = await session.loadSession({
+      carEntry: createTestCatalogEntry(77),
+      bodyCode: 'a1000',
+      trackStem: 'syn_trk',
+    });
+    expect(ok).toBe(true);
+    expect(readWheel).toHaveBeenCalledTimes(1);
+
+    // At least car body (1 batch) + 4 wheels (4 draws) = 5 draws, and wireframe adds +5 (1 body + 4 wheels).
+    const hdStats = session.getDebugStats().renderStats;
+    expect(hdStats.drawCalls).toBeGreaterThanOrEqual(5);
+    const wheelTriangles = buildWheelMeshData(0.32, 0.22, 0).triangleCount * 4;
+    expect(hdStats.renderedTriangles).toBeGreaterThanOrEqual(wheelTriangles + 2);
+
+    session.setRenderMode('ps1');
+    const ps1Stats = session.getDebugStats().renderStats;
+    expect(ps1Stats.drawCalls).toBe(hdStats.drawCalls);
+    expect(ps1Stats.renderedTriangles).toBe(hdStats.renderedTriangles);
+
+    session.setWireframe(true);
+    session.renderCurrentFrame();
+    const wireStats = session.getDebugStats().renderStats;
+    expect(wireStats.drawCalls).toBeGreaterThanOrEqual(hdStats.drawCalls + 5);
+
+    // Renderer standalone GPU resource leak check with fallback texture across 20 switches
+    const renderer = new DriveRenderer(harness.gl, { initialMode: 'hd' });
+    const wheelTexImg = await repo.getWheelTexture('carwheel/w001.tim');
+    renderer.setTrack(trackModel);
+    renderer.setCar(fallbackCar, { colorSlotIndex: 0 });
+    renderer.setWheelFallbackTexture(wheelTexImg);
+    const cam = new ChaseCamera();
+    const pose = { position: { x: 0, y: 0.45, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
+    cam.snapToPose(pose);
+    renderer.setMode('ps1');
+    renderer.render(cam, pose, 0.45, 800, 600);
+    renderer.setMode('hd');
+    renderer.render(cam, pose, 0.45, 800, 600);
+    const baseCounts = renderer.getResourceCounts();
+
+    for (let i = 0; i < 20; i += 1) {
+      renderer.setMode(i % 2 === 0 ? 'ps1' : 'hd');
+      renderer.setCar(i % 2 === 0 ? rimCdpCar : fallbackCar, { colorSlotIndex: 0 });
+      renderer.setWheelFallbackTexture(i % 2 === 0 ? null : wheelTexImg);
+      renderer.render(cam, pose, 0.45, 800, 600);
+    }
+    expect(renderer.getResourceCounts()).toEqual(baseCounts);
+    renderer.dispose();
 
     session.dispose();
     glContext.dispose();

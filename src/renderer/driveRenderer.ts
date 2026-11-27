@@ -1,4 +1,5 @@
 import { type CarModel } from '../formats/car';
+import { type IndexedImage, decodeIndexedImageToRgba } from '../formats/ps1';
 import type { TrackModel } from '../formats/track';
 import type { VehiclePose } from '../physics';
 import type { RenderMode, SetCarOptions, WebGL2CarRendererContext } from './carRenderer';
@@ -44,6 +45,13 @@ import {
   addResourceCounts,
   pollGlError,
 } from './types';
+import {
+  CAR_WHEEL_CDP_PALETTE_INDEX,
+  type DriveWheelRenderTuple,
+  buildWheelLocalMatrix,
+  buildWheelMeshData,
+  hasCdpWheelPalette,
+} from './wheelMesh';
 
 export type WebGL2DriveRendererContext = WebGL2TrackRendererContext & WebGL2CarRendererContext;
 
@@ -75,6 +83,7 @@ export interface DriveRendererOptions {
 
 export interface DriveRenderOptions extends TrackRenderOptions {
   readonly lodIndex?: number;
+  readonly wheelStates?: DriveWheelRenderTuple;
 }
 
 const HD_TRACK_VERTEX_SHADER = `#version 300 es
@@ -698,9 +707,16 @@ export class DriveRenderer {
   private carColorSlotIndex = 0;
   private carVisualBottomY = 0;
   private carMesh: CarRenderMesh | null = null;
+  private frontWheelMesh: CarRenderMesh | null = null;
+  private rearWheelMesh: CarRenderMesh | null = null;
+  private carUsesCdpWheelPalette = false;
   private carPs1Tex: IndexedTextureHandle | null = null;
   private carHdTex: HdCarTextureArray | null = null;
   private carHdTexDirty = false;
+  private wheelFallbackImage: IndexedImage | null = null;
+  private wheelFallbackPs1Tex: IndexedTextureHandle | null = null;
+  private wheelFallbackHdTex: WebGLTexture | null = null;
+  private wheelFallbackHdTexDirty = false;
 
   private lastStats: DriveRenderStats = EMPTY_DRIVE_RENDER_STATS;
   private disposed = false;
@@ -848,10 +864,27 @@ export class DriveRenderer {
     }
 
     const nextMesh = CarRenderMesh.fromCarModel(this.gl, carModel, lodIndex);
+    const usesCdpWheelPalette = hasCdpWheelPalette(carModel, colorSlotIndex);
+    const rimPaletteIdx = usesCdpWheelPalette ? CAR_WHEEL_CDP_PALETTE_INDEX : 0;
+    let nextFrontWheelMesh: CarRenderMesh | null = null;
+    let nextRearWheelMesh: CarRenderMesh | null = null;
     let nextPs1Tex: IndexedTextureHandle | null = null;
     let nextHdTex: HdCarTextureArray | null = null;
 
     try {
+      if (carModel.wheels.length >= 4) {
+        const frontSpec = carModel.wheels[0]!;
+        const rearSpec = carModel.wheels[2]!;
+        nextFrontWheelMesh = new CarRenderMesh(
+          this.gl,
+          buildWheelMeshData(frontSpec.radiusMeters, frontSpec.widthMeters, rimPaletteIdx),
+        );
+        nextRearWheelMesh = new CarRenderMesh(
+          this.gl,
+          buildWheelMeshData(rearSpec.radiusMeters, rearSpec.widthMeters, rimPaletteIdx),
+        );
+      }
+
       if (carModel.texture !== null) {
         const stacked = buildStackedCarPaletteImage(
           carModel.texture.source,
@@ -872,6 +905,8 @@ export class DriveRenderer {
       }
     } catch (error) {
       nextMesh.dispose();
+      nextFrontWheelMesh?.dispose();
+      nextRearWheelMesh?.dispose();
       nextPs1Tex?.dispose();
       nextHdTex?.dispose();
       throw error;
@@ -883,9 +918,80 @@ export class DriveRenderer {
     this.carColorSlotIndex = colorSlotIndex;
     this.carVisualBottomY = computeCarVisualBottomY(carModel, lodIndex);
     this.carMesh = nextMesh;
+    this.frontWheelMesh = nextFrontWheelMesh;
+    this.rearWheelMesh = nextRearWheelMesh;
+    this.carUsesCdpWheelPalette = usesCdpWheelPalette;
     this.carPs1Tex = nextPs1Tex;
     this.carHdTex = nextHdTex;
     this.carHdTexDirty = this.mode !== 'hd' && carModel.texture !== null;
+  }
+
+  public setWheelFallbackTexture(image: IndexedImage | null): void {
+    if (this.disposed) {
+      throw new Error('Cannot setWheelFallbackTexture on a disposed DriveRenderer.');
+    }
+
+    let nextPs1Tex: IndexedTextureHandle | null = null;
+    let nextHdTex: WebGLTexture | null = null;
+    try {
+      if (image !== null) {
+        nextPs1Tex = uploadIndexedTexture(this.gl, image, {
+          transparencyMode: 'transparent-zero',
+        });
+        if (this.mode === 'hd') {
+          nextHdTex = this.createWheelFallbackHdTexture(image);
+        }
+      }
+    } catch (error) {
+      nextPs1Tex?.dispose();
+      if (nextHdTex !== null) {
+        this.gl.deleteTexture(nextHdTex);
+      }
+      throw error;
+    }
+
+    this.releaseWheelFallbackResources();
+    this.wheelFallbackImage = image;
+    this.wheelFallbackPs1Tex = nextPs1Tex;
+    this.wheelFallbackHdTex = nextHdTex;
+    this.wheelFallbackHdTexDirty = image !== null && nextHdTex === null;
+  }
+
+  private createWheelFallbackHdTexture(image: IndexedImage): WebGLTexture {
+    const gl = this.gl;
+    const rgba = decodeIndexedImageToRgba(image, 0, {
+      transparencyMode: 'transparent-zero',
+    });
+    const tex = gl.createTexture();
+    if (tex === null) {
+      throw new Error('Failed to create fallback wheel HD texture array.');
+    }
+    try {
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage3D(
+        gl.TEXTURE_2D_ARRAY,
+        0,
+        gl.RGBA8,
+        rgba.width,
+        rgba.height,
+        1,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        rgba.rgba,
+      );
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+      return tex;
+    } catch (error) {
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
+      gl.deleteTexture(tex);
+      throw error;
+    }
   }
 
   public setPaintSlot(colorSlotIndex: number): void {
@@ -1098,6 +1204,61 @@ export class DriveRenderer {
       drawCalls += this.carMesh.data.batches.length;
       renderedTriangles += Math.floor(this.carMesh.data.indicesUint16.length / 3);
 
+      const wheelTransforms: { readonly mesh: CarRenderMesh; readonly mvp: Float32Array }[] = [];
+      if (
+        this.carModel !== null &&
+        this.frontWheelMesh !== null &&
+        this.rearWheelMesh !== null &&
+        this.carModel.wheels.length >= 4
+      ) {
+        if (!this.carUsesCdpWheelPalette) {
+          if (this.wheelFallbackImage !== null) {
+            if (this.wheelFallbackHdTex === null || this.wheelFallbackHdTexDirty) {
+              if (this.wheelFallbackHdTex !== null) {
+                gl.deleteTexture(this.wheelFallbackHdTex);
+              }
+              this.wheelFallbackHdTex = this.createWheelFallbackHdTexture(this.wheelFallbackImage);
+              this.wheelFallbackHdTexDirty = false;
+            }
+            this.hdCarProgram.setInt('u_hasTexture', 1);
+            this.hdCarProgram.setVec2(
+              'u_texSize',
+              this.wheelFallbackImage.width,
+              this.wheelFallbackImage.height,
+            );
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.wheelFallbackHdTex);
+            this.hdCarProgram.setInt('u_carTexArray', 0);
+          } else {
+            this.hdCarProgram.setInt('u_hasTexture', 0);
+          }
+        }
+
+        for (let wi = 0; wi < 4; wi += 1) {
+          const wSpec = this.carModel.wheels[wi]!;
+          const wMesh = wSpec.axle === 'front' ? this.frontWheelMesh : this.rearWheelMesh;
+          const wState = options.wheelStates?.[wi];
+          const restY = Math.max(wSpec.positionMeters.y, this.carVisualBottomY + wSpec.radiusMeters);
+          const suspY = Math.max(-0.14, Math.min(0.14, wState?.suspensionDeltaMeters ?? 0));
+          const localMat = buildWheelLocalMatrix(
+            { x: wSpec.positionMeters.x, y: restY + suspY, z: wSpec.positionMeters.z },
+            wSpec.side === 'left',
+            wSpec.axle === 'front' ? (wState?.steerAngleRad ?? 0) : 0,
+            wState?.spinAngleRad ?? 0,
+          );
+          const wheelModelMat = multiplyMat4(carModelMat, localMat);
+          const wheelMvp = multiplyMat4(viewProj, wheelModelMat);
+          wheelTransforms.push({ mesh: wMesh, mvp: wheelMvp });
+
+          this.hdCarProgram.setMat4('u_mvp', wheelMvp);
+          this.hdCarProgram.setMat4('u_model', wheelModelMat);
+          this.hdCarProgram.setFloat('u_vertexScale', wMesh.data.vertexScale);
+          wMesh.drawBatches();
+          drawCalls += wMesh.data.batches.length;
+          renderedTriangles += wMesh.data.triangleCount;
+        }
+      }
+
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
 
@@ -1110,6 +1271,13 @@ export class DriveRenderer {
         this.carWireframeProgram.setVec4('u_wireColor', 0.95, 0.75, 0.2, 1.0);
         this.carMesh.drawWireframe();
         drawCalls += 1;
+
+        for (const wt of wheelTransforms) {
+          this.carWireframeProgram.setMat4('u_mvp', wt.mvp);
+          this.carWireframeProgram.setFloat('u_vertexScale', wt.mesh.data.vertexScale);
+          wt.mesh.drawWireframe();
+          drawCalls += 1;
+        }
       }
     }
 
@@ -1255,6 +1423,59 @@ export class DriveRenderer {
       drawCalls += this.carMesh.data.batches.length;
       renderedTriangles += Math.floor(this.carMesh.data.indicesUint16.length / 3);
 
+      const wheelTransforms: { readonly mesh: CarRenderMesh; readonly mvp: Float32Array }[] = [];
+      if (
+        this.carModel !== null &&
+        this.frontWheelMesh !== null &&
+        this.rearWheelMesh !== null &&
+        this.carModel.wheels.length >= 4
+      ) {
+        if (!this.carUsesCdpWheelPalette) {
+          if (this.wheelFallbackPs1Tex !== null) {
+            this.ps1CarProgram.setInt('u_hasTexture', 1);
+            this.ps1CarProgram.setInt('u_paletteRowOffset', 0);
+            this.ps1CarProgram.setIVec2(
+              'u_texSize',
+              this.wheelFallbackPs1Tex.width,
+              this.wheelFallbackPs1Tex.height,
+            );
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, this.wheelFallbackPs1Tex.indexTex);
+            this.ps1CarProgram.setInt('u_indexTex', 0);
+
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, this.wheelFallbackPs1Tex.paletteTex);
+            this.ps1CarProgram.setInt('u_paletteTex', 1);
+          } else {
+            this.ps1CarProgram.setInt('u_hasTexture', 0);
+          }
+        }
+
+        for (let wi = 0; wi < 4; wi += 1) {
+          const wSpec = this.carModel.wheels[wi]!;
+          const wMesh = wSpec.axle === 'front' ? this.frontWheelMesh : this.rearWheelMesh;
+          const wState = options.wheelStates?.[wi];
+          const restY = Math.max(wSpec.positionMeters.y, this.carVisualBottomY + wSpec.radiusMeters);
+          const suspY = Math.max(-0.14, Math.min(0.14, wState?.suspensionDeltaMeters ?? 0));
+          const localMat = buildWheelLocalMatrix(
+            { x: wSpec.positionMeters.x, y: restY + suspY, z: wSpec.positionMeters.z },
+            wSpec.side === 'left',
+            wSpec.axle === 'front' ? (wState?.steerAngleRad ?? 0) : 0,
+            wState?.spinAngleRad ?? 0,
+          );
+          const wheelModelMat = multiplyMat4(carModelMat, localMat);
+          const wheelMvp = multiplyMat4(viewProj, wheelModelMat);
+          wheelTransforms.push({ mesh: wMesh, mvp: wheelMvp });
+
+          this.ps1CarProgram.setMat4('u_mvp', wheelMvp);
+          this.ps1CarProgram.setMat4('u_model', wheelModelMat);
+          this.ps1CarProgram.setFloat('u_vertexScale', wMesh.data.vertexScale);
+          wMesh.drawBatches();
+          drawCalls += wMesh.data.batches.length;
+          renderedTriangles += wMesh.data.triangleCount;
+        }
+      }
+
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, null);
       gl.activeTexture(gl.TEXTURE0);
@@ -1269,6 +1490,13 @@ export class DriveRenderer {
         this.carWireframeProgram.setVec4('u_wireColor', 0.95, 0.75, 0.2, 1.0);
         this.carMesh.drawWireframe();
         drawCalls += 1;
+
+        for (const wt of wheelTransforms) {
+          this.carWireframeProgram.setMat4('u_mvp', wt.mvp);
+          this.carWireframeProgram.setFloat('u_vertexScale', wt.mesh.data.vertexScale);
+          wt.mesh.drawWireframe();
+          drawCalls += 1;
+        }
       }
     }
 
@@ -1542,11 +1770,26 @@ export class DriveRenderer {
   private releaseCarResources(): void {
     this.carMesh?.dispose();
     this.carMesh = null;
+    this.frontWheelMesh?.dispose();
+    this.frontWheelMesh = null;
+    this.rearWheelMesh?.dispose();
+    this.rearWheelMesh = null;
+    this.carUsesCdpWheelPalette = false;
     this.carPs1Tex?.dispose();
     this.carPs1Tex = null;
     this.carHdTex?.dispose();
     this.carHdTex = null;
     this.carHdTexDirty = false;
+  }
+
+  private releaseWheelFallbackResources(): void {
+    this.wheelFallbackPs1Tex?.dispose();
+    this.wheelFallbackPs1Tex = null;
+    if (this.wheelFallbackHdTex !== null) {
+      this.gl.deleteTexture(this.wheelFallbackHdTex);
+      this.wheelFallbackHdTex = null;
+    }
+    this.wheelFallbackHdTexDirty = false;
   }
 
   public getLodIndex(): number {
@@ -1571,7 +1814,9 @@ export class DriveRenderer {
       (this.hdMsaaColorRb !== null ? 1 : 0) +
       (this.hdMsaaDepthRb !== null ? 1 : 0);
     const fboTexCount =
-      (this.ps1ColorTex !== null ? 1 : 0) + (this.hdResolveColorTex !== null ? 1 : 0);
+      (this.ps1ColorTex !== null ? 1 : 0) +
+      (this.hdResolveColorTex !== null ? 1 : 0) +
+      (this.wheelFallbackHdTex !== null ? 1 : 0);
 
     return addResourceCounts(
       this.hdTrackProgram.getResourceCounts(),
@@ -1584,8 +1829,11 @@ export class DriveRenderer {
       this.trackMesh?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
       this.trackAtlas?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
       this.carMesh?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
+      this.frontWheelMesh?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
+      this.rearWheelMesh?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
       this.carPs1Tex?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
       this.carHdTex?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
+      this.wheelFallbackPs1Tex?.getResourceCounts() ?? EMPTY_GPU_RESOURCE_COUNTS,
       {
         programs: 0,
         vaos: 1,
@@ -1615,9 +1863,16 @@ export class DriveRenderer {
     this.trackAtlas = null;
     this.trackModel = null;
     this.carMesh = null;
+    this.frontWheelMesh = null;
+    this.rearWheelMesh = null;
+    this.carUsesCdpWheelPalette = false;
     this.carPs1Tex = null;
     this.carHdTex = null;
     this.carHdTexDirty = false;
+    this.wheelFallbackImage = null;
+    this.wheelFallbackPs1Tex = null;
+    this.wheelFallbackHdTex = null;
+    this.wheelFallbackHdTexDirty = false;
     this.carModel = null;
   }
 
@@ -1628,6 +1883,8 @@ export class DriveRenderer {
     this.disposed = true;
     this.releaseTrackResources();
     this.releaseCarResources();
+    this.releaseWheelFallbackResources();
+    this.wheelFallbackImage = null;
     this.releasePs1Framebuffer();
     this.releaseHdFramebuffers();
     this.trackModel = null;

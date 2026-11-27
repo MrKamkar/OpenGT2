@@ -234,3 +234,13 @@ export {
   type DriveTelemetrySnapshot,
   findTrackSpawnPose,
 } from './driveSession';
+export {
+  CAR_WHEEL_CDP_PALETTE_INDEX,
+  CAR_WHEEL_RIM_RADIUS_RATIO,
+  CAR_WHEEL_SEGMENTS,
+  type DriveWheelRenderState,
+  type DriveWheelRenderTuple,
+  buildWheelLocalMatrix,
+  buildWheelMeshData,
+  hasCdpWheelPalette,
+} from './wheelMesh';

@@ -1,5 +1,7 @@
 import { type CarModel, type CarTextureVariant } from '../formats/car';
 import { CarAssetIndex } from '../formats/gtdb';
+import type { IndexedImage } from '../formats/ps1';
+import { parseTim, timToIndexedImage } from '../formats/tim';
 import type { TrackModel } from '../formats/track';
 import type { VolEntry, VolInfo } from '../formats/vol';
 import { BufferByteSource, type ByteSource } from '../io';
@@ -11,12 +13,16 @@ import type {
   VolReaderTrackResourcesResult,
 } from '../workers/volReaderProtocol';
 import { TrackAssetIndex } from './trackAssetIndex';
+import { WheelAssetIndex } from './wheelAssetIndex';
 
 /** Default maximum decoded `CarModel` entries kept in the main-thread LRU cache. */
 export const DEFAULT_CAR_CACHE_MAX_ENTRIES = 16;
 
 /** Default maximum decoded `TrackModel` entries kept in the main-thread LRU cache (`M8.9`). */
 export const DEFAULT_TRACK_CACHE_MAX_ENTRIES = 4;
+
+/** Default maximum decoded `carwheel/*.tim` entries kept in the main-thread LRU cache (`M9.14`). */
+export const DEFAULT_WHEEL_CACHE_MAX_ENTRIES = 16;
 
 export interface AssetRepositoryWorkerBackend {
   list(dir?: string, options?: { readonly signal?: AbortSignal }): Promise<readonly VolEntry[]>;
@@ -41,6 +47,7 @@ export interface AssetRepositoryOptions {
   readonly backend: AssetRepositoryWorkerBackend;
   readonly maxCarEntries?: number;
   readonly maxTrackEntries?: number;
+  readonly maxWheelEntries?: number;
 }
 
 export interface AssetRepositoryCacheStats {
@@ -62,6 +69,10 @@ export interface GetTrackModelOptions {
   readonly includeCollision?: boolean;
 }
 
+export interface GetWheelTextureOptions {
+  readonly signal?: AbortSignal;
+}
+
 /**
  * Deterministic LRU cache key combining archive fingerprint, 5-character body code,
  * and day/night texture variant (`M7.7`).
@@ -79,6 +90,13 @@ export function buildCarModelCacheKey(
  */
 export function buildTrackModelCacheKey(fingerprint: string, stem: string): string {
   return `${fingerprint}:track:${stem.trim().toLowerCase()}`;
+}
+
+/**
+ * Deterministic LRU cache key combining archive fingerprint and `carwheel/*.tim` path (`M9.14`).
+ */
+export function buildWheelTextureCacheKey(fingerprint: string, wheelPath: string): string {
+  return `${fingerprint}:wheel:${wheelPath.trim().toLowerCase()}`;
 }
 
 function createAbortError(reason: unknown): Error {
@@ -140,14 +158,18 @@ export class AssetRepository {
   public readonly volInfo: VolInfo;
   public readonly carAssetIndex: CarAssetIndex;
   public readonly trackAssetIndex: TrackAssetIndex;
+  public readonly wheelAssetIndex: WheelAssetIndex;
 
   private readonly backend: AssetRepositoryWorkerBackend;
   private readonly maxCarEntries: number;
   private readonly maxTrackEntries: number;
+  private readonly maxWheelEntries: number;
   private readonly carCache = new Map<string, CarModel>();
   private readonly inflightCars = new Map<string, Promise<CarModel>>();
   private readonly trackCache = new Map<string, TrackModel>();
   private readonly inflightTracks = new Map<string, InflightTrackRequest>();
+  private readonly wheelCache = new Map<string, IndexedImage>();
+  private readonly inflightWheels = new Map<string, Promise<IndexedImage>>();
 
   private hits = 0;
   private misses = 0;
@@ -173,13 +195,21 @@ export class AssetRepository {
         `maxTrackEntries must be a positive integer, got ${String(maxTrackEntries)}.`,
       );
     }
+    const maxWheelEntries = options.maxWheelEntries ?? DEFAULT_WHEEL_CACHE_MAX_ENTRIES;
+    if (!Number.isInteger(maxWheelEntries) || maxWheelEntries < 1) {
+      throw new RangeError(
+        `maxWheelEntries must be a positive integer, got ${String(maxWheelEntries)}.`,
+      );
+    }
 
     this.volInfo = options.volInfo;
     this.carAssetIndex = new CarAssetIndex(options.entries);
     this.trackAssetIndex = new TrackAssetIndex(options.entries);
+    this.wheelAssetIndex = new WheelAssetIndex(options.entries);
     this.backend = options.backend;
     this.maxCarEntries = maxCarEntries;
     this.maxTrackEntries = maxTrackEntries;
+    this.maxWheelEntries = maxWheelEntries;
   }
 
   public isDisposed(): boolean {
@@ -402,6 +432,54 @@ export class AssetRepository {
     }
   }
 
+  /**
+   * Streams and decodes a fallback `carwheel/*.tim` rim texture from `GT2.VOL` via the worker
+   * for cars whose `.cdp`/`.cnp` palette 15 is empty (`M9.14`).
+   */
+  public async getWheelTexture(
+    wheelPath: string,
+    options: GetWheelTextureOptions = {},
+  ): Promise<IndexedImage> {
+    this.assertNotDisposed();
+    if (options.signal?.aborted === true) {
+      throw createAbortError(options.signal.reason);
+    }
+
+    const normalizedPath = wheelPath.trim().toLowerCase();
+    const key = buildWheelTextureCacheKey(this.volInfo.fingerprint, wheelPath);
+    const cached = this.wheelCache.get(key);
+    if (cached !== undefined) {
+      this.wheelCache.delete(key);
+      this.wheelCache.set(key, cached);
+      return cached;
+    }
+
+    const existingInflight = this.inflightWheels.get(key);
+    if (existingInflight !== undefined) {
+      return awaitWithAbort(existingInflight, options.signal);
+    }
+
+    const isGzip = normalizedPath.endsWith('.gz');
+    const loadPromise = (
+      isGzip ? this.backend.readDecompressed(wheelPath) : this.backend.read(wheelPath)
+    )
+      .then((bytes) => {
+        const indexed = timToIndexedImage(parseTim(bytes));
+        if (!this.disposed) {
+          this.insertWheelLru(key, indexed);
+        }
+        return indexed;
+      })
+      .finally(() => {
+        if (this.inflightWheels.get(key) === loadPromise) {
+          this.inflightWheels.delete(key);
+        }
+      });
+
+    this.inflightWheels.set(key, loadPromise);
+    return awaitWithAbort(loadPromise, options.signal);
+  }
+
   public getCacheStats(): AssetRepositoryCacheStats {
     return {
       size: this.carCache.size,
@@ -427,6 +505,7 @@ export class AssetRepository {
   public clearCache(): void {
     this.carCache.clear();
     this.trackCache.clear();
+    this.wheelCache.clear();
   }
 
   public dispose(): void {
@@ -438,6 +517,8 @@ export class AssetRepository {
     this.inflightCars.clear();
     this.trackCache.clear();
     this.inflightTracks.clear();
+    this.wheelCache.clear();
+    this.inflightWheels.clear();
   }
 
   private insertCarLru(key: string, model: CarModel): void {
@@ -468,6 +549,20 @@ export class AssetRepository {
       this.trackEvictions += 1;
     }
     this.trackCache.set(key, model);
+  }
+
+  private insertWheelLru(key: string, image: IndexedImage): void {
+    if (this.wheelCache.has(key)) {
+      this.wheelCache.delete(key);
+    }
+    while (this.wheelCache.size >= this.maxWheelEntries) {
+      const oldestKey = this.wheelCache.keys().next().value;
+      if (oldestKey === undefined) {
+        break;
+      }
+      this.wheelCache.delete(oldestKey);
+    }
+    this.wheelCache.set(key, image);
   }
 
   private assertNotDisposed(): void {
