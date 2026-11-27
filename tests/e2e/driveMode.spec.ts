@@ -365,15 +365,15 @@ test.describe('OpenGT2 M9.9 Drive Mode Integration & Recovery', () => {
       expect(speedAfterArrow).toBeGreaterThan(10);
 
       // 3. Cycle camera preset with KeyC, toggle Pause with KeyP / Escape, and reset with KeyR.
-      await page.keyboard.press('KeyC');
+      await page.keyboard.press('KeyC', { delay: 80 });
       await expect(page.locator('[data-testid="drive-hud-camera"]')).toHaveText('Chase Close');
 
-      await page.keyboard.press('KeyP');
+      await page.keyboard.press('KeyP', { delay: 80 });
       await expect(page.locator('[data-testid="drive-pause-overlay"]')).toBeVisible();
-      await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape', { delay: 80 });
       await expect(page.locator('[data-testid="drive-pause-overlay"]')).toBeHidden();
 
-      await page.keyboard.press('KeyR');
+      await page.keyboard.press('KeyR', { delay: 80 });
       await expect
         .poll(async () => Number(await page.locator('[data-testid="drive-hud-speed"]').textContent()))
         .toBe(0);
