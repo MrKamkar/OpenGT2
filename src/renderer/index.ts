@@ -165,3 +165,34 @@ export {
   type OrderingTableResult,
   sortPrimitivesOrderingTable,
 } from './drawOrder';
+export {
+  type FrustumPlane,
+  type FrustumPlanes,
+  extractFrustumPlanes,
+  isAabbInFrustum,
+  isTrackBoxInFrustum,
+} from './frustum';
+export {
+  TRACK_MESH_ATTR_COLOR,
+  TRACK_MESH_ATTR_MATERIAL,
+  TRACK_MESH_ATTR_POSITION,
+  TRACK_MESH_ATTR_UV,
+  type TrackDrawRange,
+  type TrackMeshBufferData,
+  TrackRenderMesh,
+  type TrackSegmentDrawMeta,
+  type TrackTextureAtlasCpuData,
+  TrackTextureGpuAtlas,
+  type WebGL2TrackMeshContext,
+  buildTrackMeshData,
+  coalesceVisibleDrawRanges,
+  prepareTrackTextureAtlasData,
+} from './trackMesh';
+export {
+  EMPTY_TRACK_RENDER_STATS,
+  type TrackRenderOptions,
+  type TrackRenderStats,
+  TrackRenderer,
+  type TrackRendererOptions,
+  type WebGL2TrackRendererContext,
+} from './trackRenderer';
