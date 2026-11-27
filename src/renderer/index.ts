@@ -203,3 +203,15 @@ export {
   type TrackViewerSessionOptions,
   type TrackViewerSessionSnapshot,
 } from './trackViewerSession';
+export {
+  CHASE_CAMERA_PRESET_ORDER,
+  CHASE_CAMERA_PRESETS,
+  ChaseCamera,
+  type ChaseCameraOptions,
+  type ChaseCameraPreset,
+  type ChaseCameraPresetId,
+  type ChaseCameraState,
+  DEFAULT_CHASE_CAMERA_ASPECT,
+  DEFAULT_CHASE_CAMERA_FAR,
+  DEFAULT_CHASE_CAMERA_NEAR,
+} from './chaseCamera';
