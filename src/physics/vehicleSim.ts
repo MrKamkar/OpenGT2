@@ -66,12 +66,18 @@ export const BRAKE_HOLD_DAMPING_RATE = 25.0;
 
 /** Minimum longitudinal contact-patch speed (m/s) above which ABS modulates footbrake pressure. */
 const ABS_MIN_SPEED_MPS = 2.5;
-/** Target braking slip ratio (`-slipRatio`) where per-wheel ABS begins releasing footbrake torque. */
-const ABS_TARGET_SLIP_RATIO = 0.17;
+/** Target straight-line braking slip ratio (`-slipRatio`) where per-wheel ABS begins releasing footbrake torque. */
+const ABS_STRAIGHT_TARGET_SLIP_RATIO = 0.14;
+/** Target front braking slip ratio under full steering so lateral cornering grip stays high during trail-braking. */
+const ABS_CORNER_FRONT_TARGET_SLIP_RATIO = 0.065;
 /** Excess braking slip band over which ABS linearly ramps torque down to `ABS_MIN_TORQUE_SCALE`. */
-const ABS_RELEASE_BAND = 0.14;
+const ABS_RELEASE_BAND = 0.10;
 /** Minimum footbrake torque fraction retained when ABS detects deep lockup. */
-const ABS_MIN_TORQUE_SCALE = 0.18;
+const ABS_MIN_TORQUE_SCALE = 0.04;
+/** Peak grip torque cap multiplier preventing explicit Euler braking overshoot past Pacejka peak. */
+const ABS_GRIP_TORQUE_CAP_MULTIPLIER = 1.08;
+/** Minimum inner-to-outer normal-force ratio floor for Cornering Brake Control (CBC) over kerbs/unloading. */
+const CBC_OUTER_FRONT_MIN_FLOOR_RATIO = 0.55;
 
 /** Nominal chassis underbody/sill clearance above the tyre-bottom road plane at static ride height (m). */
 export const CHASSIS_UNDERBODY_REST_CLEARANCE_METERS = 0.072;
@@ -111,6 +117,7 @@ export interface VehicleSimulationSnapshot {
   readonly engineRpm: number;
   readonly engineTorqueNm: number;
   readonly revLimiterActive: boolean;
+  readonly absEnabled: boolean;
   readonly wallCollisionCount: number;
   readonly wheels: WheelSlotTuple<WheelSimulationSnapshot>;
 }
@@ -119,6 +126,7 @@ export interface VehicleSimulationOptions {
   readonly initialPosition?: PhysicsVec3;
   readonly initialYawRad?: number;
   readonly transmissionMode?: TransmissionMode;
+  readonly absEnabled?: boolean;
   readonly fixedDt?: number;
   readonly maxFrameDt?: number;
 }
@@ -147,6 +155,7 @@ export class VehicleSimulation {
   private wheelLongForces: [number, number, number, number] = [0, 0, 0, 0];
   private wheelLatForces: [number, number, number, number] = [0, 0, 0, 0];
   private currentSteerAngleRad = 0;
+  private absEnabled: boolean;
   private wallCollisionCount = 0;
 
   constructor(
@@ -175,6 +184,7 @@ export class VehicleSimulation {
     };
     this.suspension = createInitialSuspensionStates(spec);
     this.drivetrain = createDrivetrainState(spec, options.transmissionMode ?? 'auto');
+    this.absEnabled = options.absEnabled ?? true;
   }
 
   getSpec(): CarPhysicsSpec {
@@ -194,6 +204,14 @@ export class VehicleSimulation {
 
   setTransmissionMode(mode: TransmissionMode): void {
     this.drivetrain.transmissionMode = mode;
+  }
+
+  setAbsEnabled(enabled: boolean): void {
+    this.absEnabled = enabled;
+  }
+
+  isAbsEnabled(): boolean {
+    return this.absEnabled;
   }
 
   /**
@@ -373,6 +391,19 @@ export class VehicleSimulation {
     const steeredForwardLocal: PhysicsVec3 = { x: -sinSteer, y: 0, z: -cosSteer };
     const steeredRightLocal: PhysicsVec3 = { x: cosSteer, y: 0, z: -sinSteer };
 
+    // Cornering Brake Control (CBC) & steering-aware ABS scalars (only active when absEnabled === true)
+    const steerDemand = clamp((Math.abs(steer) - 0.05) / 0.55, 0, 1);
+    const outerFrontIdx = steer > 0 ? 1 : 0;
+    const innerFrontIdx = 1 - outerFrontIdx;
+    const outerFrontFz = this.suspension[outerFrontIdx]?.normalForce ?? 0;
+    const innerFrontFz = this.suspension[innerFrontIdx]?.normalForce ?? 0;
+    const rawCbcRatio =
+      outerFrontFz > 1
+        ? clamp(innerFrontFz / outerFrontFz, CBC_OUTER_FRONT_MIN_FLOOR_RATIO, 1.0)
+        : 1.0;
+    const outerFrontCbcScale = 1 - steerDemand * 0.85 * (1 - rawCbcRatio);
+    const frontCornerPressureScale = 1 - steerDemand * 0.28;
+
     let groundedCount = 0;
     for (let i = 0; i < 4; i += 1) {
       const wheelSpec = this.spec.wheels[i]!;
@@ -470,23 +501,42 @@ export class VehicleSimulation {
       );
       applyWorldForceAtPoint(this.body, worldTyreForce, susp.contactPoint);
 
-      // Per-wheel ABS modulates footbrake torque only; rear handbrake stays unmodulated for crisp drift lockup.
+      // When ABS is On, modulate per-wheel footbrake torque with steering-aware slip targets and floored CBC;
+      // when ABS is Off, apply raw unmodulated footbrake torque. Rear handbrake stays strictly unmodulated.
       let effectiveFootBrakeTorque = rawFootBrakeTorque;
       if (
+        this.absEnabled &&
         rawFootBrakeTorque > 0 &&
         !isRearHandbrakeActive &&
         Math.abs(patchForwardSpeed) > ABS_MIN_SPEED_MPS
       ) {
+        const isFront = wheelSpec.axle === 'front';
+        const isOuterFront = isFront && steerDemand > 0 && i === outerFrontIdx;
+        const targetSlip = isFront
+          ? ABS_STRAIGHT_TARGET_SLIP_RATIO +
+            (ABS_CORNER_FRONT_TARGET_SLIP_RATIO - ABS_STRAIGHT_TARGET_SLIP_RATIO) * steerDemand
+          : ABS_STRAIGHT_TARGET_SLIP_RATIO;
+
+        if (isFront && steerDemand > 0) {
+          effectiveFootBrakeTorque *= frontCornerPressureScale * (isOuterFront ? outerFrontCbcScale : 1);
+        }
+
         const brakingSlip = Math.max(0, -tyreOut.slipRatio * Math.sign(patchForwardSpeed));
-        if (brakingSlip > ABS_TARGET_SLIP_RATIO) {
+        if (brakingSlip > targetSlip) {
           const absScale = clamp(
-            1 - (brakingSlip - ABS_TARGET_SLIP_RATIO) / ABS_RELEASE_BAND,
+            1 - (brakingSlip - targetSlip) / ABS_RELEASE_BAND,
             ABS_MIN_TORQUE_SCALE,
             1,
           );
           effectiveFootBrakeTorque *= absScale;
         }
-        const gripTorqueCap = susp.normalForce * tyreOut.effectiveMu * wheelSpec.radiusMeters * 1.4;
+
+        const capMult = isFront
+          ? ABS_GRIP_TORQUE_CAP_MULTIPLIER *
+            frontCornerPressureScale *
+            (isOuterFront ? outerFrontCbcScale : 1)
+          : ABS_GRIP_TORQUE_CAP_MULTIPLIER;
+        const gripTorqueCap = susp.normalForce * tyreOut.effectiveMu * wheelSpec.radiusMeters * capMult;
         effectiveFootBrakeTorque = Math.min(effectiveFootBrakeTorque, gripTorqueCap);
       }
       const appliedBrakeTorque = Math.max(effectiveFootBrakeTorque, handbrakeTorque);
@@ -768,6 +818,7 @@ export class VehicleSimulation {
       engineRpm: this.drivetrain.engineRpm,
       engineTorqueNm: this.drivetrain.engineTorqueNm,
       revLimiterActive: this.drivetrain.revLimiterActive,
+      absEnabled: this.absEnabled,
       wallCollisionCount: this.wallCollisionCount,
       wheels: [
         makeWheelSnap(0),

@@ -668,6 +668,17 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
     input.handleKeyEvent({ type: 'keyup', code: 'KeyC', repeat: false });
     expect(session.getSnapshot().cameraPreset).toBe('close');
 
+    // Toggle ABS On/Off cleanly and persist across reset
+    expect(session.getSnapshot().absEnabled).toBe(true);
+    expect(session.getTelemetry().absEnabled).toBe(true);
+    session.setAbsEnabled(false);
+    expect(session.getSnapshot().absEnabled).toBe(false);
+    expect(session.getTelemetry().absEnabled).toBe(false);
+    session.resetCar();
+    expect(session.getSnapshot().absEnabled).toBe(false);
+    session.setAbsEnabled(true);
+    expect(session.getSnapshot().absEnabled).toBe(true);
+
     // Pause and resume via Escape / KeyP
     input.handleKeyEvent({ type: 'keydown', code: 'KeyP', repeat: false });
     session.stepFrame(0.016);

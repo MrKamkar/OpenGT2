@@ -188,7 +188,7 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(accelSnap.engineRpm).toBeLessThanOrEqual(spec.engine.redlineRpm + 250);
 
     // Full brake until stopped and hold brake -> stays in manual forward gear with zero creep
-    for (let i = 0; i < 480; i += 1) {
+    for (let i = 0; i < 540; i += 1) {
       sim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 0 });
     }
     const stoppedSnap = sim.getSnapshot();
@@ -798,5 +798,143 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
 
     expect(minRearSlipRatio).toBeLessThan(-0.45);
     expect(peakBodySlipDeg).toBeGreaterThanOrEqual(15);
+  });
+
+  it('toggles ABS On (crisp trail-braking + floored CBC over kerb unload + strong straight stop) vs ABS Off (wheel lockup understeer) (M9.29)', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const index = createFlatAsphaltCollisionIndex(4000, 4000);
+    const radToDeg = 180 / Math.PI;
+
+    const runTrailBrake = (absEnabled: boolean) => {
+      const sim = new VehicleSimulation(spec, index, {
+        initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+        absEnabled,
+      });
+      expect(sim.isAbsEnabled()).toBe(absEnabled);
+      expect(sim.getSnapshot().absEnabled).toBe(absEnabled);
+
+      for (let i = 0; i < 1200; i += 1) {
+        sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+        if (sim.getSnapshot().speedKph >= 120) break;
+      }
+
+      const startFwd = quatRotateVec3(sim.getSnapshot().pose.orientation, VEC3_FORWARD);
+      let prevAngle = Math.atan2(-startFwd.x, -startFwd.z);
+      let headingDeltaRad = 0;
+      let minFrontSlipRatio = 0;
+      let sumLatG = 0;
+      let samples = 0;
+
+      for (let step = 0; step < 120; step += 1) {
+        sim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 1 }, FIXED_DT);
+        const snap = sim.getSnapshot();
+        minFrontSlipRatio = Math.min(
+          minFrontSlipRatio,
+          snap.wheels[0].slipRatio,
+          snap.wheels[1].slipRatio,
+        );
+        const latG = (snap.speedMps * Math.abs(snap.angularVelocity.y)) / GRAVITY_MPS2;
+        if (step >= 12 && step < 96) {
+          sumLatG += latG;
+          samples += 1;
+        }
+        const fwd = quatRotateVec3(snap.pose.orientation, VEC3_FORWARD);
+        const ang = Math.atan2(-fwd.x, -fwd.z);
+        let dAng = ang - prevAngle;
+        if (dAng > Math.PI) dAng -= Math.PI * 2;
+        if (dAng < -Math.PI) dAng += Math.PI * 2;
+        headingDeltaRad += dAng;
+        prevAngle = ang;
+      }
+
+      return {
+        headingDeg: headingDeltaRad * radToDeg,
+        avgLatG: sumLatG / Math.max(1, samples),
+        minFrontSlipRatio,
+      };
+    };
+
+    const absOn = runTrailBrake(true);
+    const absOff = runTrailBrake(false);
+
+    // ABS On preserves crisp trail-braking lateral grip & turn-in without front lockup
+    expect(absOn.minFrontSlipRatio).toBeGreaterThan(-0.30);
+    expect(absOn.avgLatG).toBeGreaterThanOrEqual(0.80);
+    expect(absOn.headingDeg).toBeGreaterThanOrEqual(20);
+
+    // ABS Off causes genuine front wheel lockup and degraded steering turn-in
+    expect(absOff.minFrontSlipRatio).toBeLessThan(-0.55);
+    expect(absOff.headingDeg).toBeLessThan(absOn.headingDeg - 6);
+
+    // Straight-line braking with ABS On retains strong stopping power (>= 0.85 g)
+    const straightSim = new VehicleSimulation(spec, index, {
+      initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      absEnabled: true,
+    });
+    for (let i = 0; i < 1200; i += 1) {
+      straightSim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      if (straightSim.getSnapshot().speedKph >= 120) break;
+    }
+    const straightEntrySpeed = straightSim.getSnapshot().speedMps;
+    for (let i = 0; i < 120; i += 1) {
+      straightSim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 0 }, FIXED_DT);
+    }
+    const straightDecelG =
+      (straightEntrySpeed - straightSim.getSnapshot().speedMps) / 1.0 / GRAVITY_MPS2;
+    expect(straightDecelG).toBeGreaterThanOrEqual(0.85);
+
+    // Runtime toggle preserves state across reset() and floors CBC when inner front unloads over a kerb gap
+    const kerbTro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            centerRaw: [0, 0, 0],
+            subMesh0: {
+              // Ground strictly on x >= -0.35 m so left-side FL wheel unloads over a recess during left turn
+              localVertices: [
+                [-22, -6400, 0],
+                [-22, 6400, 0],
+                [6400, 6400, 0],
+                [6400, -6400, 0],
+              ],
+              polygons: [{ listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 100, g: 100, b: 100 }] }],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+          },
+        ],
+      }),
+    );
+    const kerbSim = new VehicleSimulation(spec, new CollisionIndex(buildCollisionMesh(kerbTro)), {
+      initialPosition: { x: 0.45, y: spec.comHeightMeters, z: 40 },
+      absEnabled: true,
+    });
+    kerbSim.setAbsEnabled(false);
+    expect(kerbSim.isAbsEnabled()).toBe(false);
+    kerbSim.setAbsEnabled(true);
+    kerbSim.reset({ x: 0.45, y: spec.comHeightMeters, z: 40 }, 0);
+    expect(kerbSim.isAbsEnabled()).toBe(true);
+
+    for (let i = 0; i < 360; i += 1) {
+      kerbSim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      if (kerbSim.getSnapshot().speedKph >= 90) break;
+    }
+    const preKerbSpeed = kerbSim.getSnapshot().speedMps;
+    let sawUnloadedInnerFront = false;
+    let minOuterFrontFx = 0;
+    for (let i = 0; i < 48; i += 1) {
+      kerbSim.stepFixed({ throttle: 0, brake: 1, handbrake: 0, steer: 1 }, FIXED_DT);
+      const snap = kerbSim.getSnapshot();
+      if (!snap.wheels[0].grounded || snap.wheels[0].normalForce <= 1) {
+        sawUnloadedInnerFront = true;
+      }
+      if (snap.wheels[1].longitudinalForceN < minOuterFrontFx) {
+        minOuterFrontFx = snap.wheels[1].longitudinalForceN;
+      }
+    }
+    const postKerbSpeed = kerbSim.getSnapshot().speedMps;
+    expect(sawUnloadedInnerFront).toBe(true);
+    expect(minOuterFrontFx).toBeLessThan(-1000);
+    expect((preKerbSpeed - postKerbSpeed) / (48 * FIXED_DT) / GRAVITY_MPS2).toBeGreaterThan(0.45);
   });
 });

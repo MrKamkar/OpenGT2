@@ -266,6 +266,19 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
   transSeg.append(autoTransBtn, manualTransBtn);
   transField.append(transSeg);
 
+  // ABS toggle (On / Off)
+  const absField = el('div', 'ogt2-viewer-field');
+  absField.append(el('span', 'ogt2-viewer-label', 'ABS'));
+  const absSeg = el('div', 'ogt2-viewer-seg');
+  const absOnBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', 'On');
+  absOnBtn.type = 'button';
+  absOnBtn.dataset['testid'] = 'drive-abs-on';
+  const absOffBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Off');
+  absOffBtn.type = 'button';
+  absOffBtn.dataset['testid'] = 'drive-abs-off';
+  absSeg.append(absOnBtn, absOffBtn);
+  absField.append(absSeg);
+
   // Render Mode toggle (HD / PS1)
   const modeField = el('div', 'ogt2-viewer-field');
   modeField.append(el('span', 'ogt2-viewer-label', 'Render Mode'));
@@ -358,6 +371,7 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
     paintField,
     trackRow,
     transField,
+    absField,
     modeField,
     ps1Box,
     actionRow,
@@ -420,7 +434,9 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
   camBadgeEl.dataset['testid'] = 'drive-hud-camera';
   const transBadgeEl = el('span', 'ogt2-drive-hud-badge', 'AUTO');
   transBadgeEl.dataset['testid'] = 'drive-hud-transmission';
-  badgePill.append(camBadgeEl, transBadgeEl);
+  const absBadgeEl = el('span', 'ogt2-drive-hud-badge', 'ABS');
+  absBadgeEl.dataset['testid'] = 'drive-hud-abs';
+  badgePill.append(camBadgeEl, transBadgeEl, absBadgeEl);
 
   const gaugeCard = el('div', 'ogt2-drive-hud-card ogt2-drive-hud-gauges');
   const speedWrap = el('div', 'ogt2-drive-speed-wrap');
@@ -681,6 +697,16 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
     refocusCanvas(manualTransBtn);
   });
 
+  absOnBtn.addEventListener('click', () => {
+    session.setAbsEnabled(true);
+    refocusCanvas(absOnBtn);
+  });
+
+  absOffBtn.addEventListener('click', () => {
+    session.setAbsEnabled(false);
+    refocusCanvas(absOffBtn);
+  });
+
   hdModeBtn.addEventListener('click', () => {
     session.setRenderMode('hd');
     refocusCanvas(hdModeBtn);
@@ -761,6 +787,8 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
 
     autoTransBtn.classList.toggle('is-active', snapshot.transmissionMode === 'auto');
     manualTransBtn.classList.toggle('is-active', snapshot.transmissionMode === 'manual');
+    absOnBtn.classList.toggle('is-active', snapshot.absEnabled);
+    absOffBtn.classList.toggle('is-active', !snapshot.absEnabled);
     hdModeBtn.classList.toggle('is-active', snapshot.renderMode === 'hd');
     ps1ModeBtn.classList.toggle('is-active', snapshot.renderMode === 'ps1');
     ps1Box.hidden = snapshot.renderMode !== 'ps1';
@@ -774,6 +802,7 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
       ? 'Debug Free Cam'
       : CHASE_CAMERA_PRESETS[snapshot.cameraPreset].label;
     transBadgeEl.textContent = snapshot.transmissionMode === 'auto' ? 'AUTO' : 'MANUAL';
+    absBadgeEl.textContent = snapshot.absEnabled ? 'ABS' : 'ABS OFF';
 
     renderPaintSwatches(snapshot);
     if (snapshot.activePhysicsSpec !== lastDynoSpecRef) {
@@ -825,6 +854,7 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
       ? 'Debug Free Cam'
       : CHASE_CAMERA_PRESETS[telemetry.cameraPreset].label;
     transBadgeEl.textContent = telemetry.transmissionMode === 'auto' ? 'AUTO' : 'MANUAL';
+    absBadgeEl.textContent = telemetry.absEnabled ? 'ABS' : 'ABS OFF';
 
     if (dynoOpen && activeDynoCurve !== null) {
       renderDynoChart(dynoCanvas, activeDynoCurve, lastEngineRpm);

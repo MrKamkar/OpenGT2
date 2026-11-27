@@ -391,7 +391,20 @@ test.describe('OpenGT2 M9.9 Drive Mode Integration & Recovery', () => {
         .poll(async () => Number(await page.locator('[data-testid="drive-hud-speed"]').textContent()))
         .toBe(0);
 
-      // 4. Toggle HD -> PS1 without reloading VOL and verify non-empty render.
+      // 4. Toggle ABS On/Off in Drive Setup and verify HUD + session state.
+      await expect(page.locator('[data-testid="drive-hud-abs"]')).toHaveText('ABS');
+      await page.locator('[data-testid="drive-abs-off"]').click();
+      await expect(page.locator('[data-testid="drive-hud-abs"]')).toHaveText('ABS OFF');
+      await expect
+        .poll(async () => page.evaluate(() => window.__drive?.getSnapshot().absEnabled))
+        .toBe(false);
+      await page.locator('[data-testid="drive-abs-on"]').click();
+      await expect(page.locator('[data-testid="drive-hud-abs"]')).toHaveText('ABS');
+      await expect
+        .poll(async () => page.evaluate(() => window.__drive?.getSnapshot().absEnabled))
+        .toBe(true);
+
+      // 5. Toggle HD -> PS1 without reloading VOL and verify non-empty render.
       await page.locator('[data-testid="drive-mode-ps1"]').click();
       await expect
         .poll(async () => page.evaluate(() => window.__drive?.getSnapshot().renderMode))

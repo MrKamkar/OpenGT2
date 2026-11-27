@@ -66,6 +66,7 @@ export interface DriveTelemetrySnapshot {
   readonly cameraPreset: ChaseCameraPresetId;
   readonly debugFreeCamActive: boolean;
   readonly transmissionMode: TransmissionMode;
+  readonly absEnabled: boolean;
   readonly paused: boolean;
   readonly muted: boolean;
   readonly gamepadConnected: boolean;
@@ -95,6 +96,7 @@ export interface DriveSessionSnapshot {
   readonly ps1AffineMapping: boolean;
   readonly wireframe: boolean;
   readonly transmissionMode: TransmissionMode;
+  readonly absEnabled: boolean;
   readonly cameraPreset: ChaseCameraPresetId;
   readonly debugFreeCamActive: boolean;
   readonly paused: boolean;
@@ -349,6 +351,7 @@ export class DriveSession {
   private ps1AffineMapping = true;
   private wireframe = false;
   private transmissionMode: TransmissionMode = 'auto';
+  private absEnabled = true;
   private paused = false;
   private muted = false;
   private gamepadConnected = false;
@@ -537,6 +540,16 @@ export class DriveSession {
     }
     this.transmissionMode = mode;
     this.simulation?.setTransmissionMode(mode);
+    this.emitStateChange();
+    this.emitTelemetry();
+  }
+
+  public setAbsEnabled(enabled: boolean): void {
+    if (this.disposed || this.absEnabled === enabled) {
+      return;
+    }
+    this.absEnabled = enabled;
+    this.simulation?.setAbsEnabled(enabled);
     this.emitStateChange();
     this.emitTelemetry();
   }
@@ -756,6 +769,7 @@ export class DriveSession {
         initialPosition: spawn.position,
         initialYawRad: spawn.yawRad,
         transmissionMode: this.transmissionMode,
+        absEnabled: this.absEnabled,
       });
 
       this.activeCarModel = carModel;
@@ -981,6 +995,7 @@ export class DriveSession {
         cameraPreset: this.camera.getPresetId(),
         debugFreeCamActive: this.debugFreeCamActive,
         transmissionMode: this.transmissionMode,
+        absEnabled: this.absEnabled,
         paused: this.paused,
         muted: this.muted,
         gamepadConnected: this.gamepadConnected,
@@ -1019,6 +1034,7 @@ export class DriveSession {
       cameraPreset: this.camera.getPresetId(),
       debugFreeCamActive: this.debugFreeCamActive,
       transmissionMode: this.transmissionMode,
+      absEnabled: this.absEnabled,
       paused: this.paused,
       muted: this.muted,
       gamepadConnected: this.gamepadConnected,
@@ -1040,6 +1056,7 @@ export class DriveSession {
       ps1AffineMapping: this.ps1AffineMapping,
       wireframe: this.wireframe,
       transmissionMode: this.transmissionMode,
+      absEnabled: this.absEnabled,
       cameraPreset: this.camera.getPresetId(),
       debugFreeCamActive: this.debugFreeCamActive,
       paused: this.paused,
