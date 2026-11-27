@@ -158,6 +158,7 @@ uniform vec2 u_internalRes;
 uniform int u_vertexSnap;
 uniform int u_affineMapping;
 uniform vec3 u_lightDir;
+uniform float u_vertexScale;
 
 out vec3 v_uvw;
 out vec2 v_uvPerspective;
@@ -166,7 +167,7 @@ out float v_light;
 flat out uvec2 v_material;
 
 void main() {
-  vec3 posMeters = a_position / ${String(PS1_FIXED_POINT_SCALE)}.0;
+  vec3 posMeters = (a_position * u_vertexScale) / ${String(PS1_FIXED_POINT_SCALE)}.0;
   vec4 clipPos = u_mvp * vec4(posMeters, 1.0);
 
   if (u_vertexSnap != 0 && abs(clipPos.w) > 1e-6) {
@@ -279,9 +280,10 @@ layout(location = ${String(CAR_MESH_ATTR_POSITION)}) in vec3 a_position;
 uniform mat4 u_mvp;
 uniform vec2 u_internalRes;
 uniform int u_vertexSnap;
+uniform float u_vertexScale;
 
 void main() {
-  vec3 posMeters = a_position / ${String(PS1_FIXED_POINT_SCALE)}.0;
+  vec3 posMeters = (a_position * u_vertexScale) / ${String(PS1_FIXED_POINT_SCALE)}.0;
   vec4 clipPos = u_mvp * vec4(posMeters, 1.0);
 
   if (u_vertexSnap != 0 && abs(clipPos.w) > 1e-6) {
@@ -583,6 +585,7 @@ export class Ps1Pipeline {
     this.carProgram.use();
     this.carProgram.setMat4('u_mvp', mvp);
     this.carProgram.setMat4('u_model', IDENTITY_MAT4);
+    this.carProgram.setFloat('u_vertexScale', mesh.data.vertexScale);
     this.carProgram.setVec2('u_internalRes', this.internalWidth, this.internalHeight);
     this.carProgram.setInt('u_vertexSnap', vertexSnap ? 1 : 0);
     this.carProgram.setInt('u_affineMapping', affineMapping ? 1 : 0);
@@ -622,6 +625,7 @@ export class Ps1Pipeline {
     if (wireframe) {
       this.wireframeProgram.use();
       this.wireframeProgram.setMat4('u_mvp', mvp);
+      this.wireframeProgram.setFloat('u_vertexScale', mesh.data.vertexScale);
       this.wireframeProgram.setVec2('u_internalRes', this.internalWidth, this.internalHeight);
       this.wireframeProgram.setInt('u_vertexSnap', vertexSnap ? 1 : 0);
       this.wireframeProgram.setVec4('u_wireColor', 0.15, 0.95, 0.65, 1.0);

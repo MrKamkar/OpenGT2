@@ -640,7 +640,9 @@ export function buildCarPhysicsSpec(
     const lod0 = carModel.lods[0];
     const lod0Width =
       lod0 !== undefined
-        ? (lod0.boundingBox.high.x - lod0.boundingBox.low.x) * carModel.coordinateSystem.unitMeters
+        ? (lod0.boundingBox.high.x - lod0.boundingBox.low.x) *
+          carModel.coordinateSystem.unitMeters *
+          lod0.vertexScale
         : 0;
     const modelWidth = Math.max(trackWithTyre, lod0Width);
     if (Number.isFinite(modelWidth) && modelWidth > 1.0) {

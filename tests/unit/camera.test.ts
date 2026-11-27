@@ -93,7 +93,8 @@ describe('Renderer math & OrbitCamera (M7.3)', () => {
       }),
     );
     const carModel = buildCarModel(cdo);
-    const aabb = cdoBoundingBoxToAabbMeters(carModel.lods[0]!.boundingBox);
+    const lod0 = carModel.lods[0]!;
+    const aabb = cdoBoundingBoxToAabbMeters(lod0.boundingBox, lod0.scale);
 
     const camera = new OrbitCamera();
     camera.fitToCarModel(carModel, 0);
@@ -102,6 +103,20 @@ describe('Renderer math & OrbitCamera (M7.3)', () => {
       (aabb.min[1] + aabb.max[1]) * 0.5,
       (aabb.min[2] + aabb.max[2]) * 0.5,
     ]);
+
+    // Verify scale=16 vs scale=17 produces 2x fitted distance for identical raw bounds
+    const cdo16 = parseCdo(
+      buildSyntheticCdo({
+        lods: [
+          { scale: 16, vertices: sampleVerts, normals: sampleNorms, triangles: [], quads: [], uvTriangles: [], uvQuads: [] },
+          { scale: 16, vertices: sampleVerts, normals: sampleNorms, triangles: [], quads: [], uvTriangles: [], uvQuads: [] },
+          { scale: 16, vertices: sampleVerts, normals: sampleNorms, triangles: [], quads: [], uvTriangles: [], uvQuads: [] },
+        ],
+      }),
+    );
+    const cam16 = new OrbitCamera();
+    cam16.fitToCarModel(buildCarModel(cdo16), 0);
+    expect(camera.getState().distance).toBeCloseTo(cam16.getState().distance * 2, 4);
   });
 
   it('integrates with InputManager in viewer context (WSAD + arrows simultaneously, +/- zoom, edge-triggered C, releaseAll on blur)', () => {

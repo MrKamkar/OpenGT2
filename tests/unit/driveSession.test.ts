@@ -300,6 +300,7 @@ function createDriveGlHarness() {
     useProgram: () => {},
     getUniformLocation: () => ({}),
     uniform1i: () => {},
+    uniform1f: () => {},
     uniform2i: () => {},
     uniform2f: () => {},
     uniform3f: () => {},
@@ -445,7 +446,31 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
   it('aligns car visual bottom cleanly to physics ground plane with -Z forward preserved', () => {
     const carModel = makeTestCarModel();
     const bottomY = computeCarVisualBottomY(carModel);
-    expect(bottomY).toBeCloseTo(-1000 / 4096, 5);
+    // makeTestCarModel uses default synthetic lod.scale = 17 (vertexScale = 2)
+    expect(bottomY).toBeCloseTo((-1000 * 2) / 4096, 5);
+
+    const carModel16 = buildCarModel(
+      parseCdo(
+        buildSyntheticCdo({
+          lods: [
+            {
+              scale: 16,
+              maxDistance: 5,
+              vertices: [
+                [-2000, -1000, -4000, 0],
+                [2000, -1000, -4000, 0],
+                [2000, 1500, 4000, 0],
+                [-2000, 1500, 4000, 0],
+              ],
+              normals: [[0, 500, 0], [0, 500, 0], [0, 500, 0], [0, 500, 0]],
+            },
+            { scale: 16, maxDistance: 15 },
+            { scale: 16, maxDistance: 300 },
+          ],
+        }),
+      ),
+    );
+    expect(computeCarVisualBottomY(carModel16)).toBeCloseTo(-1000 / 4096, 5);
 
     const comHeight = 0.48;
     const mat = buildCarWorldModelMatrix(

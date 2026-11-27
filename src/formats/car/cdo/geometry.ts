@@ -1,4 +1,5 @@
 import {
+  CDO_BASE_LOD_SCALE,
   CDO_FIXED_POINT_SCALE,
   CDO_NORMAL_BYTES,
   CDO_NORMAL_SCALE,
@@ -7,6 +8,7 @@ import {
   type CdoNormalBlock,
   type CdoUnpackedNormal,
   type CdoVertexBlock,
+  computeCdoLodVertexScale,
 } from './types';
 
 /**
@@ -30,9 +32,15 @@ export function unpackCdoNormal(raw: number): CdoUnpackedNormal {
 
 /**
  * Parses `count` vertices (`count × 8 B`: `int16 x, y, z, w` LE) starting at `offset`.
- * Preserves raw `int16` values for WebGL `SHORT` upload (M7.2) alongside meter-converted floats (`/ 4096`).
+ * Preserves raw `int16` values for WebGL `SHORT` upload (M7.2) alongside meter-converted floats
+ * scaled by `2^(lodScale - 16) / 4096`.
  */
-export function parseCdoVertices(data: Uint8Array, offset: number, count: number): CdoVertexBlock {
+export function parseCdoVertices(
+  data: Uint8Array,
+  offset: number,
+  count: number,
+  lodScale = CDO_BASE_LOD_SCALE,
+): CdoVertexBlock {
   if (
     !Number.isInteger(offset) ||
     !Number.isInteger(count) ||
@@ -49,6 +57,8 @@ export function parseCdoVertices(data: Uint8Array, offset: number, count: number
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const rawInt16 = new Int16Array(count * 4);
   const positionsMeters = new Float32Array(count * 3);
+  const vertexScale = computeCdoLodVertexScale(lodScale);
+  const invMeters = vertexScale / CDO_FIXED_POINT_SCALE;
 
   let cursor = offset;
   for (let i = 0; i < count; i += 1) {
@@ -64,9 +74,9 @@ export function parseCdoVertices(data: Uint8Array, offset: number, count: number
     rawInt16[rawBase + 3] = w;
 
     const meterBase = i * 3;
-    positionsMeters[meterBase] = x / CDO_FIXED_POINT_SCALE;
-    positionsMeters[meterBase + 1] = y / CDO_FIXED_POINT_SCALE;
-    positionsMeters[meterBase + 2] = z / CDO_FIXED_POINT_SCALE;
+    positionsMeters[meterBase] = x * invMeters;
+    positionsMeters[meterBase + 1] = y * invMeters;
+    positionsMeters[meterBase + 2] = z * invMeters;
 
     cursor += CDO_VERTEX_BYTES;
   }

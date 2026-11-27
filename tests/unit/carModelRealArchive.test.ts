@@ -10,6 +10,13 @@ import {
 } from '../../src/formats/car';
 import { CDO_FIXED_POINT_SCALE, parseCdo } from '../../src/formats/car/cdo';
 import { CDP_HEIGHT, CDP_WIDTH, parseCdp } from '../../src/formats/car/cdp';
+import {
+  buildCarAssetIndex,
+  buildCarCatalogFromBuffers,
+  findGtdbEntries,
+  pairGtdbRegionVariants,
+  selectDefaultGtdbVariant,
+} from '../../src/formats/gtdb';
 import { gunzip } from '../../src/formats/gzip';
 import { VolReader, type VolEntry } from '../../src/formats/vol';
 import {
@@ -351,6 +358,78 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL CarModel full-archive integration (
         lod1TotalTriangles: 266,
         lod2TotalTriangles: 64,
       });
+
+      // Verify per-LOD vertexScale = 2^(scale - 16) matches GTDB CarDimensions.length & wheel-arch bounds
+      const allEntries = reader.getAllEntries();
+      const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+      expect(preferred).toBeDefined();
+      const rawGtdb = await gunzip(
+        await cachedSource.read(
+          preferred!.gtmodeData.address,
+          preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+        ),
+      );
+      const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+      const assetIndex = buildCarAssetIndex(allEntries);
+
+      const lengthRatios: number[] = [];
+      let within5Pct = 0;
+      let wheelsFitCount = 0;
+      let checkedCars = 0;
+
+      for (const carEntry of catalog.listCars()) {
+        if (carEntry.dimensions === null || carEntry.dimensions.length <= 0) {
+          continue;
+        }
+        const resolved = assetIndex.resolve(carEntry.carId);
+        if (resolved.dayModel === null) {
+          continue;
+        }
+        const bytes = await gunzip(
+          await cachedSource.read(
+            resolved.dayModel.address,
+            resolved.dayModel.address + resolved.dayModel.size,
+          ),
+        );
+        const model = buildCarModel(parseCdo(bytes));
+        const lod0 = model.lods[0];
+        if (lod0 === undefined) {
+          continue;
+        }
+        checkedCars += 1;
+
+        const dbLenM = carEntry.dimensions.length * 0.001;
+        const scaledLenM =
+          ((lod0.boundingBox.high.z - lod0.boundingBox.low.z) * lod0.vertexScale) /
+          CDO_FIXED_POINT_SCALE;
+        const ratio = scaledLenM / dbLenM;
+        lengthRatios.push(ratio);
+        if (Math.abs(ratio - 1) <= 0.05) {
+          within5Pct += 1;
+        }
+
+        const halfW =
+          (Math.max(Math.abs(lod0.boundingBox.low.x), Math.abs(lod0.boundingBox.high.x)) *
+            lod0.vertexScale) /
+          CDO_FIXED_POINT_SCALE;
+        const halfL =
+          (Math.max(Math.abs(lod0.boundingBox.low.z), Math.abs(lod0.boundingBox.high.z)) *
+            lod0.vertexScale) /
+          CDO_FIXED_POINT_SCALE;
+        const maxWheelX = Math.max(...model.wheels.map((w) => Math.abs(w.positionMeters.x)));
+        const maxWheelZ = Math.max(...model.wheels.map((w) => Math.abs(w.positionMeters.z)));
+        if (maxWheelX <= halfW * 1.05 && maxWheelZ <= halfL * 1.05) {
+          wheelsFitCount += 1;
+        }
+      }
+
+      lengthRatios.sort((a, b) => a - b);
+      const medianRatio = lengthRatios[Math.floor(lengthRatios.length / 2)] ?? 0;
+      expect(checkedCars).toBeGreaterThan(600);
+      expect(medianRatio).toBeGreaterThan(0.98);
+      expect(medianRatio).toBeLessThan(1.02);
+      expect(within5Pct / checkedCars).toBeGreaterThanOrEqual(0.95);
+      expect(wheelsFitCount / checkedCars).toBeGreaterThanOrEqual(0.98);
     },
     120_000,
   );

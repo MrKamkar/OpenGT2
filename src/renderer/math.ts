@@ -1,4 +1,9 @@
-import { CDO_FIXED_POINT_SCALE, type CdoBoundingBox } from '../formats/car';
+import {
+  CDO_BASE_LOD_SCALE,
+  CDO_FIXED_POINT_SCALE,
+  type CdoBoundingBox,
+  computeCdoLodVertexScale,
+} from '../formats/car';
 
 /** @evidence E2 — Fixed-point coordinate scale: 4096 raw units = 1 meter. */
 export const PS1_FIXED_POINT_SCALE = CDO_FIXED_POINT_SCALE;
@@ -21,22 +26,19 @@ export function fixedPointToMeters(rawUnits: number): number {
 }
 
 /**
- * Converts a CDO `int16` bounding box (`1/4096 m`) into a meter-space `Aabb3`.
+ * Converts a CDO `int16` bounding box (`1/4096 m` scaled by `2^(lodScale - 16)`) into a meter-space `Aabb3`.
  *
  * @evidence E3
  */
-export function cdoBoundingBoxToAabbMeters(bbox: CdoBoundingBox): Aabb3 {
+export function cdoBoundingBoxToAabbMeters(
+  bbox: CdoBoundingBox,
+  lodScale = CDO_BASE_LOD_SCALE,
+): Aabb3 {
+  const vertexScale = computeCdoLodVertexScale(lodScale);
+  const scale = vertexScale / PS1_FIXED_POINT_SCALE;
   return {
-    min: [
-      fixedPointToMeters(bbox.low.x),
-      fixedPointToMeters(bbox.low.y),
-      fixedPointToMeters(bbox.low.z),
-    ],
-    max: [
-      fixedPointToMeters(bbox.high.x),
-      fixedPointToMeters(bbox.high.y),
-      fixedPointToMeters(bbox.high.z),
-    ],
+    min: [bbox.low.x * scale, bbox.low.y * scale, bbox.low.z * scale],
+    max: [bbox.high.x * scale, bbox.high.y * scale, bbox.high.z * scale],
   };
 }
 

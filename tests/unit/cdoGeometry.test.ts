@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CdoError,
+  computeCdoLodVertexScale,
   parseCdoNormals,
   parseCdoVertices,
   signExtend10Bit,
@@ -104,6 +105,16 @@ describe('CDO vertex and packed normal decoders (M6.3)', () => {
     expect(empty.rawInt16.length).toBe(0);
     expect(empty.positionsMeters.length).toBe(0);
     expect(empty.nextOffset).toBe(offset - 4);
+
+    // Per-LOD scale = 17 applies 2^(17-16) = 2x multiplier to positionsMeters while preserving rawInt16
+    expect(computeCdoLodVertexScale(16)).toBe(1);
+    expect(computeCdoLodVertexScale(17)).toBe(2);
+    const scaled17 = parseCdoVertices(sub, offset - 4, 3, 17);
+    expect(Array.from(scaled17.rawInt16)).toEqual(Array.from(verts.rawInt16));
+    expect(scaled17.positionsMeters[0]).toBeCloseTo(-2, 6);
+    expect(scaled17.positionsMeters[1]).toBeCloseTo(1, 6);
+    expect(scaled17.positionsMeters[2]).toBeCloseTo(-4, 6);
+    expect(scaled17.positionsMeters[8]).toBeCloseTo(2, 6);
   });
 
   it('parses normal arrays, tracks low2Bits diagnostics, and throws TruncatedBuffer on short input', () => {

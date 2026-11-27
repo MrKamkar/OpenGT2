@@ -198,7 +198,7 @@ export class OrbitCamera {
     if (lod === undefined) {
       throw new RangeError(`LOD ${String(lodIndex)} out of bounds for OrbitCamera.fitToCarModel.`);
     }
-    const aabb = cdoBoundingBoxToAabbMeters(lod.boundingBox);
+    const aabb = cdoBoundingBoxToAabbMeters(lod.boundingBox, lod.scale);
     this.fitToBounds(aabb.min, aabb.max, paddingScale);
   }
 

@@ -64,6 +64,8 @@ export interface CarMeshBoundsMeters {
 
 export interface CarMeshBufferData {
   readonly lodIndex: number;
+  readonly lodScale: number;
+  readonly vertexScale: number;
   readonly vertexCount: number;
   readonly triangleCount: number;
   /** Interleaved `[x, y, z, ...]` raw `int16` (`1/4096 m`), uploaded as non-normalized `gl.SHORT`. */
@@ -283,7 +285,7 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
     const v0 = vertices[i0]!;
     const v1 = vertices[i1]!;
     const v2 = vertices[i2]!;
-    const inv3Scale = 1 / (3 * CDO_FIXED_POINT_SCALE);
+    const inv3Scale = lod.vertexScale / (3 * CDO_FIXED_POINT_SCALE);
 
     primitives.push({
       i0,
@@ -410,21 +412,16 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
   }
 
   const { low, high } = lod.boundingBox;
+  const boundScale = lod.vertexScale / CDO_FIXED_POINT_SCALE;
   const boundsMeters: CarMeshBoundsMeters = {
-    min: [
-      low.x / CDO_FIXED_POINT_SCALE,
-      low.y / CDO_FIXED_POINT_SCALE,
-      low.z / CDO_FIXED_POINT_SCALE,
-    ],
-    max: [
-      high.x / CDO_FIXED_POINT_SCALE,
-      high.y / CDO_FIXED_POINT_SCALE,
-      high.z / CDO_FIXED_POINT_SCALE,
-    ],
+    min: [low.x * boundScale, low.y * boundScale, low.z * boundScale],
+    max: [high.x * boundScale, high.y * boundScale, high.z * boundScale],
   };
 
   return {
     lodIndex,
+    lodScale: lod.scale,
+    vertexScale: lod.vertexScale,
     vertexCount,
     triangleCount: totalIndexCount / 3,
     positionsInt16,

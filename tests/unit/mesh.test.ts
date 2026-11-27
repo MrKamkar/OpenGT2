@@ -192,6 +192,7 @@ describe('CarRenderMesh & buildCarMeshData (M7.2)', () => {
       buildSyntheticCdo({
         lods: [
           {
+            scale: 16,
             vertices: sampleVerts,
             normals: sampleNorms,
             triangles: [
@@ -309,10 +310,28 @@ describe('CarRenderMesh & buildCarMeshData (M7.2)', () => {
       CAR_FACE_MODE_TEXTURED_MODULATED,
     ]);
 
+    expect(meshData.lodScale).toBe(16);
+    expect(meshData.vertexScale).toBe(1);
     expect(meshData.boundsMeters.min).toEqual([-1, 0, -1]);
     expect(meshData.boundsMeters.max).toEqual([1, 0.5, 1]);
     expect(meshData.wireframeIndicesUint16.length % 2).toBe(0);
     expect(meshData.wireframeIndicesUint16.length).toBeGreaterThan(0);
+
+    // LOD with scale = 17 doubles meter-space bounds & centroids while keeping int16 raw positions intact
+    const cdo17 = parseCdo(
+      buildSyntheticCdo({
+        lods: [
+          { scale: 17, vertices: sampleVerts, normals: sampleNorms, triangles: [{ vertices: [0, 1, 2, 0], normals: [0, 1, 2, 0], faceType: CDO_FACE_TYPE_TRI, color24: 0x112233 }], quads: [], uvTriangles: [], uvQuads: [] },
+          { scale: 16, vertices: sampleVerts, normals: sampleNorms, triangles: [], quads: [], uvTriangles: [], uvQuads: [] },
+          { scale: 17, vertices: sampleVerts, normals: sampleNorms, triangles: [], quads: [], uvTriangles: [], uvQuads: [] },
+        ],
+      }),
+    );
+    const mesh17 = buildCarMeshData(buildCarModel(cdo17), 0);
+    expect(mesh17.lodScale).toBe(17);
+    expect(mesh17.vertexScale).toBe(2);
+    expect(mesh17.boundsMeters.min).toEqual([-2, 0, -2]);
+    expect(mesh17.boundsMeters.max).toEqual([2, 1, 2]);
   });
 
   it('handles LODs with normalCount === 0 safely with deterministic (0,1,0) normals and zero NaN', () => {
@@ -374,6 +393,7 @@ describe('CarRenderMesh & buildCarMeshData (M7.2)', () => {
       buildSyntheticCdo({
         lods: [
           {
+            scale: 16,
             vertices: sampleVerts,
             normals: sampleNorms,
             triangles: [
@@ -492,6 +512,7 @@ describe('CarRenderMesh & buildCarMeshData (M7.2)', () => {
       buildSyntheticCdo({
         lods: [
           {
+            scale: 16,
             vertices: sampleVerts,
             normals: sampleNorms,
             triangles: [{ vertices: [0, 1, 2, 0], normals: [0, 0, 0, 0], faceType: CDO_FACE_TYPE_TRI }],

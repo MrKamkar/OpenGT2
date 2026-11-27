@@ -185,8 +185,11 @@ describe('CarModel conversion (M6.8)', () => {
     }
 
     expect(lod0.maxDistance).toBe(5);
+    expect(lod0.scale).toBe(17);
+    expect(lod0.vertexScale).toBe(2);
     expect(lod0.rawVerticesInt16).toBeInstanceOf(Int16Array);
     expect(lod0.positionsMeters).toBeInstanceOf(Float32Array);
+    expect(lod0.positionsMeters[0]).toBeCloseTo((-2000 * 2) / CDO_FIXED_POINT_SCALE, 6);
     expect(lod0.normals).toBeInstanceOf(Float32Array);
 
     // 1 triangle (faceType 32) + 1 quad split into 2 triangles (faceType 40) = 3 untextured tris

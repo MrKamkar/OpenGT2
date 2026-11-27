@@ -27,7 +27,12 @@ export function parseCdo(data: Uint8Array): CdoModel {
   for (let i = 0; i < lodTable.lodCount; i += 1) {
     const tableEntry = lodTable.entries[i]!;
     const lodHeader = parseCdoLodHeader(data, cursor);
-    const vertices = parseCdoVertices(data, lodHeader.dataOffset, lodHeader.vertexCount);
+    const vertices = parseCdoVertices(
+      data,
+      lodHeader.dataOffset,
+      lodHeader.vertexCount,
+      lodHeader.scale,
+    );
     const normals = parseCdoNormals(data, vertices.nextOffset, lodHeader.normalCount);
     const polygons = parseCdoPolygonLists(data, normals.nextOffset, {
       triCount: lodHeader.triCount,

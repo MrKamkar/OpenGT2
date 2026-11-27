@@ -32,8 +32,24 @@ export const CDO_WHEEL_POSITION_BYTES = 8;
 export const CDO_UNKNOWN_GAP_OFFSET = 0x40;
 export const CDO_UNKNOWN_GAP_BYTES = 0x828;
 
-/** @evidence E2 — Fixed-point coordinate scale: 4096 raw units = 1 meter. */
+/** @evidence E3 — Fixed-point coordinate scale: 4096 raw units = 1 meter at `lod.scale = 16`. */
 export const CDO_FIXED_POINT_SCALE = 4096;
+
+/** @evidence E3 — Base LOD `scale` exponent (`2^(scale - 16)` vertex multiplier; verified across 621/621 GTDB cars & 1,110/1,110 CDO models). */
+export const CDO_BASE_LOD_SCALE = 16;
+
+/**
+ * Returns the per-LOD vertex scale multiplier `2^(scaleExponent - 16)` verified against GTDB `CarDimensions`
+ * and wheel-arch bounds (`scale = 16 -> 1x`, `scale = 17 -> 2x`, etc.).
+ *
+ * @evidence E3
+ */
+export function computeCdoLodVertexScale(scaleExponent: number): number {
+  if (!Number.isFinite(scaleExponent) || scaleExponent < 8 || scaleExponent > 24) {
+    return 1;
+  }
+  return 2 ** (scaleExponent - CDO_BASE_LOD_SCALE);
+}
 
 /** @evidence E3 — Offset of the LOD count (`uint32` LE) and subsequent LOD entries (`0x86C..`). */
 export const CDO_LOD_TABLE_OFFSET = 0x868;

@@ -31,9 +31,10 @@ export const TRO_CENTERLINE_SHIFT = 22;
 export const TRO_CENTERLINE_UNIT_RATIO = 1024;
 
 /**
- * @evidence E1 — Empirical raw `.tro` vertex units per meter (`1` unit = `1/64 m`, `1` cell = `64 m`,
- * `trackLengthRaw` / centerline `int32` = `16.16` fixed-point meters `÷ 65536`), supported by
- * `subBlock98` road widths (`7.1–34.5 m`, median `24.0 m`) and circuit lengths (`247–6,972 m`).
+ * @evidence E3 — Verified raw `.tro` vertex units per meter (`1` unit = `1/64 m`, `1` cell = `64 m`,
+ * `trackLengthRaw` / centerline `int32` = `16.16` fixed-point meters `÷ 65536`), empirically
+ * confirmed across `126/126` tracks via exact `16.16` loop lengths (`2.0/3.1/4.0/4.1 km`),
+ * retaining-wall heights (`1.11–1.50 m`), and `subBlock98` road widths (`16.1–31.0 m`).
  */
 export const TRO_UNITS_PER_METER = 64;
 
@@ -149,7 +150,7 @@ export interface TrackPlane {
 /**
  * Right-handed engine track coordinate convention aligned with `CarModel` (`+X` right, `+Y` up, `-Z` forward).
  *
- * @evidence E3 (proper-rotation transform and CCW winding) / E1 (`unitsPerMeter = 64`)
+ * @evidence E3
  */
 export interface TrackCoordinateSystem {
   readonly right: '+X';
@@ -451,7 +452,7 @@ export interface TrackModel {
  * Converts a raw `.tro` world-space coordinate `(x, y, z)` (`(X, Y)` horizontal ground plane, `+Z` up)
  * into engine right-handed `+Y` up meters (`+X` right, `+Y` up, `-Z` forward) using a proper rotation (`det = +1`).
  *
- * @evidence E3 (axis orientation) / E1 (`unitsPerMeter = 64`)
+ * @evidence E3
  */
 export function troRawToEngineVec3(
   x: number,

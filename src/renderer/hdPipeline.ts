@@ -390,6 +390,7 @@ layout(location = ${String(CAR_MESH_ATTR_MATERIAL)}) in uvec2 a_material;
 uniform mat4 u_mvp;
 uniform mat4 u_model;
 uniform vec2 u_texSize;
+uniform float u_vertexScale;
 
 out vec2 v_uv;
 out vec3 v_normal;
@@ -397,7 +398,7 @@ out vec3 v_color;
 flat out uvec2 v_material;
 
 void main() {
-  vec3 posMeters = a_position / ${String(PS1_FIXED_POINT_SCALE)}.0;
+  vec3 posMeters = (a_position * u_vertexScale) / ${String(PS1_FIXED_POINT_SCALE)}.0;
   gl_Position = u_mvp * vec4(posMeters, 1.0);
   v_uv = (a_uv + vec2(0.5)) / u_texSize;
   v_normal = mat3(u_model) * a_normal;
@@ -455,9 +456,10 @@ precision highp float;
 
 layout(location = ${String(CAR_MESH_ATTR_POSITION)}) in vec3 a_position;
 uniform mat4 u_mvp;
+uniform float u_vertexScale;
 
 void main() {
-  vec3 posMeters = a_position / ${String(PS1_FIXED_POINT_SCALE)}.0;
+  vec3 posMeters = (a_position * u_vertexScale) / ${String(PS1_FIXED_POINT_SCALE)}.0;
   gl_Position = u_mvp * vec4(posMeters, 1.0);
 }
 `;
@@ -807,6 +809,7 @@ export class HdPipeline {
     this.carProgram.use();
     this.carProgram.setMat4('u_mvp', mvp);
     this.carProgram.setMat4('u_model', IDENTITY_MAT4);
+    this.carProgram.setFloat('u_vertexScale', mesh.data.vertexScale);
     this.carProgram.setVec3('u_lightDir', 0.45, 0.8, -0.55);
 
     if (textureArray !== null) {
@@ -825,6 +828,7 @@ export class HdPipeline {
     if (wireframe) {
       this.wireframeProgram.use();
       this.wireframeProgram.setMat4('u_mvp', mvp);
+      this.wireframeProgram.setFloat('u_vertexScale', mesh.data.vertexScale);
       this.wireframeProgram.setVec4('u_wireColor', 0.15, 0.95, 0.65, 1.0);
       mesh.drawWireframe();
     }

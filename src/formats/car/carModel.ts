@@ -10,6 +10,7 @@ import {
   type CdoTexturedPolygon,
   type CdoUvCoord,
   type CdoWheelPosition,
+  computeCdoLodVertexScale,
 } from './cdo';
 import {
   CDP_PALETTES_PER_COLOR,
@@ -130,11 +131,15 @@ export interface CarTexturedTriangle {
 export interface CarModelLod {
   readonly index: number;
   readonly maxDistance: number;
+  /** @evidence E3 — Raw LOD scale exponent from `+0x4C` (`16` = 1x, `17` = 2x). */
+  readonly scale: number;
+  /** @evidence E3 — Vertex multiplier `2^(scale - 16)` converting LOD vertices relative to `1/4096 m`. */
+  readonly vertexScale: number;
   readonly vertexCount: number;
   readonly normalCount: number;
-  /** Interleaved `[x, y, z, w, ...]` raw `int16` coordinates (`1/4096 m`) for M7.2 `gl.SHORT`. */
+  /** Interleaved `[x, y, z, w, ...]` raw `int16` coordinates (`vertexScale / 4096 m`) for M7.2 `gl.SHORT`. */
   readonly rawVerticesInt16: Int16Array;
-  /** Interleaved `[x, y, z, ...]` positions in meters (`raw / 4096`). */
+  /** Interleaved `[x, y, z, ...]` positions in meters (`raw * vertexScale / 4096`). */
   readonly positionsMeters: Float32Array;
   /** Interleaved `[nx, ny, nz, ...]` unpacked unit normal vectors (`length = normalCount * 3`). */
   readonly normals: Float32Array;
@@ -375,6 +380,8 @@ function convertLod(lod: CdoLod): CarModelLod {
   return {
     index: lod.index,
     maxDistance: lod.tableEntry.maxDistance,
+    scale: lod.header.scale,
+    vertexScale: computeCdoLodVertexScale(lod.header.scale),
     vertexCount: lod.vertices.count,
     normalCount: lod.normals.count,
     rawVerticesInt16: lod.vertices.rawInt16,

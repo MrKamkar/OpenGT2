@@ -278,6 +278,7 @@ layout(location = ${String(CAR_MESH_ATTR_MATERIAL)}) in uvec2 a_material;
 uniform mat4 u_mvp;
 uniform mat4 u_model;
 uniform vec2 u_texSize;
+uniform float u_vertexScale;
 
 out vec2 v_uv;
 out vec3 v_normal;
@@ -285,7 +286,7 @@ out vec3 v_color;
 flat out uvec2 v_material;
 
 void main() {
-  vec3 posMeters = a_position / ${String(PS1_FIXED_POINT_SCALE)}.0;
+  vec3 posMeters = (a_position * u_vertexScale) / ${String(PS1_FIXED_POINT_SCALE)}.0;
   gl_Position = u_mvp * vec4(posMeters, 1.0);
   v_uv = (a_uv + vec2(0.5)) / u_texSize;
   v_normal = mat3(u_model) * a_normal;
@@ -353,6 +354,7 @@ uniform mat4 u_model;
 uniform vec2 u_internalRes;
 uniform int u_vertexSnap;
 uniform vec3 u_lightDir;
+uniform float u_vertexScale;
 
 out vec3 v_uvw;
 out vec2 v_uvPerspective;
@@ -361,7 +363,7 @@ out float v_light;
 flat out uvec2 v_material;
 
 void main() {
-  vec3 posMeters = a_position / ${String(PS1_FIXED_POINT_SCALE)}.0;
+  vec3 posMeters = (a_position * u_vertexScale) / ${String(PS1_FIXED_POINT_SCALE)}.0;
   vec4 clipPos = u_mvp * vec4(posMeters, 1.0);
 
   if (u_vertexSnap != 0 && abs(clipPos.w) > 1e-6) {
@@ -492,9 +494,10 @@ layout(location = ${String(CAR_MESH_ATTR_POSITION)}) in vec3 a_position;
 uniform mat4 u_mvp;
 uniform vec2 u_internalRes;
 uniform int u_vertexSnap;
+uniform float u_vertexScale;
 
 void main() {
-  vec3 posMeters = a_position / ${String(PS1_FIXED_POINT_SCALE)}.0;
+  vec3 posMeters = (a_position * u_vertexScale) / ${String(PS1_FIXED_POINT_SCALE)}.0;
   vec4 clipPos = u_mvp * vec4(posMeters, 1.0);
   if (u_vertexSnap != 0 && abs(clipPos.w) > 1e-6) {
     vec2 ndc = clipPos.xy / clipPos.w;
@@ -544,15 +547,15 @@ void main() {
 `;
 
 /**
- * Returns the lowest local Y coordinate (meters) of the rendered `CarModel` mesh (`LOD0`),
- * falling back to wheel-bottom contact (`min(wheel.y - radius)`) if LOD0 is absent.
- * Aligning this coordinate with `pose.position.y - comHeightMeters` places the visible tyres
- * cleanly on the road surface without floating or sinking (`M9.9`).
+ * Returns the lowest local Y coordinate (meters) of the rendered `CarModel` mesh (`lodIndex`, default `0`),
+ * scaled by `2^(lod.scale - 16)` and falling back to wheel-bottom contact (`min(wheel.y - radius)`)
+ * if no LOD is available. Aligning this coordinate with `pose.position.y - comHeightMeters` places
+ * the visible tyres cleanly on the road surface without floating or sinking (`M9.9`).
  */
-export function computeCarVisualBottomY(carModel: CarModel): number {
-  const lod0 = carModel.lods[0];
-  if (lod0 !== undefined && Number.isFinite(lod0.boundingBox.low.y)) {
-    return lod0.boundingBox.low.y / PS1_FIXED_POINT_SCALE;
+export function computeCarVisualBottomY(carModel: CarModel, lodIndex = 0): number {
+  const lod = carModel.lods[lodIndex] ?? carModel.lods[0];
+  if (lod !== undefined && Number.isFinite(lod.boundingBox.low.y)) {
+    return (lod.boundingBox.low.y * lod.vertexScale) / PS1_FIXED_POINT_SCALE;
   }
 
   let minWheelBottom = Infinity;
@@ -878,7 +881,7 @@ export class DriveRenderer {
     this.carModel = carModel;
     this.carLodIndex = lodIndex;
     this.carColorSlotIndex = colorSlotIndex;
-    this.carVisualBottomY = computeCarVisualBottomY(carModel);
+    this.carVisualBottomY = computeCarVisualBottomY(carModel, lodIndex);
     this.carMesh = nextMesh;
     this.carPs1Tex = nextPs1Tex;
     this.carHdTex = nextHdTex;
@@ -1077,6 +1080,7 @@ export class DriveRenderer {
       this.hdCarProgram.use();
       this.hdCarProgram.setMat4('u_mvp', carMvp);
       this.hdCarProgram.setMat4('u_model', carModelMat);
+      this.hdCarProgram.setFloat('u_vertexScale', this.carMesh.data.vertexScale);
       this.hdCarProgram.setVec3('u_lightDir', 0.45, 0.8, -0.55);
 
       if (this.carHdTex !== null) {
@@ -1100,6 +1104,7 @@ export class DriveRenderer {
       if (options.wireframe === true) {
         this.carWireframeProgram.use();
         this.carWireframeProgram.setMat4('u_mvp', carMvp);
+        this.carWireframeProgram.setFloat('u_vertexScale', this.carMesh.data.vertexScale);
         this.carWireframeProgram.setVec2('u_internalRes', safeW, safeH);
         this.carWireframeProgram.setInt('u_vertexSnap', 0);
         this.carWireframeProgram.setVec4('u_wireColor', 0.95, 0.75, 0.2, 1.0);
@@ -1222,6 +1227,7 @@ export class DriveRenderer {
       this.ps1CarProgram.use();
       this.ps1CarProgram.setMat4('u_mvp', carMvp);
       this.ps1CarProgram.setMat4('u_model', carModelMat);
+      this.ps1CarProgram.setFloat('u_vertexScale', this.carMesh.data.vertexScale);
       this.ps1CarProgram.setVec2('u_internalRes', this.ps1Width, this.ps1Height);
       this.ps1CarProgram.setInt('u_vertexSnap', vertexSnap ? 1 : 0);
       this.ps1CarProgram.setVec3('u_lightDir', 0.45, 0.8, -0.55);
@@ -1257,6 +1263,7 @@ export class DriveRenderer {
       if (options.wireframe === true) {
         this.carWireframeProgram.use();
         this.carWireframeProgram.setMat4('u_mvp', carMvp);
+        this.carWireframeProgram.setFloat('u_vertexScale', this.carMesh.data.vertexScale);
         this.carWireframeProgram.setVec2('u_internalRes', this.ps1Width, this.ps1Height);
         this.carWireframeProgram.setInt('u_vertexSnap', vertexSnap ? 1 : 0);
         this.carWireframeProgram.setVec4('u_wireColor', 0.95, 0.75, 0.2, 1.0);
