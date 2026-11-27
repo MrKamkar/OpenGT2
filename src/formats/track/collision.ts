@@ -39,6 +39,8 @@ export interface SurfaceClassificationOptions {
 
 export interface BuildCollisionMeshOptions extends SurfaceClassificationOptions {
   readonly unitsPerMeter?: number;
+  /** Max height of floating road-marking overlays excluded from collision (default 0.15 m). */
+  readonly maxDecalHeightMeters?: number;
   readonly degenerateAreaEpsilon?: number;
 }
 
@@ -223,6 +225,102 @@ function orientHorizontalNormalInward(
   return [nx, nz];
 }
 
+/** Default max height (m) of a flat road-marking overlay above the asphalt it sits on. */
+export const DEFAULT_MAX_DECAL_HEIGHT_METERS = 0.15;
+/** Minimum height (m) above the base so exactly coplanar seams are never treated as decals. */
+const DECAL_MIN_HEIGHT_METERS = 0.005;
+/** Minimum normal alignment between a decal and its base triangle. */
+const DECAL_MIN_NORMAL_DOT = 0.98;
+const DECAL_XZ_EPSILON = 1e-4;
+const TRO_SURFACE_CODE_ASPHALT = 0;
+
+interface CandidateTriangle {
+  readonly verts: readonly [number, number, number, number, number, number, number, number, number];
+  readonly nx: number;
+  readonly ny: number;
+  readonly nz: number;
+  readonly surfaceType: CollisionSurfaceType;
+  readonly surfaceCode: number;
+  readonly vIdx: readonly [number, number, number];
+}
+
+/** Returns the base plane height at (px, pz) when the point lies inside the triangle's XZ projection, else `null`. */
+function triangleHeightAtXZ(tri: CandidateTriangle, px: number, pz: number): number | null {
+  const v = tri.verts;
+  const ax = v[0];
+  const az = v[2];
+  const bx = v[3];
+  const bz = v[5];
+  const cx = v[6];
+  const cz = v[8];
+  const det = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+  if (Math.abs(det) < 1e-9) {
+    return null;
+  }
+  const l0 = ((bz - cz) * (px - cx) + (cx - bx) * (pz - cz)) / det;
+  const l1 = ((cz - az) * (px - cx) + (ax - cx) * (pz - cz)) / det;
+  const l2 = 1 - l0 - l1;
+  const e = DECAL_XZ_EPSILON;
+  if (l0 < -e || l1 < -e || l2 < -e) {
+    return null;
+  }
+  return l0 * v[1] + l1 * v[4] + l2 * v[7];
+}
+
+/**
+ * Flags thin, flat overlay triangles (painted road markings) that float a few centimeters above
+ * a continuous asphalt ground triangle of the same segment. A triangle is flagged only when it is
+ * ground-classified and asphalt-coded, and every vertex lies inside an asphalt ground triangle's
+ * XZ projection with a vertical gap in `(0.005, maxDecalHeight]` m and near-parallel normals.
+ * Kerbs, ramps, bridges/overpasses (large vertical gaps) and adjacent banked seams (no XZ
+ * overlap) are never flagged. Heuristic (E2): no binary decal flag is verified in `.tro`.
+ *
+ * @returns One byte per input triangle (`1` = excluded from collision).
+ */
+function markStackedDecalTriangles(
+  tris: readonly CandidateTriangle[],
+  maxDecalHeight: number = DEFAULT_MAX_DECAL_HEIGHT_METERS,
+): Uint8Array {
+  const flags = new Uint8Array(tris.length);
+  const bases: number[] = [];
+  for (let i = 0; i < tris.length; i += 1) {
+    const t = tris[i];
+    if (t !== undefined && t.surfaceType === 'ground' && t.surfaceCode === TRO_SURFACE_CODE_ASPHALT) {
+      bases.push(i);
+    }
+  }
+  for (const ci of bases) {
+    const cand = tris[ci];
+    if (cand === undefined) continue;
+    let allSupported = true;
+    for (let k = 0; k < 3 && allSupported; k += 1) {
+      const px = cand.verts[k * 3] ?? 0;
+      const py = cand.verts[k * 3 + 1] ?? 0;
+      const pz = cand.verts[k * 3 + 2] ?? 0;
+      let supported = false;
+      for (const bi of bases) {
+        if (bi === ci) continue;
+        const base = tris[bi];
+        if (base === undefined) continue;
+        if (cand.nx * base.nx + cand.ny * base.ny + cand.nz * base.nz < DECAL_MIN_NORMAL_DOT) {
+          continue;
+        }
+        const h = triangleHeightAtXZ(base, px, pz);
+        if (h === null) continue;
+        const gap = py - h;
+        if (gap > DECAL_MIN_HEIGHT_METERS && gap <= maxDecalHeight) {
+          supported = true;
+          break;
+        }
+      }
+      allSupported = supported;
+    }
+    if (allSupported) {
+      flags[ci] = 1;
+    }
+  }
+  return flags;
+}
 /**
  * Builds a deterministic `CollisionMesh` from the E3 primary renderable track geometry
  * (`subMesh0`, falling back to `subMesh1` when `subMesh0` is empty) plus converted
@@ -274,6 +372,7 @@ export function buildCollisionMesh(
     if (activeSubMesh !== null && activeSubMesh.polygons.length > 0) {
       const engVerts = transformSubMeshVertices(activeSubMesh, invScale);
       const reverseWinding = useSubMesh0;
+      const segTris: CandidateTriangle[] = [];
 
       for (const poly of activeSubMesh.polygons) {
         const triSets = poly.isQuad
@@ -321,24 +420,48 @@ export function buildCollisionMesh(
           const nz = cz * invLen;
           const surfaceType = classifySurfaceNormalY(ny, options);
 
-          verticesList.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
-          normalsList.push(nx, ny, nz);
-          surfaceTypesList.push(surfaceTypeToCode(surfaceType));
-          groundMaterialsList.push(poly.surfaceCode);
-          segmentIndicesList.push(seg.segmentIndex);
-
-          if (surfaceType === 'ground') {
-            segGroundSumX += (x0 + x1 + x2) / 3;
-            segGroundSumZ += (z0 + z1 + z2) / 3;
-            segGroundCount += 1;
-            addGroundTriangleEdgeRefs(groundEdgeRefs, vIdx0, vIdx1, vIdx2, engVerts);
-          }
-
-          expandBox(segBox, x0, y0, z0);
-          expandBox(segBox, x1, y1, z1);
-          expandBox(segBox, x2, y2, z2);
-          triangleCount += 1;
+          segTris.push({
+            verts: [x0, y0, z0, x1, y1, z1, x2, y2, z2],
+            ny,
+            surfaceType,
+            surfaceCode: poly.surfaceCode,
+            vIdx: [vIdx0, vIdx1, vIdx2],
+            nx,
+            nz,
+          });
         }
+      }
+
+      const decalFlags = markStackedDecalTriangles(segTris, options.maxDecalHeightMeters);
+      for (let ti = 0; ti < segTris.length; ti += 1) {
+        const tri = segTris[ti];
+        if (tri === undefined || decalFlags[ti] === 1) {
+          continue;
+        }
+        const [x0, y0, z0, x1, y1, z1, x2, y2, z2] = tri.verts;
+        verticesList.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
+        normalsList.push(tri.nx, tri.ny, tri.nz);
+        surfaceTypesList.push(surfaceTypeToCode(tri.surfaceType));
+        groundMaterialsList.push(tri.surfaceCode);
+        segmentIndicesList.push(seg.segmentIndex);
+
+        if (tri.surfaceType === 'ground') {
+          segGroundSumX += (x0 + x1 + x2) / 3;
+          segGroundSumZ += (z0 + z1 + z2) / 3;
+          segGroundCount += 1;
+          addGroundTriangleEdgeRefs(
+            groundEdgeRefs,
+            tri.vIdx[0],
+            tri.vIdx[1],
+            tri.vIdx[2],
+            engVerts,
+          );
+        }
+
+        expandBox(segBox, x0, y0, z0);
+        expandBox(segBox, x1, y1, z1);
+        expandBox(segBox, x2, y2, z2);
+        triangleCount += 1;
       }
     }
 

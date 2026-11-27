@@ -651,6 +651,7 @@ encodeCarId(code):
 - **`subBlock98` 2D Wall Barriers (`80,433` records across `14,387/14,387` segments, **E3**):**
   - `b9cOff - b98Off === 4 + count * 8` (`100%`). Each `8 B` entry stores `uint16 v0, uint16 v1` (`0` OOB in `subMesh0` vertices) and `int16 nxFixed12, int16 nyFixed12` (`99.82%` unit length `/ 4096`, `99.74%` perpendicular to edge `(v1 - v0)`).
   - Across `126/126` tracks, `80,407 / 80,433 (99.97%)` barrier edges share exact `(v0, v1)` vertices with `subMesh0` polygons (`99.54%` ground), and **`76,116 / 80,433 (94.63%)` raw normals point OUTWARD** toward wall exteriors (`99.75%` left-handed relative to `(v1 - v0)`). Engine `CollisionMesh` construction deterministically orients each normal inward toward single-sided adjacent ground polygons (falling back to segment centerline on double-sided apron/curb edges).
+  - **Road-marking decals (E2, heuristic):** no `.tro` polygon flag (`w1`/`w2`) distinguishing painted markings from asphalt is verified. `buildCollisionMesh` therefore excludes asphalt-coded ground triangles whose three vertices all lie 0.5-15 cm above another near-parallel asphalt ground triangle of the same segment (XZ-contained). Kerbs (non-asphalt code), steps > 15 cm, overpasses and non-overlapping seams stay collidable; render geometry is unchanged.
 
 ### 4. Sub-Mesh Header (`0x44` B) & 11 Typed Lists (`28,774 / 28,774` exact match)
 

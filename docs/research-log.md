@@ -696,3 +696,10 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 
 - **Wall impacts (`vehicleSim.ts`):** removed the per-substep `x0.6` roll/pitch multiplier and the world-space `linearVelocity.y <= 0.5` clamp, so suspension recoil is natural and uphill travel is never pinned. Roll/pitch spin is only damped (`exp(-8 dt)`) above `2.8 rad/s`. Anti-rollover now starts at `~0.52 rad` (30°) and self-righting at `~0.78 rad` (45°), with gentler gains; a tipped car still self-rights onto 4 wheels.
 - **Understeer (`tyres.ts`, `config.ts`):** lateral `B` front `x1.62 -> x1.85`, rear `x1.72 -> x1.58` (rear `C` cap `1.38 -> 1.34`) so the front bites harder than the rear; handbrake rear lateral scale `0.25 -> 0.20` to keep `Space` drifts willing; keyboard `speedSensitivityMinScale` `0.32 -> 0.45`. `carSpec.ts` and all `GT2.VOL` parameters are untouched; M9.10 benchmarks remain within ±15%.
+
+## 2026-11-27 - Track Collision Fix - Floating Road-Marking Decals
+
+- **Symptom:** painted road markings (arrows/chevrons) bumped the suspension because their polygons are ground-classified triangles raised a few centimeters above the asphalt.
+- **Finding:** no binary decal flag is known in `.tro` (`w1`/`w2`); I did not verify per-track decal heights against `GT2.VOL`. Fixed geometrically in `buildCollisionMesh` (E2): asphalt-coded ground triangles fully stacked 0.5-15 cm above a near-parallel asphalt ground triangle are dropped from collision only (render mesh untouched; `maxDecalHeightMeters` option).
+- **Safety:** kerbs (code 1), steps > 15 cm, overpasses (> 1 m), coplanar and non-overlapping seams are retained; covered by synthetic unit tests in `trackCollision.test.ts`.
+

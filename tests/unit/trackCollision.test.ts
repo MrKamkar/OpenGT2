@@ -187,4 +187,69 @@ describe('track CollisionMesh builder & raycaster (M8.5)', () => {
       TRO_SURFACE_GRASS,
     ]);
   });
-});
+
+  describe('stacked road-marking decal filtering', () => {
+    const buildOverlayMesh = (overlayZRaw: number, overlayCode: number) =>
+      buildCollisionMesh(
+        parseTro(
+          buildSyntheticTro({
+            uvEntries: [],
+            segments: [
+              {
+                centerRaw: [0, 0, 0],
+                subMesh0: {
+                  localVertices: [
+                    // Base road quad, 10 m x 10 m (64 raw units per meter).
+                    [0, 0, 0],
+                    [0, 640, 0],
+                    [640, 640, 0],
+                    [640, 0, 0],
+                    // Smaller overlay quad inside the base footprint.
+                    [128, 128, overlayZRaw],
+                    [128, 256, overlayZRaw],
+                    [256, 256, overlayZRaw],
+                    [256, 128, overlayZRaw],
+                  ],
+                  polygons: [
+                    { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 90, g: 90, b: 90 }], surfaceCode: TRO_SURFACE_ASPHALT },
+                    { listIndex: 2, vertices: [4, 5, 6, 7], colors: [{ r: 250, g: 220, b: 0 }], surfaceCode: overlayCode },
+                  ],
+                },
+                subMesh1: { localVertices: [], polygons: [] },
+              },
+            ],
+          }),
+        ),
+      );
+    const rayDown = (mesh: ReturnType<typeof buildOverlayMesh>) =>
+      raycastCollisionMesh(mesh, { x: 3, y: 5, z: -3 }, { x: 0, y: -1, z: 0 }, 20);
+
+    it('excludes thin asphalt overlays 3-6 cm and 9 cm above the base so wheels track the asphalt', () => {
+      for (const zRaw of [2, 3, 4, 6]) {
+        const mesh = buildOverlayMesh(zRaw, TRO_SURFACE_ASPHALT);
+        expect(mesh.triangleCount).toBe(2);
+        const hit = rayDown(mesh);
+        expect(hit).not.toBeNull();
+        expect(hit!.point.y).toBeCloseTo(0, 6);
+      }
+    });
+
+    it('keeps real steps (> 15 cm), kerbs and overpasses (> 1 m) as collidable triangles', () => {
+      const step = buildOverlayMesh(16, TRO_SURFACE_ASPHALT); // 25 cm
+      expect(step.triangleCount).toBe(4);
+      expect(rayDown(step)!.point.y).toBeCloseTo(0.25, 6);
+
+      const kerb = buildOverlayMesh(4, TRO_SURFACE_KERB);
+      expect(kerb.triangleCount).toBe(4);
+      expect(rayDown(kerb)!.point.y).toBeCloseTo(4 / 64, 6);
+
+      const overpass = buildOverlayMesh(128, TRO_SURFACE_ASPHALT); // 2 m
+      expect(overpass.triangleCount).toBe(4);
+      expect(rayDown(overpass)!.point.y).toBeCloseTo(2, 6);
+    });
+
+    it('never filters exactly coplanar overlays or non-overlapping neighbouring road seams', () => {
+      expect(buildOverlayMesh(0, TRO_SURFACE_ASPHALT).triangleCount).toBe(4);
+      expect(buildOverlayMesh(-3, TRO_SURFACE_ASPHALT).triangleCount).toBe(4);
+    });
+  });});
