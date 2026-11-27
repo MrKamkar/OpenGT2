@@ -29,6 +29,9 @@ export const TYRE_MAX_SPIN_RAD_S = 400;
 /** Multiplier strengthening lateral cornering stiffness (`B`) without altering longitudinal acceleration. */
 export const TYRE_LATERAL_PACEJKA_B_SCALE = 1.28;
 
+/** Scale factor applied to rear lateral tyre grip while the handbrake is pulled for clean drift initiation. */
+export const TYRE_HANDBRAKE_LATERAL_GRIP_SCALE = 0.25;
+
 export interface TyreForceInput {
   readonly normalForceN: number;
   readonly wheelAngularSpeedRadS: number;
@@ -37,6 +40,8 @@ export interface TyreForceInput {
   readonly patchRightSpeedMps: number;
   readonly compound: TyreCompoundPreset;
   readonly surfaceType: PhysicsSurfaceType;
+  readonly axle?: 'front' | 'rear';
+  readonly handbrakeActive?: boolean;
 }
 
 export interface TyreForceOutput {
@@ -122,12 +127,26 @@ export function computeTyreForces(input: TyreForceInput): TyreForceOutput {
     );
 
   // Positive patchRightSpeedMps means sliding right -> lateral force acts left (-wheelRight)
-  const lateralB = input.compound.pacejkaB * TYRE_LATERAL_PACEJKA_B_SCALE;
-  const lateralC = Math.min(1.28, input.compound.pacejkaC);
-  const lateralE = Math.min(0.45, input.compound.pacejkaE);
+  // Shape front vs. rear lateral curves for crisp grip turn-in and a progressive high-slip drift plateau.
+  let lateralB = input.compound.pacejkaB * TYRE_LATERAL_PACEJKA_B_SCALE;
+  let lateralC = Math.min(1.28, input.compound.pacejkaC);
+  let lateralE = Math.min(0.45, input.compound.pacejkaE);
+  if (input.axle === 'front') {
+    lateralB = input.compound.pacejkaB * 1.32;
+    lateralC = Math.min(1.32, input.compound.pacejkaC);
+    lateralE = Math.min(0.20, input.compound.pacejkaE);
+  } else if (input.axle === 'rear') {
+    lateralB = input.compound.pacejkaB * 1.62;
+    lateralC = Math.min(1.38, input.compound.pacejkaC);
+    lateralE = -0.05;
+  }
+
   let fyLat =
     -peakForce *
     pacejkaMagicFormula(slipAngleRad, lateralB, lateralC, lateralE);
+  if (input.axle === 'rear' && input.handbrakeActive === true) {
+    fyLat *= TYRE_HANDBRAKE_LATERAL_GRIP_SCALE;
+  }
 
   // Rolling resistance opposes forward motion smoothly near 0 speed
   const rrFade = clamp(Math.abs(input.patchForwardSpeedMps) / 0.3, 0, 1);

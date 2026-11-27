@@ -500,4 +500,151 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(minCornerClearance).toBeGreaterThanOrEqual(-0.085);
     expect(maxJumpRatio).toBeLessThanOrEqual(1.0);
   });
+
+  it('maintains crisp peak-slip grip cornering at 60 & 130 km/h and smooth WASD + Space drift recovery (M9.18)', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const index = createFlatAsphaltCollisionIndex(4000, 4000);
+    const radToDeg = 180 / Math.PI;
+    const gravityMps2 = 9.81;
+
+    const testGripSpeed = (targetKph: number) => {
+      const input = new InputManager({ initialContext: 'race' });
+      const adapter = new DriveControlAdapter({
+        inputManager: input,
+        gamepadProvider: () => [],
+      });
+      const sim = new VehicleSimulation(spec, index, {
+        initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      });
+
+      input.handleKeyEvent({ type: 'keydown', code: 'KeyW', repeat: false });
+      for (let i = 0; i < 1500; i += 1) {
+        const s = sim.getSnapshot();
+        if (s.speedKph >= targetKph) break;
+        const { controls } = adapter.step(FIXED_DT, s.speedMps);
+        sim.stepFixed(controls, FIXED_DT);
+      }
+
+      const startSpeedMps = sim.getSnapshot().speedMps;
+      const startFwd = quatRotateVec3(sim.getPose().orientation, VEC3_FORWARD);
+      let prevAngle = Math.atan2(-startFwd.x, -startFwd.z);
+      let headingDeltaRad = 0;
+
+      // Full left keyboard hold while modulating throttle to hold entry speed
+      input.handleKeyEvent({ type: 'keydown', code: 'KeyA', repeat: false });
+      let steadyLatG = 0;
+      let steadyFrontSlipDeg = 0;
+      let steadyBodySlipDeg = 0;
+
+      for (let i = 0; i < 150; i += 1) {
+        const pre = sim.getSnapshot();
+        if (pre.speedKph < targetKph - 1) {
+          input.handleKeyEvent({ type: 'keydown', code: 'KeyW', repeat: false });
+        } else {
+          input.handleKeyEvent({ type: 'keyup', code: 'KeyW', repeat: false });
+        }
+        const { controls } = adapter.step(FIXED_DT, pre.speedMps);
+        sim.stepFixed(controls, FIXED_DT);
+
+        const snap = sim.getSnapshot();
+        const fwd = quatRotateVec3(snap.pose.orientation, VEC3_FORWARD);
+        const ang = Math.atan2(-fwd.x, -fwd.z);
+        let dAng = ang - prevAngle;
+        if (dAng > Math.PI) dAng -= Math.PI * 2;
+        if (dAng < -Math.PI) dAng += Math.PI * 2;
+        if (i < 120) {
+          headingDeltaRad += dAng;
+        }
+        prevAngle = ang;
+
+        if (i === 149) {
+          const right = quatRotateVec3(snap.pose.orientation, VEC3_RIGHT);
+          const latSpeed = vec3Dot(snap.linearVelocity, right);
+          steadyLatG = (snap.speedMps * Math.abs(snap.angularVelocity.y)) / gravityMps2;
+          steadyFrontSlipDeg =
+            ((Math.abs(snap.wheels[0].slipAngleRad) + Math.abs(snap.wheels[1].slipAngleRad)) *
+              0.5) *
+            radToDeg;
+          steadyBodySlipDeg =
+            Math.atan2(latSpeed, Math.max(Math.abs(snap.forwardSpeedMps), 1.0)) * radToDeg;
+        }
+      }
+
+      const endSpeedMps = sim.getSnapshot().speedMps;
+      return {
+        heading1sDeg: headingDeltaRad * radToDeg,
+        steadyLatG,
+        steadyFrontSlipDeg,
+        absBodySlipDeg: Math.abs(steadyBodySlipDeg),
+        speedLossPct: Math.max(0, ((startSpeedMps - endSpeedMps) / Math.max(1, startSpeedMps)) * 100),
+      };
+    };
+
+    const grip60 = testGripSpeed(60);
+    const grip130 = testGripSpeed(130);
+    expect(grip60.steadyLatG).toBeGreaterThanOrEqual(0.9);
+    expect(grip60.steadyFrontSlipDeg).toBeLessThanOrEqual(16);
+    expect(grip60.heading1sDeg).toBeGreaterThanOrEqual(34);
+
+    expect(grip130.steadyLatG).toBeGreaterThanOrEqual(0.9);
+    expect(grip130.steadyFrontSlipDeg).toBeLessThanOrEqual(16);
+    expect(grip130.absBodySlipDeg).toBeLessThan(16);
+    expect(grip130.speedLossPct).toBeLessThanOrEqual(5.5);
+
+    // Smooth controllable WASD + Space drift initiation & recovery at 95 km/h
+    const driftInput = new InputManager({ initialContext: 'race' });
+    const driftAdapter = new DriveControlAdapter({
+      inputManager: driftInput,
+      gamepadProvider: () => [],
+    });
+    const driftSim = new VehicleSimulation(spec, index, {
+      initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+    });
+
+    driftInput.handleKeyEvent({ type: 'keydown', code: 'KeyW', repeat: false });
+    for (let i = 0; i < 1200; i += 1) {
+      const s = driftSim.getSnapshot();
+      if (s.speedKph >= 95) break;
+      const { controls } = driftAdapter.step(FIXED_DT, s.speedMps);
+      driftSim.stepFixed(controls, FIXED_DT);
+    }
+
+    // Pull handbrake for 0.25 s while steering left + throttle, then release handbrake and catch
+    driftInput.handleKeyEvent({ type: 'keydown', code: 'KeyA', repeat: false });
+    driftInput.handleKeyEvent({ type: 'keydown', code: 'Space', repeat: false });
+    let maxBodySlipDeg = 0;
+    const measureBodySlipDeg = () => {
+      const snap = driftSim.getSnapshot();
+      const right = quatRotateVec3(snap.pose.orientation, VEC3_RIGHT);
+      const latSpeed = vec3Dot(snap.linearVelocity, right);
+      return Math.abs(
+        Math.atan2(latSpeed, Math.max(Math.abs(snap.forwardSpeedMps), 1.0)) * radToDeg,
+      );
+    };
+
+    for (let i = 0; i < 30; i += 1) {
+      const { controls } = driftAdapter.step(FIXED_DT, driftSim.getSnapshot().speedMps);
+      driftSim.stepFixed(controls, FIXED_DT);
+      maxBodySlipDeg = Math.max(maxBodySlipDeg, measureBodySlipDeg());
+    }
+
+    driftInput.handleKeyEvent({ type: 'keyup', code: 'Space', repeat: false });
+    for (let i = 0; i < 60; i += 1) {
+      const { controls } = driftAdapter.step(FIXED_DT, driftSim.getSnapshot().speedMps);
+      driftSim.stepFixed(controls, FIXED_DT);
+      maxBodySlipDeg = Math.max(maxBodySlipDeg, measureBodySlipDeg());
+    }
+
+    // Release steer with light throttle (CSA + yaw damping recovers cleanly within 1.2 s)
+    driftInput.handleKeyEvent({ type: 'keyup', code: 'KeyA', repeat: false });
+    for (let i = 0; i < 144; i += 1) {
+      const { controls } = driftAdapter.step(FIXED_DT, driftSim.getSnapshot().speedMps);
+      driftSim.stepFixed(controls, FIXED_DT);
+    }
+    const recoveredSlipDeg = measureBodySlipDeg();
+
+    expect(maxBodySlipDeg).toBeGreaterThanOrEqual(16);
+    expect(maxBodySlipDeg).toBeLessThanOrEqual(52);
+    expect(recoveredSlipDeg).toBeLessThan(10);
+  });
 });

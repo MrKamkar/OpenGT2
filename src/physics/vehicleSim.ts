@@ -254,16 +254,69 @@ export class VehicleSimulation {
     const brake = clamp(controls.brake, 0, 1);
     const handbrake = clamp(controls.handbrake, 0, 1);
     const steer = clamp(controls.steer, -1, 1);
-    const steerAngleRad = steer * this.spec.maxSteerAngleRad;
-    this.currentSteerAngleRad = steerAngleRad;
 
     // 1. Raycast & solve suspension
     const hits = castSuspensionRays(this.body, this.spec, this.collisionIndex);
     this.suspension = solveSuspension(this.body, this.spec, hits, this.suspension, dt);
 
-    // 2. Compute forward speed along chassis -Z and advance drivetrain
+    // 2. Compute chassis velocities & shape steering (slip-aware peak grip + GT Sport countersteer assist)
     const chassisForward = quatRotateVec3(this.body.orientation, VEC3_FORWARD);
+    const chassisRight = quatRotateVec3(this.body.orientation, VEC3_RIGHT);
     const forwardSpeedMps = vec3Dot(this.body.linearVelocity, chassisForward);
+    const rightSpeedMps = vec3Dot(this.body.linearVelocity, chassisRight);
+    const preStepYawRate = this.body.angularVelocity.y;
+    const frontAxleZ =
+      ((this.spec.wheels[0]?.localPosition.z ?? -1.3) +
+        (this.spec.wheels[1]?.localPosition.z ?? -1.3)) *
+      0.5;
+    const frontRightSpeedMps = rightSpeedMps + preStepYawRate * frontAxleZ;
+    const refForwardMps = Math.max(4.0, Math.abs(forwardSpeedMps));
+    const preStepBodySlipRad = Math.atan2(rightSpeedMps, refForwardMps);
+    const betaFrontRad = Math.atan2(frontRightSpeedMps, refForwardMps);
+
+    const rawSteerAngleRad = steer * this.spec.maxSteerAngleRad;
+    let shapedSteerAngleRad = rawSteerAngleRad;
+
+    if (forwardSpeedMps > 6.0 && handbrake < 0.1) {
+      const steerMag = Math.abs(steer);
+      const isCountersteeringIntoSlide =
+        Math.abs(preStepBodySlipRad) > 0.10 && steer * preStepBodySlipRad < -0.02;
+
+      if (steerMag > 0.05 && !isCountersteeringIntoSlide) {
+        const peakFrontSlipRad = clamp(0.175 - (forwardSpeedMps - 12) * 0.0018, 0.118, 0.18);
+        // Scale by 1.8 so speed-sensitive keyboard steering (0.32..1.0) still hits peak grip at full lock.
+        const desiredSlipRad =
+          Math.sign(steer) * peakFrontSlipRad * Math.min(1, steerMag * 1.8);
+        let optimalSteerRad = desiredSlipRad - betaFrontRad;
+        if (Math.abs(preStepBodySlipRad) <= 0.13) {
+          optimalSteerRad =
+            steer > 0 ? Math.max(0.02, optimalSteerRad) : Math.min(-0.02, optimalSteerRad);
+        }
+        const blend = clamp((forwardSpeedMps - 6.0) / 8.0, 0, 1);
+        shapedSteerAngleRad = rawSteerAngleRad * (1 - blend) + optimalSteerRad * blend;
+      }
+
+      if (forwardSpeedMps > 8.0) {
+        const isAssistingRecovery = steerMag <= 0.05 || steer * preStepBodySlipRad < -0.02;
+        const csaThresholdRad = isAssistingRecovery ? 0.12 : 0.22;
+        if (Math.abs(preStepBodySlipRad) > csaThresholdRad) {
+          const csaFactor = clamp((Math.abs(preStepBodySlipRad) - csaThresholdRad) / 0.32, 0, 1);
+          const alignSteer = -preStepBodySlipRad;
+          const csaWeight = isAssistingRecovery ? 0.75 * csaFactor : 0.45 * csaFactor;
+          shapedSteerAngleRad = shapedSteerAngleRad * (1 - csaWeight) + alignSteer * csaWeight;
+        }
+      }
+
+      shapedSteerAngleRad = clamp(
+        shapedSteerAngleRad,
+        -this.spec.maxSteerAngleRad,
+        this.spec.maxSteerAngleRad,
+      );
+    }
+
+    const steerAngleRad = shapedSteerAngleRad;
+    this.currentSteerAngleRad = steerAngleRad;
+
     const frontSplit = this.spec.drivetrain.frontTorqueSplit;
     const rearSplit = 1 - frontSplit;
     const frontSlipAvg = (this.wheelSlipRatios[0] + this.wheelSlipRatios[1]) * 0.5;
@@ -366,6 +419,17 @@ export class VehicleSimulation {
       const patchForwardSpeed = vec3Dot(patchVel, contactForward);
       const patchRightSpeed = vec3Dot(patchVel, contactRight);
 
+      // During cornering, keep unbraked non-driven free-rolling wheels synchronous with contact patch
+      // speed to prevent high-load explicit Euler longitudinal slip chatter from starving lateral grip.
+      const isFreeRollingCorner =
+        !isDrivenWheel &&
+        brakeTorque === 0 &&
+        wheelSpec.radiusMeters > 0.05 &&
+        (Math.abs(steer) > 0.02 || Math.abs(patchRightSpeed) > 0.4);
+      if (isFreeRollingCorner) {
+        this.wheelAngularSpeeds[i] = patchForwardSpeed / wheelSpec.radiusMeters;
+      }
+
       const compound = this.spec.tyres[wheelSpec.axle];
       const tyreOut = computeTyreForces({
         normalForceN: susp.normalForce,
@@ -375,6 +439,8 @@ export class VehicleSimulation {
         patchRightSpeedMps: patchRightSpeed,
         compound,
         surfaceType: susp.surfaceType,
+        axle: wheelSpec.axle,
+        handbrakeActive: wheelSpec.axle === 'rear' && handbrake > 0.25,
       });
 
       this.wheelSlipRatios[i] = tyreOut.slipRatio;
@@ -388,16 +454,18 @@ export class VehicleSimulation {
       );
       applyWorldForceAtPoint(this.body, worldTyreForce, susp.contactPoint);
 
-      const nextOmega = stepWheelSpin(
-        this.wheelAngularSpeeds[i] ?? 0,
-        driveTorque,
-        brakeTorque,
-        tyreOut.longitudinalForceN,
-        wheelSpec.radiusMeters,
-        effectiveWheelInertia,
-        patchForwardSpeed,
-        dt,
-      );
+      const nextOmega = isFreeRollingCorner
+        ? patchForwardSpeed / wheelSpec.radiusMeters
+        : stepWheelSpin(
+            this.wheelAngularSpeeds[i] ?? 0,
+            driveTorque,
+            brakeTorque,
+            tyreOut.longitudinalForceN,
+            wheelSpec.radiusMeters,
+            effectiveWheelInertia,
+            patchForwardSpeed,
+            dt,
+          );
       this.wheelAngularSpeeds[i] = nextOmega;
       this.wheelSpinAngles[i] = ((this.wheelSpinAngles[i] ?? 0) + nextOmega * dt) % (Math.PI * 2);
     }
@@ -412,9 +480,7 @@ export class VehicleSimulation {
           (Math.abs(this.wheelSlipAngles[0]) + Math.abs(this.wheelSlipAngles[1])) * 0.5;
         const rearSlipAbs =
           (Math.abs(this.wheelSlipAngles[2]) + Math.abs(this.wheelSlipAngles[3])) * 0.5;
-        const chassisRight = quatRotateVec3(this.body.orientation, VEC3_RIGHT);
-        const latSpeed = vec3Dot(this.body.linearVelocity, chassisRight);
-        const bodySlipRad = Math.atan2(latSpeed, Math.max(Math.abs(forwardSpeedMps), 1.0));
+        const absBodySlip = Math.abs(preStepBodySlipRad);
 
         const zeroSteer = Math.abs(steer) <= 0.05;
         const counterSteer =
@@ -423,11 +489,12 @@ export class VehicleSimulation {
 
         let gain = 0;
         if (zeroSteer) {
-          gain = 1.8;
+          gain = 2.2;
         } else if (counterSteer) {
-          gain = 2.4;
-        } else if (oversteerExcess > 0 && Math.abs(bodySlipRad) > 0.12) {
-          gain = clamp(oversteerExcess * 8.0, 0, 1.8);
+          gain = 3.0;
+        } else if (absBodySlip > 0.28 || (oversteerExcess > 0 && absBodySlip > 0.22)) {
+          const slipOver = Math.max(0, absBodySlip - 0.28) * 5.0;
+          gain = clamp(oversteerExcess * 8.0 + slipOver, 0, 2.4);
         }
 
         if (gain > 0) {

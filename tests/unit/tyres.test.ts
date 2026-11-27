@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { SURFACE_GRIP_MULTIPLIERS, TYRE_TYPE_PRESETS } from '../../src/physics/carSpec';
 import { FIXED_DT } from '../../src/physics/fixedStep';
-import { computeEffectiveTyreMu, computeTyreForces, stepWheelSpin } from '../../src/physics/tyres';
+import {
+  TYRE_HANDBRAKE_LATERAL_GRIP_SCALE,
+  computeEffectiveTyreMu,
+  computeTyreForces,
+  stepWheelSpin,
+} from '../../src/physics/tyres';
 
 describe('Pacejka tyre friction model (M9.6)', () => {
   it('returns zero forces when normal load is zero or negative', () => {
@@ -81,5 +86,68 @@ describe('Pacejka tyre friction model (M9.6)', () => {
       expect(omega).toBeGreaterThanOrEqual(0);
     }
     expect(omega).toBe(0);
+  });
+
+  it('shapes front/rear lateral curves and reduces rear lateral grip during handbrake while keeping fxDrive untouched', () => {
+    const stock = TYRE_TYPE_PRESETS[0];
+    const baseFwd = computeTyreForces({
+      normalForceN: 3600,
+      wheelAngularSpeedRadS: 68,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 18,
+      patchRightSpeedMps: 0,
+      compound: stock,
+      surfaceType: 'asphalt',
+    });
+    const frontFwd = computeTyreForces({
+      normalForceN: 3600,
+      wheelAngularSpeedRadS: 68,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 18,
+      patchRightSpeedMps: 0,
+      compound: stock,
+      surfaceType: 'asphalt',
+      axle: 'front',
+    });
+    const front = computeTyreForces({
+      normalForceN: 3600,
+      wheelAngularSpeedRadS: 60,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 18,
+      patchRightSpeedMps: 1.5,
+      compound: stock,
+      surfaceType: 'asphalt',
+      axle: 'front',
+    });
+    const rear = computeTyreForces({
+      normalForceN: 3600,
+      wheelAngularSpeedRadS: 18 / 0.31,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 18,
+      patchRightSpeedMps: 1.5,
+      compound: stock,
+      surfaceType: 'asphalt',
+      axle: 'rear',
+      handbrakeActive: false,
+    });
+    const rearHandbrake = computeTyreForces({
+      normalForceN: 3600,
+      wheelAngularSpeedRadS: 18 / 0.31,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 18,
+      patchRightSpeedMps: 1.5,
+      compound: stock,
+      surfaceType: 'asphalt',
+      axle: 'rear',
+      handbrakeActive: true,
+    });
+
+    expect(frontFwd.longitudinalForceN).toBeCloseTo(baseFwd.longitudinalForceN, 6);
+    expect(front.lateralForceN).toBeLessThan(-1000);
+    expect(rear.lateralForceN).toBeLessThan(-1000);
+    expect(Math.abs(rearHandbrake.lateralForceN)).toBeCloseTo(
+      Math.abs(rear.lateralForceN) * TYRE_HANDBRAKE_LATERAL_GRIP_SCALE,
+      1,
+    );
   });
 });
