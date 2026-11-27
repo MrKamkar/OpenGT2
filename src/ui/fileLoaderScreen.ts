@@ -24,14 +24,19 @@ export interface RememberedFileInfo {
   readonly note?: string;
 }
 
-export type AppViewMode = 'loader' | 'viewer' | 'inspector';
+export type AppViewMode = 'loader' | 'viewer' | 'tracks' | 'inspector';
+
+export interface AppViewNavState {
+  readonly hasViewer?: boolean;
+  readonly hasTracks?: boolean;
+}
 
 export interface FileLoaderScreenHandle {
   /** Container (inside the card, below the status panel) hosting the GT2.VOL explorer (M2.8). */
   readonly archiveContainer: HTMLElement;
   /** Widens the card for the explorer layout. */
   setWide(wide: boolean): void;
-  setAppViewMode(mode: AppViewMode, options?: { readonly hasViewer?: boolean }): void;
+  setAppViewMode(mode: AppViewMode, options?: AppViewNavState): void;
   setRememberedFile(info: RememberedFileInfo | null): void;
   setClearDataStatus(message: string | null): void;
   dispose(): void;
@@ -44,6 +49,7 @@ export interface FileLoaderScreenOptions {
   readonly onFileSelected: (file: File) => void;
   readonly onReset: () => void;
   readonly onSwitchToViewer?: () => void;
+  readonly onSwitchToTracks?: () => void;
   /**
    * Optional File System Access API picker callback.
    * Returns `true` if handled (file picked or user cancelled), or `false` to fall back to `<input type="file">`.
@@ -281,7 +287,14 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   inspectorViewerBtn.type = 'button';
   inspectorViewerBtn.className = 'ogt2-button ogt2-button-subtle';
   inspectorViewerBtn.dataset['testid'] = 'inspector-nav-viewer';
-  inspectorViewerBtn.textContent = '← 3D Viewer';
+  inspectorViewerBtn.textContent = '← Cars 3D';
+
+  const inspectorTracksBtn = document.createElement('button');
+  inspectorTracksBtn.type = 'button';
+  inspectorTracksBtn.className = 'ogt2-button ogt2-button-subtle';
+  inspectorTracksBtn.dataset['testid'] = 'inspector-nav-tracks';
+  inspectorTracksBtn.textContent = 'Tracks';
+  inspectorTracksBtn.hidden = true;
 
   const inspectorSelfBtn = document.createElement('button');
   inspectorSelfBtn.type = 'button';
@@ -290,7 +303,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   inspectorSelfBtn.setAttribute('aria-pressed', 'true');
   inspectorSelfBtn.textContent = 'Archive Inspector';
 
-  inspectorNav.append(inspectorViewerBtn, inspectorSelfBtn);
+  inspectorNav.append(inspectorViewerBtn, inspectorTracksBtn, inspectorSelfBtn);
 
   card.append(
     header,
@@ -419,7 +432,12 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     options.onSwitchToViewer?.();
   };
 
+  const onInspectorTracksClick = (): void => {
+    options.onSwitchToTracks?.();
+  };
+
   inspectorViewerBtn.addEventListener('click', onInspectorViewerClick);
+  inspectorTracksBtn.addEventListener('click', onInspectorTracksClick);
   selectButton.addEventListener('click', onSelectButtonClick);
   reopenButton.addEventListener('click', onReopenButtonClick);
   clearDataButton.addEventListener('click', onClearDataButtonClick);
@@ -578,16 +596,21 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     setWide(wide: boolean): void {
       card.classList.toggle('is-wide', wide);
     },
-    setAppViewMode(mode: AppViewMode, modeOptions?: { readonly hasViewer?: boolean }): void {
+    setAppViewMode(mode: AppViewMode, modeOptions?: AppViewNavState): void {
       container.dataset['viewMode'] = mode;
-      overlay.hidden = mode === 'viewer';
-      inspectorNav.hidden = mode !== 'inspector' || modeOptions?.hasViewer !== true;
+      overlay.hidden = mode === 'viewer' || mode === 'tracks';
+      const hasViewer = modeOptions?.hasViewer === true;
+      const hasTracks = modeOptions?.hasTracks === true;
+      inspectorViewerBtn.hidden = !hasViewer;
+      inspectorTracksBtn.hidden = !hasTracks;
+      inspectorNav.hidden = mode !== 'inspector' || (!hasViewer && !hasTracks);
     },
     setRememberedFile,
     setClearDataStatus,
     dispose(): void {
       unsubscribe();
       inspectorViewerBtn.removeEventListener('click', onInspectorViewerClick);
+      inspectorTracksBtn.removeEventListener('click', onInspectorTracksClick);
       selectButton.removeEventListener('click', onSelectButtonClick);
       reopenButton.removeEventListener('click', onReopenButtonClick);
       clearDataButton.removeEventListener('click', onClearDataButtonClick);

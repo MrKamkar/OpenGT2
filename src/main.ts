@@ -16,6 +16,7 @@ import { findGtdbEntries, pairGtdbRegionVariants } from './formats/gtdb';
 import {
   CarViewerSession,
   GlContext,
+  TrackViewerSession,
   WebGL2UnavailableError,
 } from './renderer';
 import {
@@ -28,6 +29,11 @@ import {
 } from './io';
 import { parseHexHash } from './tools/hexview';
 import { type CarViewerHandle, installViewerDebugHook, mountCarViewer } from './ui/carViewer';
+import {
+  type TrackViewerHandle,
+  installTrackViewerDebugHook,
+  mountTrackViewer,
+} from './ui/trackViewer';
 import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
 import { type ArchivePanelHandle, mountArchivePanel } from './ui/explorer/explorerView';
 import { describeVolOpenError, loadAllVolEntries } from './app/volArchiveSession';
@@ -126,13 +132,24 @@ export function initApp(): void {
   let carViewerSession: CarViewerSession | null = null;
   let carViewerHandle: CarViewerHandle | null = null;
   let uninstallViewerDebugHook: (() => void) | null = null;
+  let trackViewerSession: TrackViewerSession | null = null;
+  let trackViewerHandle: TrackViewerHandle | null = null;
+  let uninstallTrackViewerDebugHook: (() => void) | null = null;
   let hasActiveViewer = false;
+  let hasActiveTrackViewer = false;
 
-  const setActiveMode = (mode: 'loader' | 'viewer' | 'inspector'): void => {
+  const setActiveMode = (mode: 'loader' | 'viewer' | 'tracks' | 'inspector'): void => {
+    carViewerSession?.pause();
+    trackViewerSession?.pause();
+    carViewerHandle?.setVisible(false);
+    trackViewerHandle?.setVisible(false);
+    inputManager.releaseAll();
+
+    const navState = { hasViewer: hasActiveViewer, hasTracks: hasActiveTrackViewer };
+
     if (mode === 'viewer' && hasActiveViewer && carViewerSession !== null && carViewerHandle !== null) {
-      screen.setAppViewMode('viewer', { hasViewer: true });
+      screen.setAppViewMode('viewer', navState);
       carViewerHandle.setVisible(true);
-      inputManager.releaseAll();
       inputManager.setContext('viewer');
       carViewerSession.start();
       carViewerSession.renderCurrentFrame();
@@ -140,21 +157,36 @@ export function initApp(): void {
       return;
     }
 
-    carViewerSession?.pause();
-    carViewerHandle?.setVisible(false);
-    inputManager.releaseAll();
+    if (mode === 'tracks' && hasActiveTrackViewer && trackViewerSession !== null && trackViewerHandle !== null) {
+      screen.setAppViewMode('tracks', navState);
+      trackViewerHandle.setVisible(true);
+      inputManager.setContext('freecam');
+      trackViewerSession.start();
+      trackViewerHandle.ensureInitialTrackLoaded();
+      trackViewerSession.renderCurrentFrame();
+      canvas.focus({ preventScroll: true });
+      return;
+    }
+
     inputManager.setContext('menu');
-    screen.setAppViewMode(mode, { hasViewer: hasActiveViewer });
+    screen.setAppViewMode(mode === 'viewer' || mode === 'tracks' ? 'inspector' : mode, navState);
   };
 
   const closeViewerSession = (): void => {
     hasActiveViewer = false;
+    hasActiveTrackViewer = false;
     uninstallViewerDebugHook?.();
     uninstallViewerDebugHook = null;
+    uninstallTrackViewerDebugHook?.();
+    uninstallTrackViewerDebugHook = null;
     carViewerHandle?.dispose();
     carViewerHandle = null;
     carViewerSession?.dispose();
     carViewerSession = null;
+    trackViewerHandle?.dispose();
+    trackViewerHandle = null;
+    trackViewerSession?.dispose();
+    trackViewerSession = null;
     assetRepository?.dispose();
     assetRepository = null;
     glContext?.clear();
@@ -311,7 +343,11 @@ export function initApp(): void {
         });
         assetRepository = repo;
 
-        if (glContext !== null && carVariants.length > 0 && repo.carAssetIndex.indexedBodyCount > 0) {
+        const canViewCars =
+          glContext !== null && carVariants.length > 0 && repo.carAssetIndex.indexedBodyCount > 0;
+        const canViewTracks = glContext !== null && repo.trackAssetIndex.trackCount > 0;
+
+        if (canViewCars && glContext !== null) {
           let viewerHandleRef: CarViewerHandle | null = null;
           const viewerSession = new CarViewerSession({
             glContext,
@@ -336,6 +372,10 @@ export function initApp(): void {
             assetRepository: repo,
             session: viewerSession,
             debugMode,
+            hasTrackViewer: canViewTracks,
+            onSwitchToTracks(): void {
+              setActiveMode('tracks');
+            },
             onSwitchToInspector(): void {
               setActiveMode('inspector');
             },
@@ -349,11 +389,61 @@ export function initApp(): void {
             viewerSession,
           );
           hasActiveViewer = true;
-
-          const startInInspector = parseHexHash(window.location.hash) !== null;
-          setActiveMode(startInInspector ? 'inspector' : 'viewer');
         } else {
           hasActiveViewer = false;
+        }
+
+        if (canViewTracks && glContext !== null) {
+          let trackHandleRef: TrackViewerHandle | null = null;
+          const tSession = new TrackViewerSession({
+            glContext,
+            canvas,
+            inputManager,
+            assetRepository: repo,
+            initialMode: 'hd',
+            onStateChange(snapshot): void {
+              trackHandleRef?.updateState(snapshot);
+            },
+            onStatsUpdate(stats): void {
+              trackHandleRef?.updateDebugStats(stats);
+            },
+          });
+          trackHandleRef = mountTrackViewer({
+            container: root,
+            canvas,
+            fileName: file.name,
+            assetRepository: repo,
+            session: tSession,
+            debugMode,
+            hasCarViewer: hasActiveViewer,
+            onSwitchToCarViewer(): void {
+              setActiveMode('viewer');
+            },
+            onSwitchToInspector(): void {
+              setActiveMode('inspector');
+            },
+            onResetFile: resetLoadedArchive,
+          });
+          trackViewerSession = tSession;
+          trackViewerHandle = trackHandleRef;
+          uninstallTrackViewerDebugHook = installTrackViewerDebugHook(
+            window,
+            window.location.search,
+            tSession,
+          );
+          hasActiveTrackViewer = true;
+        } else {
+          hasActiveTrackViewer = false;
+        }
+
+        const startInInspector = parseHexHash(window.location.hash) !== null;
+        if (startInInspector) {
+          setActiveMode('inspector');
+        } else if (hasActiveViewer) {
+          setActiveMode('viewer');
+        } else if (hasActiveTrackViewer) {
+          setActiveMode('tracks');
+        } else {
           setActiveMode('inspector');
         }
       })
@@ -433,6 +523,9 @@ export function initApp(): void {
     onReset: resetLoadedArchive,
     onSwitchToViewer(): void {
       setActiveMode('viewer');
+    },
+    onSwitchToTracks(): void {
+      setActiveMode('tracks');
     },
     async onClearData(): Promise<void> {
       await Promise.all([idbCache.clear(), fileHandleStore.clearHandle()]);
@@ -519,7 +612,7 @@ export function initApp(): void {
   }
 
   window.addEventListener('hashchange', () => {
-    if (hasActiveViewer && parseHexHash(window.location.hash) !== null) {
+    if ((hasActiveViewer || hasActiveTrackViewer) && parseHexHash(window.location.hash) !== null) {
       setActiveMode('inspector');
     }
   });

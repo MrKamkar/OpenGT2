@@ -541,9 +541,19 @@ export class CarViewerSession {
     if (this.disposed || this.contextLost || this.glContext.isContextLost()) {
       return;
     }
-    if (this.activeModel === null || this.renderer === null || this.renderer.getMesh() === null) {
+    if (this.activeModel === null) {
       this.glContext.clear();
       return;
+    }
+
+    let renderer = this.renderer;
+    if (renderer === null || renderer.isDisposed()) {
+      renderer = this.ensureRenderer();
+      this.activeLodIndex = this.computeTargetLodIndex(this.activeModel);
+      renderer.setCar(this.activeModel, {
+        lodIndex: this.activeLodIndex,
+        colorSlotIndex: this.colorSlotIndex,
+      });
     }
 
     const { width, height } = this.glContext.getSize();
@@ -554,7 +564,7 @@ export class CarViewerSession {
       const targetLod = this.computeTargetLodIndex(this.activeModel);
       if (targetLod !== this.activeLodIndex) {
         this.activeLodIndex = targetLod;
-        this.renderer.setLod(targetLod);
+        renderer.setLod(targetLod);
       }
     }
 
@@ -562,7 +572,7 @@ export class CarViewerSession {
       this.renderMode === 'ps1' ? DEFAULT_PS1_DISPLAY_ASPECT : safeW / safeH,
     );
 
-    this.renderer.render(this.camera, safeW, safeH, {
+    renderer.render(this.camera, safeW, safeH, {
       wireframe: this.wireframe,
       ps1: {
         dithering: this.ps1Dithering,
@@ -571,7 +581,7 @@ export class CarViewerSession {
       },
     });
 
-    const polledError = this.renderer.pollGlError();
+    const polledError = renderer.pollGlError();
     if (polledError.hasError && !(this.contextLost && polledError.code === 0x9242)) {
       this.lastGlError = polledError;
       this.glErrorCount += 1;
@@ -760,12 +770,14 @@ export class CarViewerSession {
         this.assetRepository.getCachedCarModel(this.bodyCode, this.timeOfDay) ?? this.activeModel;
       if (cached !== null) {
         this.activeModel = cached;
-        const renderer = this.ensureRenderer();
-        this.activeLodIndex = this.computeTargetLodIndex(cached);
-        renderer.setCar(cached, {
-          lodIndex: this.activeLodIndex,
-          colorSlotIndex: this.colorSlotIndex,
-        });
+        if (this.pausedByContextLoss) {
+          const renderer = this.ensureRenderer();
+          this.activeLodIndex = this.computeTargetLodIndex(cached);
+          renderer.setCar(cached, {
+            lodIndex: this.activeLodIndex,
+            colorSlotIndex: this.colorSlotIndex,
+          });
+        }
       }
     }
 

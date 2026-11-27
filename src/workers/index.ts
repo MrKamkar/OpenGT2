@@ -42,6 +42,7 @@ export {
   type BindVolReaderRpcOptions,
   bindVolReaderRpcServer,
   collectCarModelTransferables,
+  collectTrackModelTransferables,
   toOwnedTransferUint8Array,
   toTransferableDecompressedUint8Array,
   type VolReaderCarCatalogResult,
@@ -49,12 +50,16 @@ export {
   type VolReaderListParams,
   type VolReaderLoadCarCatalogParams,
   type VolReaderLoadCarResourcesParams,
+  type VolReaderLoadTrackResourcesParams,
   type VolReaderOpenParams,
   type VolReaderPathParams,
   type VolReaderRangeParams,
   type VolReaderRangeResult,
   VolReaderRpcClient,
   type VolReaderRpcSchema,
+  type VolReaderTrackLoadProgress,
+  type VolReaderTrackLoadStage,
+  type VolReaderTrackResourcesResult,
 } from './volReaderProtocol';
 export { createScannerWorker } from './createScannerWorker';
 export {

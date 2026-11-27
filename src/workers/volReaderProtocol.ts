@@ -12,6 +12,12 @@ import {
 } from '../formats/gtdb';
 import { gunzip, isGzipMagic } from '../formats/gzip';
 import {
+  type TrackModel,
+  buildTrackModel,
+  parseTro,
+  parseTrp,
+} from '../formats/track';
+import {
   type VolEntry,
   VolError,
   type VolInfo,
@@ -31,6 +37,7 @@ import {
   type RpcEndpoint,
   type RpcMessageTransport,
   type RpcServerHandle,
+  createAbortError,
   withTransfer,
 } from './rpc';
 
@@ -82,6 +89,30 @@ export interface VolReaderCarResourcesResult {
   readonly carModel: CarModel;
 }
 
+export interface VolReaderLoadTrackResourcesParams {
+  readonly troPath: string;
+  readonly trpPath?: string;
+  readonly includeCollision?: boolean;
+  readonly includeLod1?: boolean;
+}
+
+export type VolReaderTrackLoadStage =
+  | 'reading-tro'
+  | 'reading-trp'
+  | 'parsing'
+  | 'building-model'
+  | 'complete';
+
+export interface VolReaderTrackLoadProgress {
+  readonly stage: VolReaderTrackLoadStage;
+  readonly progress: number;
+  readonly label: string;
+}
+
+export interface VolReaderTrackResourcesResult {
+  readonly trackModel: TrackModel;
+}
+
 export interface VolReaderRpcSchema {
   open: {
     readonly params: VolReaderOpenParams;
@@ -118,6 +149,10 @@ export interface VolReaderRpcSchema {
   loadCarResources: {
     readonly params: VolReaderLoadCarResourcesParams;
     readonly result: VolReaderCarResourcesResult;
+  };
+  loadTrackResources: {
+    readonly params: VolReaderLoadTrackResourcesParams;
+    readonly result: VolReaderTrackResourcesResult;
   };
   close: {
     readonly params: Record<string, never>;
@@ -224,6 +259,45 @@ export function collectCarModelTransferables(carModel: CarModel): Transferable[]
     for (const pal of texture.indexedImage.palettes) {
       addOwnedBuffer(buffers, pal);
     }
+  }
+
+  return Array.from(buffers);
+}
+
+/**
+ * Collects unique, unshared `ArrayBuffer`s inside a decoded `TrackModel` so worker `postMessage`
+ * transfers them zero-copy without `DataCloneError` on shared views (`M8.9`).
+ */
+export function collectTrackModelTransferables(trackModel: TrackModel): Transferable[] {
+  const buffers = new Set<ArrayBuffer>();
+
+  for (const part of trackModel.render) {
+    addOwnedBuffer(buffers, part.positions);
+    addOwnedBuffer(buffers, part.uvs);
+    addOwnedBuffer(buffers, part.colors);
+    addOwnedBuffer(buffers, part.paletteIndices);
+    addOwnedBuffer(buffers, part.indices);
+  }
+  for (const part of trackModel.lod1Render) {
+    addOwnedBuffer(buffers, part.positions);
+    addOwnedBuffer(buffers, part.uvs);
+    addOwnedBuffer(buffers, part.colors);
+    addOwnedBuffer(buffers, part.paletteIndices);
+    addOwnedBuffer(buffers, part.indices);
+  }
+  if (trackModel.textureAtlas !== null) {
+    for (const page of trackModel.textureAtlas.pages) {
+      addOwnedBuffer(buffers, page.indices);
+    }
+    for (const pal of trackModel.textureAtlas.palettes) {
+      addOwnedBuffer(buffers, pal.colors);
+    }
+  }
+  if (trackModel.collision !== undefined) {
+    addOwnedBuffer(buffers, trackModel.collision.vertices);
+    addOwnedBuffer(buffers, trackModel.collision.normals);
+    addOwnedBuffer(buffers, trackModel.collision.surfaceTypes);
+    addOwnedBuffer(buffers, trackModel.collision.segmentIndices);
   }
 
   return Array.from(buffers);
@@ -347,6 +421,44 @@ export function bindVolReaderRpcServer(
       }
       return withTransfer({ carModel }, collectCarModelTransferables(carModel));
     },
+    loadTrackResources: async (params, context) => {
+      const checkAborted = (): void => {
+        if (context.signal.aborted) {
+          throw createAbortError(context.signal.reason);
+        }
+      };
+
+      const emit = (stage: VolReaderTrackLoadStage, progress: number, label: string): void => {
+        context.reportProgress?.({ stage, progress, label });
+      };
+
+      checkAborted();
+      emit('reading-tro', 0.1, 'Reading and decompressing track geometry (.tro)…');
+      const troBytes = await readMaybeGunzip(params.troPath);
+      checkAborted();
+
+      let trpBytes: Uint8Array | null = null;
+      if (params.trpPath !== undefined) {
+        emit('reading-trp', 0.35, 'Reading and decompressing track textures (.trp)…');
+        trpBytes = await readMaybeGunzip(params.trpPath);
+        checkAborted();
+      }
+
+      emit('parsing', 0.65, 'Parsing track segments and PS1 VRAM textures…');
+      const tro = parseTro(troBytes);
+      const trp = trpBytes !== null ? parseTrp(trpBytes) : undefined;
+      checkAborted();
+
+      emit('building-model', 0.85, 'Building normalized TrackModel geometry…');
+      const trackModel = buildTrackModel(tro, trp, {
+        includeLod1: params.includeLod1 ?? false,
+        includeCollision: params.includeCollision ?? false,
+      });
+      checkAborted();
+
+      emit('complete', 1.0, 'Track ready.');
+      return withTransfer({ trackModel }, collectTrackModelTransferables(trackModel));
+    },
     close: () => {
       decompressedCache = null;
       reader.close();
@@ -431,6 +543,13 @@ export class VolReaderRpcClient {
     rpcOptions?: RpcCallOptions,
   ): Promise<VolReaderCarResourcesResult> {
     return this.rpc.call('loadCarResources', params, rpcOptions);
+  }
+
+  loadTrackResources(
+    params: VolReaderLoadTrackResourcesParams,
+    rpcOptions?: RpcCallOptions,
+  ): Promise<VolReaderTrackResourcesResult> {
+    return this.rpc.call('loadTrackResources', params, rpcOptions);
   }
 
   close(rpcOptions?: RpcCallOptions): Promise<void> {

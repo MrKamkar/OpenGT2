@@ -196,3 +196,10 @@ export {
   type TrackRendererOptions,
   type WebGL2TrackRendererContext,
 } from './trackRenderer';
+export {
+  type LoadTrackOptions,
+  type TrackViewerDebugStats,
+  TrackViewerSession,
+  type TrackViewerSessionOptions,
+  type TrackViewerSessionSnapshot,
+} from './trackViewerSession';

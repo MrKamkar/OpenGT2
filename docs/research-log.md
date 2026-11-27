@@ -485,3 +485,14 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 - **Confidence:** **E3** for track texture/palette budgets and textured vs untextured Gouraud modulation; **E2** for `.bso` `"BG\0\0"` signature; **E0/E1** for `.bso` skybox geometry, `.tro`→`.bso` assignment, fog parameters, and localized track display names.
 - **Consequences for Code:** M8.7 `TrackRenderer` shares `R8`+`RGBA8` textures across HD/PS1 with verified modulation; M8.8 introduces zero placeholder sky/fog code; M8.9 lists dynamic `crsobj/*.tro*` stems from `TrackAssetIndex`.
 - **Open Questions:** Revisit `.bso`/`.bsp` geometry, `.tro`→`.bso` assignment, fog, and localized track display name tables in a future research milestone if independent `E2` documentation becomes available.
+
+## 2026-11-27 — M8.9 — Track Viewer UI, Streaming Worker Loader, LRU Cache, and Shared Context Recovery
+
+- **Question:** How to integrate track browsing, streaming decompression/parsing, `FreeCamera` (`freecam` context), `TrackRenderer` (HD + PS1), and `webglcontextlost`/`restored` recovery alongside the existing `Cars 3D` and `Inspector` tabs over a shared `<canvas>` / `GlContext` without re-reading `GT2.VOL` or breaking inactive-tab isolation?
+- **Method:** Implemented `TrackAssetIndex`, streaming `loadTrackResources` RPC with `rpc:progress` and deduplicated `collectTrackModelTransferables`, `AssetRepository` track LRU cache, `TrackViewerSession`, `src/ui/trackViewer/`, shared navigation tabs (`Cars 3D | Tracks | Inspector`) in `main.ts` / `fileLoaderScreen.ts` / `carViewerView.ts`, unit tests (`tests/unit/trackViewerSession.test.ts`), and Playwright E2E coverage (`tests/e2e/trackViewer.spec.ts`).
+- **Results:**
+  - `TrackAssetIndex` dynamically discovers and pairs `crsobj/*.tro*` + `.trp*` stems from the user's `GT2.VOL` TOC with zero hardcoded track names.
+  - Shared `<canvas>` / `GlContext` handoff pauses both `CarViewerSession` and `TrackViewerSession` before activating the target tab, releases all keys on context switch, and ensures an inactive session never resumes `rAF` or draws during `webglcontextrestored`.
+  - `KeyR` teleport-to-start routes through `InputManager` (`freecamReset` action), automatically respecting `<input>`/`<select>` focus guards.
+- **Confidence:** **E3** for `.tro`/`.trp` runtime pipeline; **E0/E1** for deferred skybox/fog (`M8.8`) and localized track names.
+- **Consequences for Code:** Milestone M8 (`M8.1–M8.9`) is complete and verified; ready for M9 (physics and driving).

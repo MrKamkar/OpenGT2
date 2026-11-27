@@ -2096,3 +2096,47 @@ body {
     max-height: 36vh;
   }
 }
+
+/* ----- M8.9 Track Viewer Progress & Freecam Controls ------------------------------------------- */
+
+.ogt2-track-progress-banner {
+  min-width: 260px;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ogt2-track-progress-banner[hidden] {
+  display: none;
+}
+
+.ogt2-track-progress-text {
+  font-size: 0.78rem;
+  color: var(--ogt2-text);
+}
+
+.ogt2-track-progress-bar {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--ogt2-accent);
+}
+
+.ogt2-track-speed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ogt2-track-speed-val {
+  font-size: 0.76rem;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  color: var(--ogt2-accent);
+}
+
+.ogt2-track-speed-range {
+  width: 100%;
+  accent-color: var(--ogt2-accent);
+}

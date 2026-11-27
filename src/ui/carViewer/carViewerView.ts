@@ -33,6 +33,8 @@ export interface CarViewerMountOptions {
   readonly assetRepository: AssetRepository;
   readonly session: CarViewerSession;
   readonly debugMode: boolean;
+  readonly hasTrackViewer?: boolean;
+  readonly onSwitchToTracks?: () => void;
   readonly onSwitchToInspector: () => void;
   readonly onResetFile: () => void;
 }
@@ -74,6 +76,8 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     assetRepository,
     session,
     debugMode,
+    hasTrackViewer = false,
+    onSwitchToTracks,
     onSwitchToInspector,
     onResetFile,
   } = options;
@@ -109,11 +113,25 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   navTabs.setAttribute('role', 'tablist');
   navTabs.setAttribute('aria-label', 'Application mode');
 
-  const viewerTabBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', '3D Viewer');
+  const viewerTabBtn = el('button', 'ogt2-button ogt2-button-subtle is-active', 'Cars 3D');
   viewerTabBtn.type = 'button';
   viewerTabBtn.dataset['testid'] = 'nav-mode-viewer';
   viewerTabBtn.setAttribute('role', 'tab');
   viewerTabBtn.setAttribute('aria-selected', 'true');
+
+  navTabs.append(viewerTabBtn);
+
+  if (hasTrackViewer && onSwitchToTracks !== undefined) {
+    const tracksTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Tracks');
+    tracksTabBtn.type = 'button';
+    tracksTabBtn.dataset['testid'] = 'nav-mode-tracks';
+    tracksTabBtn.setAttribute('role', 'tab');
+    tracksTabBtn.setAttribute('aria-selected', 'false');
+    tracksTabBtn.addEventListener('click', () => {
+      onSwitchToTracks();
+    });
+    navTabs.append(tracksTabBtn);
+  }
 
   const inspectorTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Inspector');
   inspectorTabBtn.type = 'button';
@@ -121,7 +139,7 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
   inspectorTabBtn.setAttribute('role', 'tab');
   inspectorTabBtn.setAttribute('aria-selected', 'false');
 
-  navTabs.append(viewerTabBtn, inspectorTabBtn);
+  navTabs.append(inspectorTabBtn);
 
   const resetBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Change File');
   resetBtn.type = 'button';
