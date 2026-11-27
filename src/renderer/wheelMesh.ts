@@ -1,14 +1,24 @@
 import type { CarModel, CarWheelSpec } from '../formats/car';
 import {
-  CAR_FACE_MODE_TEXTURED_RAW,
+  CAR_FACE_MODE_TEXTURED_MODULATED,
   CAR_FACE_MODE_UNTEXTURED,
   type CarMeshBufferData,
   type CarMeshDrawBatch,
 } from './meshData';
 import { PS1_FIXED_POINT_SCALE } from './math';
 
-/** `.cdp`/`.cnp` palette index reserved for each car's `48×48` stock wheel/rim disc at `(0..47, 0..47)`. */
-export const CAR_WHEEL_CDP_PALETTE_INDEX = 15;
+/**
+ * `.cdp`/`.cnp` palette index reserved for each car's stock `48×48` circular rim disc at `(0..47, 0..47)`.
+ * Verified across 1,110 `.cdp` textures (`E3`): palette `0` has `0` body polygon uses and holds the stock
+ * alloy rim, while palette `15` holds red/orange brake-light illumination textures paired with palette `14`.
+ */
+export const CAR_WHEEL_CDP_PALETTE_INDEX = 0;
+
+/** Radial pixel radius inside `(0..47, 0..47)` mapped onto the outer rim disc (inscribed cleanly inside corner alpha). */
+const CAR_WHEEL_RIM_UV_RADIUS = 20.5;
+
+/** Vertex modulation RGB for the outer rim disc under `CAR_FACE_MODE_TEXTURED_MODULATED` (`192/128 = 1.5x` neutral boost). */
+const CAR_WHEEL_RIM_MODULATION_RGB = 192;
 
 /** Ratio of alloy rim disc radius to full outer tyre radius (`E1` visual proportion). */
 export const CAR_WHEEL_RIM_RADIUS_RATIO = 0.68;
@@ -119,8 +129,8 @@ export function computeWheelArchMaxUpJounce(
 }
 
 /**
- * Returns `true` when `carModel`'s active paint slot populates `.cdp` palette 15
- * for the `(0..47, 0..47)` circular rim texture (`M9.14`).
+ * Returns `true` when `carModel`'s active paint slot populates `.cdp` palette `0`
+ * with at least one visible non-transparent color entry for the `(0..47, 0..47)` circular rim texture (`M9.23`).
  */
 export function hasCdpWheelPalette(carModel: CarModel, colorSlotIndex: number): boolean {
   const binding = carModel.texture;
@@ -133,13 +143,26 @@ export function hasCdpWheelPalette(carModel: CarModel, colorSlotIndex: number): 
   }
   const clampedSlot = Math.max(0, Math.min(Math.trunc(colorSlotIndex), slots.length - 1));
   const slot = slots[clampedSlot];
-  return slot !== undefined && slot.emptyPalettes[CAR_WHEEL_CDP_PALETTE_INDEX] !== true;
+  if (slot === undefined || slot.emptyPalettes[CAR_WHEEL_CDP_PALETTE_INDEX] === true) {
+    return false;
+  }
+  const palette = slot.palettes[CAR_WHEEL_CDP_PALETTE_INDEX];
+  if (palette === undefined) {
+    return false;
+  }
+  for (let i = 0; i < palette.length; i += 1) {
+    const word = palette[i] ?? 0;
+    if (word !== 0xffff && word !== 0x0000) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Builds a right-side local wheel cylinder (`+X` outward rim face, radial `Y/Z`) packed directly into
- * `CarMeshBufferData` (`vertexScale = 1`, `int16` in `1/4096 m`) for Drive Mode HD & PS1 rendering (`M9.14`).
- * Outer rim disc UVs sample `(0..47, 0..47)` via `CAR_FACE_MODE_TEXTURED_RAW`.
+ * `CarMeshBufferData` (`vertexScale = 1`, `int16` in `1/4096 m`) for Drive Mode HD & PS1 rendering (`M9.14`, `M9.23`).
+ * Outer rim disc UVs sample inside `(0..47, 0..47)` via `CAR_FACE_MODE_TEXTURED_MODULATED` in front of a solid hub backing.
  */
 export function buildWheelMeshData(
   radiusMeters: number,
@@ -186,21 +209,66 @@ export function buildWheelMeshData(
     return idx;
   };
 
-  // 1. Outer rim disc (+X face, textured 48x48 rim at u=0..47, v=0..47)
-  const outerCenterIdx = pushVertex(
+  // 1. Solid opaque dark hub backing (+X face, 0..rimRadius behind the rim disc so transparent corner pixels never punch holes)
+  const hubBackingCenterIdx = pushVertex(
     halfW,
     0,
     0,
     1,
     0,
     0,
-    24,
-    24,
-    210,
-    214,
-    220,
+    0,
+    0,
+    28,
+    30,
+    34,
+    0,
+    CAR_FACE_MODE_UNTEXTURED,
+  );
+  const hubBackingRingIndices: number[] = [];
+  for (let k = 0; k < CAR_WHEEL_SEGMENTS; k += 1) {
+    const angle = (k / CAR_WHEEL_SEGMENTS) * Math.PI * 2;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    hubBackingRingIndices.push(
+      pushVertex(
+        halfW,
+        rimRadius * c,
+        rimRadius * s,
+        1,
+        0,
+        0,
+        0,
+        0,
+        28,
+        30,
+        34,
+        0,
+        CAR_FACE_MODE_UNTEXTURED,
+      ),
+    );
+  }
+  for (let k = 0; k < CAR_WHEEL_SEGMENTS; k += 1) {
+    const kNext = (k + 1) % CAR_WHEEL_SEGMENTS;
+    indices.push(hubBackingCenterIdx, hubBackingRingIndices[k]!, hubBackingRingIndices[kNext]!);
+  }
+
+  // 1b. Outer rim disc (+X face, 2 mm proud of backing, textured 48x48 rim inscribed inside u/v 3..44)
+  const rimDiscX = halfW + 0.002;
+  const outerCenterIdx = pushVertex(
+    rimDiscX,
+    0,
+    0,
+    1,
+    0,
+    0,
+    23.5,
+    23.5,
+    CAR_WHEEL_RIM_MODULATION_RGB,
+    CAR_WHEEL_RIM_MODULATION_RGB,
+    CAR_WHEEL_RIM_MODULATION_RGB,
     rimPaletteIndex,
-    CAR_FACE_MODE_TEXTURED_RAW,
+    CAR_FACE_MODE_TEXTURED_MODULATED,
   );
   const rimRingIndices: number[] = [];
   for (let k = 0; k < CAR_WHEEL_SEGMENTS; k += 1) {
@@ -209,19 +277,19 @@ export function buildWheelMeshData(
     const s = Math.sin(angle);
     rimRingIndices.push(
       pushVertex(
-        halfW,
+        rimDiscX,
         rimRadius * c,
         rimRadius * s,
         1,
         0,
         0,
-        23.5 + 22.5 * c,
-        23.5 + 22.5 * s,
-        210,
-        214,
-        220,
+        23.5 + CAR_WHEEL_RIM_UV_RADIUS * c,
+        23.5 + CAR_WHEEL_RIM_UV_RADIUS * s,
+        CAR_WHEEL_RIM_MODULATION_RGB,
+        CAR_WHEEL_RIM_MODULATION_RGB,
+        CAR_WHEEL_RIM_MODULATION_RGB,
         rimPaletteIndex,
-        CAR_FACE_MODE_TEXTURED_RAW,
+        CAR_FACE_MODE_TEXTURED_MODULATED,
       ),
     );
   }
@@ -230,7 +298,7 @@ export function buildWheelMeshData(
     indices.push(outerCenterIdx, rimRingIndices[k]!, rimRingIndices[kNext]!);
   }
 
-  // 2. Outer tyre sidewall annulus (+X face, untextured dark rubber)
+  // 2. Outer tyre sidewall annulus (+X face, untextured lit charcoal rubber)
   const sidewallInnerIndices: number[] = [];
   const sidewallOuterIndices: number[] = [];
   for (let k = 0; k < CAR_WHEEL_SEGMENTS; k += 1) {
@@ -247,9 +315,9 @@ export function buildWheelMeshData(
         0,
         0,
         0,
-        36,
-        38,
-        42,
+        52,
+        54,
+        58,
         0,
         CAR_FACE_MODE_UNTEXTURED,
       ),
@@ -264,9 +332,9 @@ export function buildWheelMeshData(
         0,
         0,
         0,
-        32,
-        34,
-        38,
+        60,
+        62,
+        66,
         0,
         CAR_FACE_MODE_UNTEXTURED,
       ),
@@ -281,7 +349,7 @@ export function buildWheelMeshData(
     indices.push(i0, o0, o1, i0, o1, i1);
   }
 
-  // 3. Tyre tread barrel (radial outward normals, untextured charcoal rubber)
+  // 3. Tyre tread barrel (radial outward normals, untextured lit charcoal rubber)
   const treadOuterX: number[] = [];
   const treadInnerX: number[] = [];
   for (let k = 0; k < CAR_WHEEL_SEGMENTS; k += 1) {
@@ -298,9 +366,9 @@ export function buildWheelMeshData(
         s,
         0,
         0,
-        24,
-        26,
-        28,
+        48,
+        50,
+        54,
         0,
         CAR_FACE_MODE_UNTEXTURED,
       ),
@@ -315,9 +383,9 @@ export function buildWheelMeshData(
         s,
         0,
         0,
-        24,
-        26,
-        28,
+        48,
+        50,
+        54,
         0,
         CAR_FACE_MODE_UNTEXTURED,
       ),
@@ -329,7 +397,7 @@ export function buildWheelMeshData(
     const b = treadInnerX[k]!;
     const c = treadInnerX[kNext]!;
     const d = treadOuterX[kNext]!;
-    indices.push(a, d, c, a, c, b);
+    indices.push(a, b, c, a, c, d);
   }
 
   // 4. Inner disc cap (-X face facing brake/suspension hub)
@@ -342,9 +410,9 @@ export function buildWheelMeshData(
     0,
     0,
     0,
-    20,
-    22,
-    24,
+    34,
+    36,
+    40,
     0,
     CAR_FACE_MODE_UNTEXTURED,
   );
@@ -363,9 +431,9 @@ export function buildWheelMeshData(
         0,
         0,
         0,
-        20,
-        22,
-        24,
+        34,
+        36,
+        40,
         0,
         CAR_FACE_MODE_UNTEXTURED,
       ),

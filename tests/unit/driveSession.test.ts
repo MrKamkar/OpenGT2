@@ -6,7 +6,7 @@ import type { CarCatalogEntry } from '../../src/formats/gtdb';
 import { buildTrackModel, parseTro, parseTrp, type TrackModel } from '../../src/formats/track';
 import type { VolEntry, VolInfo } from '../../src/formats/vol';
 import {
-  CAR_FACE_MODE_TEXTURED_RAW,
+  CAR_FACE_MODE_TEXTURED_MODULATED,
   CAR_FACE_MODE_UNTEXTURED,
   CAR_WHEEL_CDP_PALETTE_INDEX,
   CAR_WHEEL_SEGMENTS,
@@ -721,7 +721,7 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
     expect(CAR_WHEEL_SEGMENTS).toBe(12);
     const wheelData = buildWheelMeshData(0.32, 0.22, CAR_WHEEL_CDP_PALETTE_INDEX);
     expect(wheelData.vertexScale).toBe(1);
-    expect(wheelData.triangleCount).toBe(72);
+    expect(wheelData.triangleCount).toBe(84);
     expect(wheelData.batches).toHaveLength(1);
     expect(wheelData.batches[0]?.singleSided).toBe(true);
 
@@ -785,13 +785,13 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
       const mode = wheelData.materialsUint8[i * 2 + 1] ?? 0;
       const u = wheelData.uvsUint8[i * 2] ?? 0;
       const v = wheelData.uvsUint8[i * 2 + 1] ?? 0;
-      if (mode === CAR_FACE_MODE_TEXTURED_RAW) {
+      if (mode === CAR_FACE_MODE_TEXTURED_MODULATED) {
         texturedRimVerts += 1;
         expect(pal).toBe(CAR_WHEEL_CDP_PALETTE_INDEX);
-        expect(u).toBeGreaterThanOrEqual(1);
-        expect(u).toBeLessThanOrEqual(46);
-        expect(v).toBeGreaterThanOrEqual(1);
-        expect(v).toBeLessThanOrEqual(46);
+        expect(u).toBeGreaterThanOrEqual(3);
+        expect(u).toBeLessThanOrEqual(44);
+        expect(v).toBeGreaterThanOrEqual(3);
+        expect(v).toBeLessThanOrEqual(44);
       } else {
         expect(mode).toBe(CAR_FACE_MODE_UNTEXTURED);
         untexturedVerts += 1;
@@ -856,12 +856,31 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
     expect(wheelIdx.getCount()).toBe(1);
     expect(wheelIdx.getPathByIndex(77)).toBe('carwheel/w001.tim');
 
-    // Car without palette 15 triggers fallback fetch & uploads cleanly in both HD and PS1
-    const fallbackCar = makeTestCarModel();
+    // Car without CDP wheel palette 0 triggers fallback fetch & uploads cleanly in both HD and PS1
+    const baseCar = makeTestCarModel();
+    expect(hasCdpWheelPalette(baseCar, 0)).toBe(true);
+
+    const emptyPal0Cdp = parseCdp(
+      buildSyntheticCdp({
+        colorCount: 1,
+        colorIds: [0x30],
+        slots: [
+          {
+            colorId: 0x30,
+            palettes: [
+              new Array<number>(16).fill(0xffff),
+              ...Array.from({ length: 15 }, () => [0x0000, 0x7fff]),
+            ],
+          },
+        ],
+        pixels: new Uint8Array(256 * 224).fill(1),
+      }),
+    );
+    const fallbackCar = withCarModelTexture(baseCar, emptyPal0Cdp, { variant: 'day' });
     expect(hasCdpWheelPalette(fallbackCar, 0)).toBe(false);
 
-    // Car with populated palette 15 skips fallback fetch cleanly
-    const cdpPal15 = parseCdp(
+    // Car with explicitly populated palette 0 skips fallback fetch cleanly
+    const cdpPal0 = parseCdp(
       buildSyntheticCdp({
         colorCount: 1,
         colorIds: [0x30],
@@ -874,7 +893,7 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
         pixels: new Uint8Array(256 * 224).fill(1),
       }),
     );
-    const rimCdpCar = withCarModelTexture(fallbackCar, cdpPal15, { variant: 'day' });
+    const rimCdpCar = withCarModelTexture(baseCar, cdpPal0, { variant: 'day' });
     expect(hasCdpWheelPalette(rimCdpCar, 0)).toBe(true);
 
     const readWheel = vi.fn(async () => wheelTimBytes);
