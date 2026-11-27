@@ -565,6 +565,7 @@ encodeCarId(code):
 | `+0x220` | `0x20` B | `uint16[16]` LE | `paintMasks`: bit `c` of word `p` correlates with multi-color paint recoloring (`123,883` varying+marked vs `2,654` varying-only across `1,650` multi-color files) | **E1** |
 
 - **`0xFFFF` Empty Slot vs White+STP (**E3**):** Across `148,128` active palettes (`9,258` slots × `16`), `11,902` are all-`0xFFFF` and `107` are partial-`0xFFFF`. Active UV polygons have **`0` texel hits** in partially-`0xFFFF` palettes (`1,068 / 1,068`), and only **`4` daytime quads in `1` `.cdo`** reference an all-`0xFFFF` palette (`paletteIndex = 12`, `dayIllum = 0`) whose paired night `.cnp` populates palette `12` (`0` `0xFFFF` entries, `illuminationMasks[12] = 0xFF00`). `cdpToIndexedImage` defaults `0xFFFF` to `0x0000` (transparent black) while preserving raw `emptyEntryMasks`/`emptyPalettes` on `CdpColorSlot`.
+- **Stock Wheel / Rim Disc Allocation (**E3**):** Sampled `.cdp` textures (`220 / 222 = 99.1%`) populate palette `15` (unused by `100%` of `.cdo` body polygons) for the circular `48 × 48` alloy rim texture at texels `(0..47, 0..47)`, while `192` standalone `carwheel/*.tim` (`48 × 48 @ 4 bpp`) assets cover fallback rims when palette `15` is all-`0xFFFF`.
 - **Day vs Night Pairs (**E3**):** `1,110 / 1,110` `.cdp`/`.cnp` pairs share identical `colorCount` and `colorIds`; `1,077 / 1,110` pairs differ in bitmap content (`0x43A0..0xB39F`).
 
 
