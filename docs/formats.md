@@ -474,7 +474,7 @@ encodeCarId(code):
 
 ## GT2 Car Model Format: `CDO` / `CNO` (`src/formats/car/cdo/`)
 
-- **Confidence:** **E3** (header, wheel slot order, coordinate system, LOD table, LOD headers, vertices, packed normals, 4 polygon lists, perimeter quad triangulation `(0,1,2)+(0,2,3)`, uniform single-sided `CCW` winding convention, PS1 4×4 CLUT `paletteRaw` formula, `renderFlags` bit 2 ↔ `paletteIndex === 14` correlation, and shadow header verified across `2,220 / 2,220` decompressed `.cdo.gz`/`.cno.gz` paired with `.cdp.gz`/`.cnp.gz` in `local_assets/GT2.VOL`, `tests/unit/cdoRealArchive.test.ts` & `tests/unit/cdoCdpResearchRealArchive.test.ts`); **E1** (clean-room shadow payload record layout, `renderOrder`, `renderFlags` bit 2 visual meaning, `scale`); **E0** (`unk_0x04`, `unk_0x10`, `0x40..0x867`, `unk_0x4e`, unused zero bitfields).
+- **Confidence:** **E3** (header, wheel slot order, coordinate system, LOD table, LOD headers, per-LOD `scale` vertex multiplier `2^(scale - 16)`, vertices, packed normals, 4 polygon lists, perimeter quad triangulation `(0,1,2)+(0,2,3)`, uniform single-sided `CCW` winding convention, PS1 4×4 CLUT `paletteRaw` formula, `renderFlags` bit 2 ↔ `paletteIndex === 14` correlation, and shadow header verified across `2,220 / 2,220` decompressed `.cdo.gz`/`.cno.gz` paired with `.cdp.gz`/`.cnp.gz` and `621 / 621` GTDB cars in `local_assets/GT2.VOL`, `tests/unit/cdoRealArchive.test.ts`, `tests/unit/cdoCdpResearchRealArchive.test.ts` & `tests/unit/carModelRealArchive.test.ts`); **E1** (clean-room shadow payload record layout, `renderOrder`, `renderFlags` bit 2 visual meaning); **E0** (`unk_0x04`, `unk_0x10`, `0x40..0x867`, `unk_0x4e`, unused zero bitfields).
 - **Clean-room source:** Implemented solely from [ROADMAP.md Appendix D](../ROADMAP.md#załącznik-d-format-aut-gt2-cdocnocdpcnp) and streaming verification against `local_assets/GT2.VOL` (no code copied from `pez2k/gt2tools`).
 - **Endianness & Size Limit:** Little-endian (`DataView(..., true)`) (**E3**); uncompressed size `11,048–20,000 B` (`100% <= 0x5000` / `20,480 B`) (**E3**).
 - **Coordinate System (**E3**):** Right-handed `1/4096 m` integer grid with **`+X` right, `+Y` up, `-Z` forward** (verified across `2,220` models: wheel `y` averages `+699`, LOD0 `y` spans `[-18, +2850]` on average, and night-illuminated white headlights cluster at `Z < 0` [`4,817` vs `18`] while red taillights cluster at `Z > 0` [`4,480` vs `174`]).
@@ -508,12 +508,12 @@ encodeCarId(code):
 | `0x10` | 4 B | `uint32` LE | `unk_0x10`: observed `0` across `6,660 / 6,660` LODs | **E1** |
 | `0x14` | 40 B | `uint32[10]` LE | `sectionOffsets` RAM pointers (`sectionOffsets[0] === 0x50` across `6,660 / 6,660` LODs) | **E3** |
 | `0x3C` | 16 B | `8×int16` LE | `boundingBox`: `low XYZW`, `high XYZW` (`100%` exact match with vertex min/max across `6,660 / 6,660` LODs) | **E3** |
-| `0x4C` | 2 B | `uint16` LE | `scale` (observed `14..23`) | **E1** |
+| `0x4C` | 2 B | `uint16` LE | `scale` (observed `14..23`): per-LOD vertex scale shift `2^(scale - 16)` (`621/621` GTDB cars: `515/621` = `17` [`2×`], `106/621` = `16` [`1×`]; length ratio median `0.9999`, wheel-arch fit `1,099/1,110 = 99.0%`; `wheelPositions` `0x20` and `menuWheels` `0x18` remain unshifted `1/4096 m`) | **E3** |
 | `0x4E` | 2 B | `uint16` LE | `unk_0x4e`: scale-related value | **E0** |
 
 ### 3. LOD Geometry & Polygon Lists (Sequential, No Padding)
 
-1. **Vertices (`vertexCount × 8 B`, **E3** layout / **E2** scale):** `int16 x, y, z, w` LE (`w === 0` across all vertices; unit `1/4096 m`).
+1. **Vertices (`vertexCount × 8 B`, **E3**):** `int16 x, y, z, w` LE (`w === 0` across all vertices; per-LOD unit `2^(lod.scale - 16) / 4096 m`).
 2. **Packed Normals (`normalCount × 4 B`, **E3**):** `uint32` LE containing three 10-bit two's-complement fields scaled by `/ 500`:
    - `bits 0..1`: `rawLow2Bits` (`0` across `945,187 / 945,187` normals, **E0**),
    - `bits 2..11`: `X`, `bits 12..21`: `Y`, `bits 22..31`: `Z`.
@@ -593,7 +593,7 @@ encodeCarId(code):
 
 ## GT2 Track Geometry Format: `TRO` (M8.2–M8.5)
 
-- **Confidence:** **E3** for header magic, section bounds, Section 0 layout, `0x44`-byte sub-mesh headers, 11-list strides, `SVECTOR` vertex arrays, `F3/F4/G3/G4/FT3/FT4/GT3/GT4` packed polygon bitfields, GPU command tags & RGB color layout, `subMesh0`/`subMesh1` LOD relationship and opposite winding, `(0,1,2)+(0,2,3)` / `(0,2,1)+(0,3,2)` quad triangulation, world-space cell origin `(int32 >> 22) * 4096`, `subBlock98` 2D barrier walls, and `100%` 4 bpp `clut`/`tpage`/texel addressing across all `126/126` tracks; **E1** for `TRO_UNITS_PER_METER = 64` world scale, auxiliary Sections 1–4, checkpoints, `0x48..off0`, `subBlock9C`/`A0`, list `9` sprites, and `unk5`/`unkFlags`; **E0** for list `10`, unknown header/UV tail words, and `.tro`→`raceId` cross-file mapping.
+- **Confidence:** **E3** for header magic, section bounds, Section 0 layout, `TRO_UNITS_PER_METER = 64` world scale (`16.16` `trackLengthRaw` match), `0x44`-byte sub-mesh headers, 11-list strides, `SVECTOR` vertex arrays, `F3/F4/G3/G4/FT3/FT4/GT3/GT4` packed polygon bitfields, GPU command tags & RGB color layout, `subMesh0`/`subMesh1` LOD relationship and opposite winding, `(0,1,2)+(0,2,3)` / `(0,2,1)+(0,3,2)` quad triangulation, world-space cell origin `(int32 >> 22) * 4096`, `subBlock98` 2D barrier walls and outward normal winding, and `100%` 4 bpp `clut`/`tpage`/texel addressing across all `126/126` tracks; **E1** for auxiliary Sections 1–4, checkpoints, `0x48..off0`, `subBlock9C`/`A0`, list `9` sprites, and `unk5`/`unkFlags`; **E0** for list `10`, unknown header/UV tail words, and `.tro`→`raceId` cross-file mapping.
 - **Endianness:** Little-endian.
 
 ### 1. Top-Level Header (`0x00..0x47`, 72 B) & Variable Prefix (`0x48..off0`)
@@ -616,7 +616,7 @@ encodeCarId(code):
 
 | Relative Offset | Size | Type | Name / Meaning | Confidence |
 | --- | --- | --- | --- | --- |
-| `+0x00` | 4 B | `uint32` | `trackLengthRaw` (correlates with centerline path sum × `1024`, ~`16.16` scale) | **E1** |
+| `+0x00` | 4 B | `uint32` | `trackLengthRaw` (`16.16` fixed-point length: `trackLengthRaw / 65536` matches centerline path sum at `64 raw units/m` across `126/126` tracks) | **E3** |
 | `+0x04` | 2 B | `uint16` | `segmentCount` (`12..194` per track, `14,387` total) | **E3** |
 | `+0x06` | 2 B | `uint16` | `uvCount` (`<= 2,742` per track) | **E3** |
 | `+0x08` | 4 B | `uint32` | `uvTableOff` (`off1 - uvTableOff === uvCount * 32` on `126/126`) | **E3** |
@@ -637,18 +637,19 @@ encodeCarId(code):
 | `+0xA0` | 4 B | `uint32` | `subBlockA0Off` (trailing visibility / PVS block) | **E1** |
 | `+0xA4` | `0x44` B | `SubMeshHeader` | Primary `subMesh0` header (`LOD0`) | **E3** |
 
-- **World-Space Reconstruction & Engine Transform (**E3** geometry / **E1** scale):** Each sub-mesh stores local `int16` vertices `(vx, vy, vz)` inside a `4096`-unit cell:
+- **World-Space Reconstruction & Engine Transform (**E3** geometry & world scale):** Each sub-mesh stores local `int16` vertices `(vx, vy, vz)` inside a `4096`-unit cell:
   - `cellX = (int32[seg + 0x30] >> 22) * 4096`
   - `cellY = (int32[seg + 0x38] >> 22) * 4096`
   - `cellZ = (int32[seg + 0x34] >> 22) * 4096`
   - `worldRaw = (cellX + vx, cellY + vy, cellZ + vz)` (`(X, Y)` horizontal ground plane, `+Z` up).
   - Verified across all `14,387` segments: `0` off-by-4096 seam errors (`13,154` exact vertex seams; remaining `1,233` are point-to-point endpoints or `0`-vertex dummy segments).
-  - Proper-rotation (`det = +1`) axis transform to engine right-handed `+Y` up (`+X` right, `+Y` up, `-Z` forward): `(x / s, z / s, -y / s)` with `s = TRO_UNITS_PER_METER = 64` (**E1**: empirically yields `7.1–34.5 m` [median `24.0 m`] `subBlock98` road widths and `247–6,972 m` circuit lengths matching `trackLengthRaw / 65536`).
+  - Proper-rotation (`det = +1`) axis transform to engine right-handed `+Y` up (`+X` right, `+Y` up, `-Z` forward): `(x / s, z / s, -y / s)` with `s = TRO_UNITS_PER_METER = 64` (**E3**: empirically verified across `126/126` tracks — wall-to-wall `subBlock98` road width `p10/p50/p90 = 16.1 / 23.5 / 31.0 m`, retaining-wall polygon height `p25/p50/p75 = 1.11 / 1.50 / 2.39 m`, closed-loop centerline length `p10/p50/p90 = 1.25 / 3.54 / 4.94 km` [max `6.97 km`], matching `16.16` `trackLengthRaw`).
 - **`subMesh0` (LOD0) vs `subMesh1` (LOD1) & Opposite Winding (**E3**):**
   - `subMesh0` (`1,129,468` vertices, `699,211` polygons) and `subMesh1` (`301,658` vertices, `155,186` polygons) are LOD variants (`32/126` identical, `94/126` simplified LOD1; `12/126` tracks have `700` distant `only1` segments with `subMesh0.vertexCount === 0` and `subMesh1.vertexCount > 0`).
   - Shared polygons have reversed vertex order (`85,122 / 85,300 = 99.79%`): in raw `.tro` (`+Z` up), `subMesh0` horizontal faces are `95.7%` CW from above (`nz < 0`) and `subMesh1` are `98.1%` CCW from above (`nz > 0`). Engine `gl.CCW` normalization emits `(0,2,1)` / `(0,2,1)+(0,3,2)` for `subMesh0` and `(0,1,2)` / `(0,1,2)+(0,2,3)` for `subMesh1`.
 - **`subBlock98` 2D Wall Barriers (`80,433` records across `14,387/14,387` segments, **E3**):**
   - `b9cOff - b98Off === 4 + count * 8` (`100%`). Each `8 B` entry stores `uint16 v0, uint16 v1` (`0` OOB in `subMesh0` vertices) and `int16 nxFixed12, int16 nyFixed12` (`99.82%` unit length `/ 4096`, `99.74%` perpendicular to edge `(v1 - v0)`).
+  - Across `126/126` tracks, `80,407 / 80,433 (99.97%)` barrier edges share exact `(v0, v1)` vertices with `subMesh0` polygons (`99.54%` ground), and **`76,116 / 80,433 (94.63%)` raw normals point OUTWARD** toward wall exteriors (`99.75%` left-handed relative to `(v1 - v0)`). Engine `CollisionMesh` construction deterministically orients each normal inward toward single-sided adjacent ground polygons (falling back to segment centerline on double-sided apron/curb edges).
 
 ### 4. Sub-Mesh Header (`0x44` B) & 11 Typed Lists (`28,774 / 28,774` exact match)
 
