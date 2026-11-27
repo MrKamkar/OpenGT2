@@ -92,6 +92,7 @@ export const DEFAULT_INPUT_BINDINGS: InputBindings = {
     moveDown: ['KeyQ'],
     moveUp: ['KeyE'],
     freecamBoost: ['ShiftLeft', 'ShiftRight'],
+    freecamReset: ['KeyR'],
     mute: ['KeyM'],
   },
   race: {

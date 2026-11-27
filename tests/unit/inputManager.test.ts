@@ -76,6 +76,10 @@ describe('InputManager (M0.11)', () => {
     input.setContext('freecam');
     expect(input.getActiveActions()).toEqual(['moveForward', 'mute']);
 
+    input.handleKeyEvent(keyEvent('keydown', 'KeyR'));
+    expect(input.isActionActive('freecamReset')).toBe(true);
+    input.handleKeyEvent(keyEvent('keyup', 'KeyR'));
+
     input.setContext('race');
     expect(input.getActiveActions()).toEqual(['handbrake', 'mute', 'throttle']);
   });

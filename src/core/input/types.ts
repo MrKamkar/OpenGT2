@@ -30,7 +30,8 @@ export type InputAction =
   | 'moveRight'
   | 'moveUp'
   | 'moveDown'
-  | 'freecamBoost';
+  | 'freecamBoost'
+  | 'freecamReset';
 
 /**
  * Minimal keyboard event contract decoupled from the DOM so InputManager can
