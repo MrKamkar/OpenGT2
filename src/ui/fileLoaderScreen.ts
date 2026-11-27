@@ -24,11 +24,12 @@ export interface RememberedFileInfo {
   readonly note?: string;
 }
 
-export type AppViewMode = 'loader' | 'viewer' | 'tracks' | 'inspector';
+export type AppViewMode = 'loader' | 'viewer' | 'tracks' | 'drive' | 'inspector';
 
 export interface AppViewNavState {
   readonly hasViewer?: boolean;
   readonly hasTracks?: boolean;
+  readonly hasDrive?: boolean;
 }
 
 export interface FileLoaderScreenHandle {
@@ -50,6 +51,7 @@ export interface FileLoaderScreenOptions {
   readonly onReset: () => void;
   readonly onSwitchToViewer?: () => void;
   readonly onSwitchToTracks?: () => void;
+  readonly onSwitchToDrive?: () => void;
   /**
    * Optional File System Access API picker callback.
    * Returns `true` if handled (file picked or user cancelled), or `false` to fall back to `<input type="file">`.
@@ -296,6 +298,13 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   inspectorTracksBtn.textContent = 'Tracks';
   inspectorTracksBtn.hidden = true;
 
+  const inspectorDriveBtn = document.createElement('button');
+  inspectorDriveBtn.type = 'button';
+  inspectorDriveBtn.className = 'ogt2-button ogt2-button-subtle';
+  inspectorDriveBtn.dataset['testid'] = 'inspector-nav-drive';
+  inspectorDriveBtn.textContent = 'Drive';
+  inspectorDriveBtn.hidden = true;
+
   const inspectorSelfBtn = document.createElement('button');
   inspectorSelfBtn.type = 'button';
   inspectorSelfBtn.className = 'ogt2-button ogt2-button-subtle is-active';
@@ -303,7 +312,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
   inspectorSelfBtn.setAttribute('aria-pressed', 'true');
   inspectorSelfBtn.textContent = 'Archive Inspector';
 
-  inspectorNav.append(inspectorViewerBtn, inspectorTracksBtn, inspectorSelfBtn);
+  inspectorNav.append(inspectorViewerBtn, inspectorTracksBtn, inspectorDriveBtn, inspectorSelfBtn);
 
   card.append(
     header,
@@ -436,8 +445,13 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     options.onSwitchToTracks?.();
   };
 
+  const onInspectorDriveClick = (): void => {
+    options.onSwitchToDrive?.();
+  };
+
   inspectorViewerBtn.addEventListener('click', onInspectorViewerClick);
   inspectorTracksBtn.addEventListener('click', onInspectorTracksClick);
+  inspectorDriveBtn.addEventListener('click', onInspectorDriveClick);
   selectButton.addEventListener('click', onSelectButtonClick);
   reopenButton.addEventListener('click', onReopenButtonClick);
   clearDataButton.addEventListener('click', onClearDataButtonClick);
@@ -598,12 +612,14 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
     },
     setAppViewMode(mode: AppViewMode, modeOptions?: AppViewNavState): void {
       container.dataset['viewMode'] = mode;
-      overlay.hidden = mode === 'viewer' || mode === 'tracks';
+      overlay.hidden = mode === 'viewer' || mode === 'tracks' || mode === 'drive';
       const hasViewer = modeOptions?.hasViewer === true;
       const hasTracks = modeOptions?.hasTracks === true;
+      const hasDrive = modeOptions?.hasDrive === true;
       inspectorViewerBtn.hidden = !hasViewer;
       inspectorTracksBtn.hidden = !hasTracks;
-      inspectorNav.hidden = mode !== 'inspector' || (!hasViewer && !hasTracks);
+      inspectorDriveBtn.hidden = !hasDrive;
+      inspectorNav.hidden = mode !== 'inspector' || (!hasViewer && !hasTracks && !hasDrive);
     },
     setRememberedFile,
     setClearDataStatus,
@@ -611,6 +627,7 @@ export function mountFileLoaderScreen(options: FileLoaderScreenOptions): FileLoa
       unsubscribe();
       inspectorViewerBtn.removeEventListener('click', onInspectorViewerClick);
       inspectorTracksBtn.removeEventListener('click', onInspectorTracksClick);
+      inspectorDriveBtn.removeEventListener('click', onInspectorDriveClick);
       selectButton.removeEventListener('click', onSelectButtonClick);
       reopenButton.removeEventListener('click', onReopenButtonClick);
       clearDataButton.removeEventListener('click', onClearDataButtonClick);

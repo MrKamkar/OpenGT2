@@ -23,7 +23,9 @@ export interface TrackViewerMountOptions {
   readonly session: TrackViewerSession;
   readonly debugMode: boolean;
   readonly hasCarViewer: boolean;
+  readonly hasDrive?: boolean;
   readonly onSwitchToCarViewer?: () => void;
+  readonly onSwitchToDrive?: () => void;
   readonly onSwitchToInspector: () => void;
   readonly onResetFile: () => void;
 }
@@ -65,7 +67,9 @@ export function mountTrackViewer(options: TrackViewerMountOptions): TrackViewerH
     session,
     debugMode,
     hasCarViewer,
+    hasDrive = false,
     onSwitchToCarViewer,
+    onSwitchToDrive,
     onSwitchToInspector,
     onResetFile,
   } = options;
@@ -116,13 +120,27 @@ export function mountTrackViewer(options: TrackViewerMountOptions): TrackViewerH
   tracksTabBtn.setAttribute('role', 'tab');
   tracksTabBtn.setAttribute('aria-selected', 'true');
 
+  navTabs.append(tracksTabBtn);
+
+  if (hasDrive && onSwitchToDrive !== undefined) {
+    const driveTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Drive');
+    driveTabBtn.type = 'button';
+    driveTabBtn.dataset['testid'] = 'nav-mode-drive';
+    driveTabBtn.setAttribute('role', 'tab');
+    driveTabBtn.setAttribute('aria-selected', 'false');
+    driveTabBtn.addEventListener('click', () => {
+      onSwitchToDrive();
+    });
+    navTabs.append(driveTabBtn);
+  }
+
   const inspectorTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Inspector');
   inspectorTabBtn.type = 'button';
   inspectorTabBtn.dataset['testid'] = 'nav-mode-inspector';
   inspectorTabBtn.setAttribute('role', 'tab');
   inspectorTabBtn.setAttribute('aria-selected', 'false');
 
-  navTabs.append(tracksTabBtn, inspectorTabBtn);
+  navTabs.append(inspectorTabBtn);
 
   const resetBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Change File');
   resetBtn.type = 'button';

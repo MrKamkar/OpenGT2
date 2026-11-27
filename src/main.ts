@@ -15,6 +15,7 @@ import {
 import { findGtdbEntries, pairGtdbRegionVariants } from './formats/gtdb';
 import {
   CarViewerSession,
+  DriveSession,
   GlContext,
   TrackViewerSession,
   WebGL2UnavailableError,
@@ -34,6 +35,7 @@ import {
   installTrackViewerDebugHook,
   mountTrackViewer,
 } from './ui/trackViewer';
+import { type DriveViewHandle, installDriveDebugHook, mountDriveView } from './ui/drive';
 import { extractFileMeta, mountFileLoaderScreen } from './ui/fileLoaderScreen';
 import { type ArchivePanelHandle, mountArchivePanel } from './ui/explorer/explorerView';
 import { describeVolOpenError, loadAllVolEntries } from './app/volArchiveSession';
@@ -49,14 +51,17 @@ import type { HealthPingMessage, HealthPongMessage } from './workers/health.work
 
 const MAX_INPUT_DT_SECONDS = 0.1;
 
-function startInputUpdateLoop(inputManager: InputManager): void {
+function startInputUpdateLoop(
+  inputManager: InputManager,
+  isExternalUpdateActive: () => boolean,
+): void {
   if (typeof requestAnimationFrame !== 'function') {
     return;
   }
 
   let lastTimestampMs: number | null = null;
   const tick = (timestampMs: number): void => {
-    if (lastTimestampMs !== null) {
+    if (lastTimestampMs !== null && !isExternalUpdateActive()) {
       const dtSeconds = Math.min(MAX_INPUT_DT_SECONDS, Math.max(0, (timestampMs - lastTimestampMs) / 1000));
       inputManager.update(dtSeconds);
     }
@@ -135,17 +140,27 @@ export function initApp(): void {
   let trackViewerSession: TrackViewerSession | null = null;
   let trackViewerHandle: TrackViewerHandle | null = null;
   let uninstallTrackViewerDebugHook: (() => void) | null = null;
+  let driveSession: DriveSession | null = null;
+  let driveHandle: DriveViewHandle | null = null;
+  let uninstallDriveDebugHook: (() => void) | null = null;
   let hasActiveViewer = false;
   let hasActiveTrackViewer = false;
+  let hasActiveDrive = false;
 
-  const setActiveMode = (mode: 'loader' | 'viewer' | 'tracks' | 'inspector'): void => {
+  const setActiveMode = (mode: 'loader' | 'viewer' | 'tracks' | 'drive' | 'inspector'): void => {
     carViewerSession?.pause();
     trackViewerSession?.pause();
+    driveSession?.pause();
     carViewerHandle?.setVisible(false);
     trackViewerHandle?.setVisible(false);
+    driveHandle?.setVisible(false);
     inputManager.releaseAll();
 
-    const navState = { hasViewer: hasActiveViewer, hasTracks: hasActiveTrackViewer };
+    const navState = {
+      hasViewer: hasActiveViewer,
+      hasTracks: hasActiveTrackViewer,
+      hasDrive: hasActiveDrive,
+    };
 
     if (mode === 'viewer' && hasActiveViewer && carViewerSession !== null && carViewerHandle !== null) {
       screen.setAppViewMode('viewer', navState);
@@ -168,17 +183,34 @@ export function initApp(): void {
       return;
     }
 
+    if (mode === 'drive' && hasActiveDrive && driveSession !== null && driveHandle !== null) {
+      screen.setAppViewMode('drive', navState);
+      driveHandle.setVisible(true);
+      inputManager.setContext('race');
+      driveSession.start();
+      driveHandle.ensureInitialSessionLoaded();
+      driveSession.renderCurrentFrame();
+      canvas.focus({ preventScroll: true });
+      return;
+    }
+
     inputManager.setContext('menu');
-    screen.setAppViewMode(mode === 'viewer' || mode === 'tracks' ? 'inspector' : mode, navState);
+    screen.setAppViewMode(
+      mode === 'viewer' || mode === 'tracks' || mode === 'drive' ? 'inspector' : mode,
+      navState,
+    );
   };
 
   const closeViewerSession = (): void => {
     hasActiveViewer = false;
     hasActiveTrackViewer = false;
+    hasActiveDrive = false;
     uninstallViewerDebugHook?.();
     uninstallViewerDebugHook = null;
     uninstallTrackViewerDebugHook?.();
     uninstallTrackViewerDebugHook = null;
+    uninstallDriveDebugHook?.();
+    uninstallDriveDebugHook = null;
     carViewerHandle?.dispose();
     carViewerHandle = null;
     carViewerSession?.dispose();
@@ -187,6 +219,10 @@ export function initApp(): void {
     trackViewerHandle = null;
     trackViewerSession?.dispose();
     trackViewerSession = null;
+    driveHandle?.dispose();
+    driveHandle = null;
+    driveSession?.dispose();
+    driveSession = null;
     assetRepository?.dispose();
     assetRepository = null;
     glContext?.clear();
@@ -346,6 +382,7 @@ export function initApp(): void {
         const canViewCars =
           glContext !== null && carVariants.length > 0 && repo.carAssetIndex.indexedBodyCount > 0;
         const canViewTracks = glContext !== null && repo.trackAssetIndex.trackCount > 0;
+        const canDrive = canViewCars && canViewTracks;
 
         if (canViewCars && glContext !== null) {
           let viewerHandleRef: CarViewerHandle | null = null;
@@ -373,8 +410,12 @@ export function initApp(): void {
             session: viewerSession,
             debugMode,
             hasTrackViewer: canViewTracks,
+            hasDrive: canDrive,
             onSwitchToTracks(): void {
               setActiveMode('tracks');
+            },
+            onSwitchToDrive(): void {
+              setActiveMode('drive');
             },
             onSwitchToInspector(): void {
               setActiveMode('inspector');
@@ -416,8 +457,12 @@ export function initApp(): void {
             session: tSession,
             debugMode,
             hasCarViewer: hasActiveViewer,
+            hasDrive: canDrive,
             onSwitchToCarViewer(): void {
               setActiveMode('viewer');
+            },
+            onSwitchToDrive(): void {
+              setActiveMode('drive');
             },
             onSwitchToInspector(): void {
               setActiveMode('inspector');
@@ -434,6 +479,56 @@ export function initApp(): void {
           hasActiveTrackViewer = true;
         } else {
           hasActiveTrackViewer = false;
+        }
+
+        if (canDrive && glContext !== null) {
+          let driveHandleRef: DriveViewHandle | null = null;
+          const dSession = new DriveSession({
+            glContext,
+            inputManager,
+            assetRepository: repo,
+            initialMode: 'hd',
+            onStateChange(snapshot): void {
+              driveHandleRef?.updateState(snapshot);
+            },
+            onTelemetryUpdate(telemetry): void {
+              driveHandleRef?.updateTelemetry(telemetry);
+            },
+            onStatsUpdate(stats): void {
+              driveHandleRef?.updateDebugStats(stats);
+            },
+          });
+          driveHandleRef = mountDriveView({
+            container: root,
+            canvas,
+            fileName: file.name,
+            variants: carVariants,
+            loadCarCatalog: (params, signal) =>
+              client.loadCarCatalog(params, signal !== undefined ? { signal } : undefined),
+            assetRepository: repo,
+            session: dSession,
+            debugMode,
+            onSwitchToCarViewer(): void {
+              setActiveMode('viewer');
+            },
+            onSwitchToTrackViewer(): void {
+              setActiveMode('tracks');
+            },
+            onSwitchToInspector(): void {
+              setActiveMode('inspector');
+            },
+            onResetFile: resetLoadedArchive,
+          });
+          driveSession = dSession;
+          driveHandle = driveHandleRef;
+          uninstallDriveDebugHook = installDriveDebugHook(
+            window,
+            window.location.search,
+            dSession,
+          );
+          hasActiveDrive = true;
+        } else {
+          hasActiveDrive = false;
         }
 
         const startInInspector = parseHexHash(window.location.hash) !== null;
@@ -527,6 +622,9 @@ export function initApp(): void {
     onSwitchToTracks(): void {
       setActiveMode('tracks');
     },
+    onSwitchToDrive(): void {
+      setActiveMode('drive');
+    },
     async onClearData(): Promise<void> {
       await Promise.all([idbCache.clear(), fileHandleStore.clearHandle()]);
       screen.setRememberedFile(null);
@@ -612,7 +710,10 @@ export function initApp(): void {
   }
 
   window.addEventListener('hashchange', () => {
-    if ((hasActiveViewer || hasActiveTrackViewer) && parseHexHash(window.location.hash) !== null) {
+    if (
+      (hasActiveViewer || hasActiveTrackViewer || hasActiveDrive) &&
+      parseHexHash(window.location.hash) !== null
+    ) {
       setActiveMode('inspector');
     }
   });
@@ -621,7 +722,7 @@ export function initApp(): void {
     inputManager,
     canvas,
   });
-  startInputUpdateLoop(inputManager);
+  startInputUpdateLoop(inputManager, () => driveSession?.getSnapshot().running === true);
 
   if (typeof Worker === 'undefined') {
     return;

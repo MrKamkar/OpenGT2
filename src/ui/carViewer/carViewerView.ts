@@ -34,7 +34,9 @@ export interface CarViewerMountOptions {
   readonly session: CarViewerSession;
   readonly debugMode: boolean;
   readonly hasTrackViewer?: boolean;
+  readonly hasDrive?: boolean;
   readonly onSwitchToTracks?: () => void;
+  readonly onSwitchToDrive?: () => void;
   readonly onSwitchToInspector: () => void;
   readonly onResetFile: () => void;
 }
@@ -77,7 +79,9 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
     session,
     debugMode,
     hasTrackViewer = false,
+    hasDrive = false,
     onSwitchToTracks,
+    onSwitchToDrive,
     onSwitchToInspector,
     onResetFile,
   } = options;
@@ -131,6 +135,18 @@ export function mountCarViewer(options: CarViewerMountOptions): CarViewerHandle 
       onSwitchToTracks();
     });
     navTabs.append(tracksTabBtn);
+  }
+
+  if (hasDrive && onSwitchToDrive !== undefined) {
+    const driveTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Drive');
+    driveTabBtn.type = 'button';
+    driveTabBtn.dataset['testid'] = 'nav-mode-drive';
+    driveTabBtn.setAttribute('role', 'tab');
+    driveTabBtn.setAttribute('aria-selected', 'false');
+    driveTabBtn.addEventListener('click', () => {
+      onSwitchToDrive();
+    });
+    navTabs.append(driveTabBtn);
   }
 
   const inspectorTabBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Inspector');

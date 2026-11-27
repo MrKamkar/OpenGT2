@@ -215,3 +215,22 @@ export {
   DEFAULT_CHASE_CAMERA_FAR,
   DEFAULT_CHASE_CAMERA_NEAR,
 } from './chaseCamera';
+export {
+  DriveRenderer,
+  EMPTY_DRIVE_RENDER_STATS,
+  buildCarWorldModelMatrix,
+  computeCarVisualBottomY,
+  type DriveRenderOptions,
+  type DriveRenderStats,
+  type DriveRendererOptions,
+  type WebGL2DriveRendererContext,
+} from './driveRenderer';
+export {
+  type DriveDebugStats,
+  DriveSession,
+  type DriveSessionOptions,
+  type DriveSessionSnapshot,
+  type DriveSpawnPose,
+  type DriveTelemetrySnapshot,
+  findTrackSpawnPose,
+} from './driveSession';

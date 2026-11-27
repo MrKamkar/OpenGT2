@@ -59,6 +59,7 @@ export interface GetCarModelOptions {
 export interface GetTrackModelOptions {
   readonly signal?: AbortSignal;
   readonly onProgress?: (progress: VolReaderTrackLoadProgress) => void;
+  readonly includeCollision?: boolean;
 }
 
 /**
@@ -321,10 +322,12 @@ export class AssetRepository {
     }
 
     const normalizedStem = stem.trim().toLowerCase();
+    const requireCollision = options.includeCollision ?? false;
     const key = buildTrackModelCacheKey(this.volInfo.fingerprint, normalizedStem);
+    const inflightKey = `${key}:${requireCollision ? 'col' : 'nocol'}`;
 
     const cached = this.getCachedTrackModel(normalizedStem);
-    if (cached !== null) {
+    if (cached !== null && (!requireCollision || cached.collision !== undefined)) {
       this.trackHits += 1;
       options.onProgress?.({
         stage: 'complete',
@@ -336,7 +339,7 @@ export class AssetRepository {
 
     this.trackMisses += 1;
 
-    let inflight = this.inflightTracks.get(key);
+    let inflight = this.inflightTracks.get(inflightKey);
     if (inflight === undefined) {
       const entry = this.trackAssetIndex.getTrack(normalizedStem);
       if (entry === null) {
@@ -351,7 +354,7 @@ export class AssetRepository {
       const params: VolReaderLoadTrackResourcesParams = {
         troPath: entry.troEntry.path,
         ...(entry.trpEntry !== null ? { trpPath: entry.trpEntry.path } : {}),
-        includeCollision: false,
+        includeCollision: requireCollision,
         includeLod1: false,
       };
 
@@ -367,19 +370,22 @@ export class AssetRepository {
         })
         .then((result) => {
           if (!this.disposed) {
-            this.insertTrackLru(key, result.trackModel);
+            const existing = this.trackCache.get(key);
+            if (existing === undefined || existing.collision === undefined || result.trackModel.collision !== undefined) {
+              this.insertTrackLru(key, result.trackModel);
+            }
           }
           return result.trackModel;
         })
         .finally(() => {
-          const active = this.inflightTracks.get(key);
+          const active = this.inflightTracks.get(inflightKey);
           if (active?.promise === loadPromise) {
-            this.inflightTracks.delete(key);
+            this.inflightTracks.delete(inflightKey);
           }
         });
 
       inflight = { promise: loadPromise, listeners };
-      this.inflightTracks.set(key, inflight);
+      this.inflightTracks.set(inflightKey, inflight);
     }
 
     const onProgress = options.onProgress;
