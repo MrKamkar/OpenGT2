@@ -64,6 +64,15 @@ export const BRAKE_HOLD_SPEED_THRESHOLD_MPS = 0.18;
 /** Exponential damping rate (1/s) applied when brakes are held stationary. */
 export const BRAKE_HOLD_DAMPING_RATE = 25.0;
 
+/** Nominal chassis underbody/sill clearance above the tyre-bottom road plane at static ride height (m). */
+export const CHASSIS_UNDERBODY_REST_CLEARANCE_METERS = 0.075;
+
+/** Minimum clearance (m) enforced between chassis underbody sample points and road ground triangles. */
+export const CHASSIS_UNDERBODY_MIN_CLEARANCE_METERS = 0.005;
+
+/** Vertical void-fall threshold (m) before emergency on-track pose recovery triggers. */
+export const VOID_FALL_RESET_DEPTH_METERS = 5.0;
+
 export interface WheelSimulationSnapshot {
   readonly grounded: boolean;
   readonly compression: number;
@@ -481,39 +490,118 @@ export class VehicleSimulation {
       );
     }
 
-    // Hard off-track containment fallback: if all wheels leave ground geometry and no ground exists beneath chassis,
-    // clamp cleanly back to the last valid on-track pose and remove outward escape velocity.
-    if (groundedCount === 0) {
-      const safetyHit = this.collisionIndex.raycastWheelDown(
-        { x: this.body.position.x, y: this.body.position.y + 4, z: this.body.position.z },
+    // 6b. Solid chassis underbody & corner ground clearance against actual 3D ground triangles
+    const underbodyRight = quatRotateVec3(this.body.orientation, VEC3_RIGHT);
+    const underbodyFwd = quatRotateVec3(this.body.orientation, VEC3_FORWARD);
+    const underbodyUp = quatRotateVec3(this.body.orientation, VEC3_UP);
+    const sampleHalfW = this.spec.halfExtents.x * 0.98;
+    const sampleHalfL = this.spec.halfExtents.z * 0.98;
+    const sampleLocalY =
+      -this.spec.comHeightMeters + CHASSIS_UNDERBODY_REST_CLEARANCE_METERS;
+    const underbodyPoints: readonly PhysicsVec3[] = [
+      vec3Add(this.body.position, vec3Scale(underbodyUp, sampleLocalY)),
+      vec3Add(
+        this.body.position,
+        vec3Add(
+          vec3Scale(underbodyUp, sampleLocalY),
+          vec3Add(vec3Scale(underbodyRight, -sampleHalfW), vec3Scale(underbodyFwd, sampleHalfL)),
+        ),
+      ),
+      vec3Add(
+        this.body.position,
+        vec3Add(
+          vec3Scale(underbodyUp, sampleLocalY),
+          vec3Add(vec3Scale(underbodyRight, sampleHalfW), vec3Scale(underbodyFwd, sampleHalfL)),
+        ),
+      ),
+      vec3Add(
+        this.body.position,
+        vec3Add(
+          vec3Scale(underbodyUp, sampleLocalY),
+          vec3Add(vec3Scale(underbodyRight, -sampleHalfW), vec3Scale(underbodyFwd, -sampleHalfL)),
+        ),
+      ),
+      vec3Add(
+        this.body.position,
+        vec3Add(
+          vec3Scale(underbodyUp, sampleLocalY),
+          vec3Add(vec3Scale(underbodyRight, sampleHalfW), vec3Scale(underbodyFwd, -sampleHalfL)),
+        ),
+      ),
+    ];
+
+    let maxUnderbodyPen = 0;
+    for (const pt of underbodyPoints) {
+      const gHit = this.collisionIndex.raycastWheelDown(
+        { x: pt.x, y: pt.y + 0.85, z: pt.z },
         { x: 0, y: -1, z: 0 },
-        20,
+        1.6,
       );
-      if (safetyHit === null) {
-        const escDx = this.body.position.x - this.lastValidOnTrackPose.position.x;
-        const escDz = this.body.position.z - this.lastValidOnTrackPose.position.z;
-        const escLen = Math.hypot(escDx, escDz);
-        this.body.position = { ...this.lastValidOnTrackPose.position };
-        if (escLen > 1e-4) {
-          const ux = escDx / escLen;
-          const uz = escDz / escLen;
-          const vOut = this.body.linearVelocity.x * ux + this.body.linearVelocity.z * uz;
-          if (vOut > 0) {
-            this.body.linearVelocity = {
-              x: (this.body.linearVelocity.x - ux * vOut) * 0.5,
-              y: this.body.linearVelocity.y * 0.5,
-              z: (this.body.linearVelocity.z - uz * vOut) * 0.5,
-            };
+      if (gHit === null || gHit.normal.y < 0.5) {
+        continue;
+      }
+      const pen = gHit.point.y + CHASSIS_UNDERBODY_MIN_CLEARANCE_METERS - pt.y;
+      if (pen > maxUnderbodyPen) {
+        maxUnderbodyPen = pen;
+      }
+    }
+
+    if (maxUnderbodyPen > 0) {
+      this.body.position = {
+        ...this.body.position,
+        y: this.body.position.y + Math.min(maxUnderbodyPen, 0.55),
+      };
+      if (this.body.linearVelocity.y < 0) {
+        this.body.linearVelocity = {
+          ...this.body.linearVelocity,
+          y: 0,
+        };
+      }
+      this.body.angularVelocity = {
+        x: this.body.angularVelocity.x * 0.85,
+        y: this.body.angularVelocity.y,
+        z: this.body.angularVelocity.z * 0.85,
+      };
+    }
+
+    // Hard void-fall safety reset: only triggers on genuine fall-through (> 5 m below track), never on normal impacts.
+    if (groundedCount === 0) {
+      const deepBelowLastValid =
+        this.body.position.y < this.lastValidOnTrackPose.position.y - VOID_FALL_RESET_DEPTH_METERS;
+      const deepBelowMesh =
+        this.body.position.y < this.collisionIndex.mesh.bounds.min.y - VOID_FALL_RESET_DEPTH_METERS;
+      if (deepBelowLastValid || deepBelowMesh) {
+        const safetyHit = this.collisionIndex.raycastWheelDown(
+          { x: this.body.position.x, y: this.body.position.y + 4, z: this.body.position.z },
+          { x: 0, y: -1, z: 0 },
+          20,
+        );
+        if (safetyHit === null) {
+          const escDx = this.body.position.x - this.lastValidOnTrackPose.position.x;
+          const escDz = this.body.position.z - this.lastValidOnTrackPose.position.z;
+          const escLen = Math.hypot(escDx, escDz);
+          this.body.position = { ...this.lastValidOnTrackPose.position };
+          if (escLen > 1e-4) {
+            const ux = escDx / escLen;
+            const uz = escDz / escLen;
+            const vOut = this.body.linearVelocity.x * ux + this.body.linearVelocity.z * uz;
+            if (vOut > 0) {
+              this.body.linearVelocity = {
+                x: (this.body.linearVelocity.x - ux * vOut) * 0.5,
+                y: this.body.linearVelocity.y * 0.5,
+                z: (this.body.linearVelocity.z - uz * vOut) * 0.5,
+              };
+            } else {
+              this.body.linearVelocity = vec3Scale(this.body.linearVelocity, 0.5);
+            }
           } else {
             this.body.linearVelocity = vec3Scale(this.body.linearVelocity, 0.5);
           }
-        } else {
-          this.body.linearVelocity = vec3Scale(this.body.linearVelocity, 0.5);
+          this.body.angularVelocity = vec3Scale(this.body.angularVelocity, 0.5);
+          this.wallCollisionCount += 1;
         }
-        this.body.angularVelocity = vec3Scale(this.body.angularVelocity, 0.5);
-        this.wallCollisionCount += 1;
       }
-    } else if (groundedCount >= 3 && !wallRes.collided) {
+    } else if (groundedCount >= 3 && !wallRes.collided && maxUnderbodyPen <= 0) {
       this.lastValidOnTrackPose = {
         position: { ...this.body.position },
         orientation: { ...this.body.orientation },

@@ -439,4 +439,65 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     const yawRight = revSim.getSnapshot().angularVelocity.y;
     expect(yawRight).toBeLessThan(-0.2);
   });
+
+  it('prevents floor sinking and discontinuous snap-back popping during high-speed wall slams', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const index = createWalledFlatTrackIndex();
+    const sim = new VehicleSimulation(spec, index, {
+      initialPosition: { x: -34, y: spec.comHeightMeters + 0.02, z: 45 },
+    });
+
+    // Accelerate straight to high speed (> 135 km/h)
+    for (let i = 0; i < 1440; i += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      if (sim.getSnapshot().speedKph >= 145) {
+        break;
+      }
+    }
+    expect(sim.getSnapshot().speedKph).toBeGreaterThanOrEqual(135);
+
+    // Slam hard into the left barrier (x = -50 m, 16 m away) at high speed
+    let prevPos = sim.getPose().position;
+    let minCornerClearance = Infinity;
+    let maxJumpRatio = 0;
+    let peakWallCount = 0;
+
+    for (let i = 0; i < 420; i += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: i < 240 ? 0.85 : 0 }, FIXED_DT);
+      const snap = sim.getSnapshot();
+      const pos = snap.pose.position;
+      const stepDist = Math.hypot(pos.x - prevPos.x, pos.y - prevPos.y, pos.z - prevPos.z);
+      const maxAllowedStep = Math.max(snap.speedMps * FIXED_DT * 2.5, 0.55);
+      const ratio = stepDist / maxAllowedStep;
+      if (ratio > maxJumpRatio) {
+        maxJumpRatio = ratio;
+      }
+
+      const up = { x: 0, y: 1, z: 0 };
+      const right = quatRotateVec3(snap.pose.orientation, VEC3_RIGHT);
+      const fwd = quatRotateVec3(snap.pose.orientation, VEC3_FORWARD);
+      const rotUp = quatRotateVec3(snap.pose.orientation, up);
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const cornerY =
+            pos.y +
+            right.y * sx * spec.halfExtents.x +
+            fwd.y * sz * spec.halfExtents.z -
+            rotUp.y * spec.comHeightMeters;
+          if (cornerY < minCornerClearance) {
+            minCornerClearance = cornerY;
+          }
+        }
+      }
+
+      expect(pos.x).toBeGreaterThan(-51.5);
+      peakWallCount = snap.wallCollisionCount;
+      prevPos = pos;
+    }
+
+    expect(peakWallCount).toBeGreaterThan(0);
+    // Tyre-bottom plane stays above -(restClearance + 0.01 m) -> chassis sill never penetrates floor
+    expect(minCornerClearance).toBeGreaterThanOrEqual(-0.085);
+    expect(maxJumpRatio).toBeLessThanOrEqual(1.0);
+  });
 });

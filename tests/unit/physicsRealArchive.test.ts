@@ -25,11 +25,15 @@ import {
   CollisionIndex,
   FIXED_DT,
   RAD_S_TO_RPM,
+  VEC3_FORWARD,
+  VEC3_RIGHT,
+  VEC3_UP,
   VehicleSimulation,
   buildCarPhysicsSpec,
   createFlatAsphaltCollisionIndex,
   getDrivenWheelRadiusMeters,
   getGearRatio,
+  quatRotateVec3,
 } from '../../src/physics';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -781,4 +785,115 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
     expect(checkedOverpassTracks).toBeGreaterThanOrEqual(10);
     expect(totalCenterlineSamples).toBeGreaterThan(5000);
   }, 120_000);
+
+  it('maintains solid ground clearance with zero floor sinking or teleport popping during real-track wall slams', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    expect(preferred).toBeDefined();
+
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const assetIndex = buildCarAssetIndex(allEntries);
+    const sports = catalog
+      .listCars()
+      .find(
+        (c) =>
+          c.engine !== null &&
+          c.dimensions !== null &&
+          c.engine.ps >= 220 &&
+          c.engine.ps <= 310 &&
+          assetIndex.resolve(c.carId).dayModel !== null,
+      );
+    expect(sports).toBeDefined();
+    const cdoBytes = await gunzip(
+      await cachedSource.read(
+        assetIndex.resolve(sports!.carId).dayModel!.address,
+        assetIndex.resolve(sports!.carId).dayModel!.address +
+          assetIndex.resolve(sports!.carId).dayModel!.size,
+      ),
+    );
+    const carSpec = buildCarPhysicsSpec(sports!, { carModel: buildCarModel(parseCdo(cdoBytes)) });
+
+    const trackIndex = new TrackAssetIndex(allEntries);
+    const track0Entry = trackIndex.listTracks()[0]!;
+    const troBytes = await gunzip(
+      await cachedSource.read(track0Entry.troEntry.address, track0Entry.troEntry.address + track0Entry.troEntry.size),
+    );
+    const tro = parseTro(troBytes);
+    const colIndex = new CollisionIndex(buildCollisionMesh(tro));
+
+    const segStart = 152;
+    const sp0 = troRawToEngineVec3(
+      tro.segments[segStart]!.centerlineCenterRaw.x,
+      tro.segments[segStart]!.centerlineCenterRaw.y,
+      tro.segments[segStart]!.centerlineCenterRaw.z,
+    );
+    const nextIdx = tro.segments[segStart]!.nextSegment;
+    const sp1 = troRawToEngineVec3(
+      tro.segments[nextIdx]!.centerlineCenterRaw.x,
+      tro.segments[nextIdx]!.centerlineCenterRaw.y,
+      tro.segments[nextIdx]!.centerlineCenterRaw.z,
+    );
+    const fdx = sp1.x - sp0.x;
+    const fdz = sp1.z - sp0.z;
+    const flen = Math.hypot(fdx, fdz);
+    const yaw = Math.atan2(-(fdx / flen), -(fdz / flen));
+    const hit = colIndex.raycastWheelDown({ x: sp0.x, y: sp0.y + 4, z: sp0.z }, { x: 0, y: -1, z: 0 }, 12);
+    expect(hit).not.toBeNull();
+
+    const sim = new VehicleSimulation(carSpec, colIndex, {
+      initialPosition: { x: hit!.point.x, y: hit!.point.y + carSpec.comHeightMeters + 0.02, z: hit!.point.z },
+      initialYawRad: yaw,
+    });
+
+    for (let s = 0; s < 420; s += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+    }
+
+    let minCornerClearance = Infinity;
+    let popEvents = 0;
+    let prevPos = sim.getPose().position;
+
+    for (let s = 0; s < 360; s += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: s < 180 ? 0.8 : 0 }, FIXED_DT);
+      const snap = sim.getSnapshot();
+      const pos = snap.pose.position;
+      const stepDist = Math.hypot(pos.x - prevPos.x, pos.y - prevPos.y, pos.z - prevPos.z);
+      if (stepDist > Math.max(snap.speedMps * FIXED_DT * 2.5, 0.6)) {
+        popEvents += 1;
+      }
+
+      const up = quatRotateVec3(snap.pose.orientation, VEC3_UP);
+      const right = quatRotateVec3(snap.pose.orientation, VEC3_RIGHT);
+      const fwd = quatRotateVec3(snap.pose.orientation, VEC3_FORWARD);
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const cx = pos.x + right.x * sx * carSpec.halfExtents.x + fwd.x * sz * carSpec.halfExtents.z;
+          const cy =
+            pos.y +
+            right.y * sx * carSpec.halfExtents.x +
+            fwd.y * sz * carSpec.halfExtents.z -
+            up.y * carSpec.comHeightMeters;
+          const cz = pos.z + right.z * sx * carSpec.halfExtents.x + fwd.z * sz * carSpec.halfExtents.z;
+          const cHit = colIndex.raycastWheelDown({ x: cx, y: cy + 3, z: cz }, { x: 0, y: -1, z: 0 }, 10);
+          if (cHit !== null) {
+            const clearance = cy - cHit.point.y;
+            if (clearance < minCornerClearance) {
+              minCornerClearance = clearance;
+            }
+          }
+        }
+      }
+      prevPos = pos;
+    }
+
+    expect(sim.getSnapshot().wallCollisionCount).toBeGreaterThan(0);
+    expect(minCornerClearance).toBeGreaterThanOrEqual(-0.085);
+    expect(popEvents).toBe(0);
+  }, 60_000);
 });

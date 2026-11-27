@@ -1315,7 +1315,13 @@ export class CollisionIndex {
       query.linearVelocity,
       vec3Cross(query.angularVelocity, rContact),
     );
-    const vn = vec3Dot(contactVel, contactNormal);
+    // Restrict barrier impact and sliding friction strictly to horizontal XZ so side hits never launch or sink vertically.
+    const contactVelHoriz: PhysicsVec3 = {
+      x: contactVel.x,
+      y: 0,
+      z: contactVel.z,
+    };
+    const vn = vec3Dot(contactVelHoriz, contactNormal);
 
     let linearVelocityDelta = VEC3_ZERO;
     let angularVelocityDelta = VEC3_ZERO;
@@ -1325,7 +1331,7 @@ export class CollisionIndex {
       const dvNormal = vec3Scale(contactNormal, normalImpulseVel);
 
       // Tangential friction along wall
-      const vTangent = vec3Sub(contactVel, vec3Scale(contactNormal, vn));
+      const vTangent = vec3Sub(contactVelHoriz, vec3Scale(contactNormal, vn));
       const tangentSpeed = vec3Length(vTangent);
       let dvTangent = VEC3_ZERO;
       if (tangentSpeed > 1e-5) {

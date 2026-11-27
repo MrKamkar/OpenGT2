@@ -21,6 +21,9 @@ export const MAX_SUSPENSION_FORCE_WEIGHT_MULTIPLIER = 4.5;
 /** Clamp on suspension compression/rebound velocity (m/s) to prevent numerical impulse spikes. */
 export const MAX_SUSPENSION_VELOCITY_MPS = 8.0;
 
+/** Upward offset (m) lifting wheel raycast origins inside the upper chassis so deep compression never misses ground. */
+export const WHEEL_RAYCAST_ORIGIN_LIFT_METERS = 0.55;
+
 export interface WheelSuspensionState {
   readonly grounded: boolean;
   readonly compression: number;
@@ -91,8 +94,17 @@ export function castSuspensionRays(
     const axleSpec = spec.suspension[wheel.axle];
     const mountLocal = getWheelMountLocal(spec, wheel);
     const mountWorld = vec3Add(body.position, quatRotateVec3(body.orientation, mountLocal));
-    const maxDistance = axleSpec.maxTravelMeters + wheel.radiusMeters;
-    return collisionIndex.raycastWheelDown(mountWorld, downDir, maxDistance);
+    const rayOrigin = vec3Add(mountWorld, vec3Scale(chassisUp, WHEEL_RAYCAST_ORIGIN_LIFT_METERS));
+    const maxDistance =
+      WHEEL_RAYCAST_ORIGIN_LIFT_METERS + axleSpec.maxTravelMeters + wheel.radiusMeters;
+    const hit = collisionIndex.raycastWheelDown(rayOrigin, downDir, maxDistance);
+    if (hit === null || hit.normal.y < 0.5) {
+      return null;
+    }
+    return {
+      ...hit,
+      distance: hit.distance - WHEEL_RAYCAST_ORIGIN_LIFT_METERS,
+    };
   };
 
   return [

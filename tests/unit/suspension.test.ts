@@ -178,4 +178,59 @@ describe('4-wheel spring-damper suspension (M9.4)', () => {
       expect(w.normalForce).toBeLessThanOrEqual(spec.massKg * GRAVITY_MPS2 * 1.2);
     }
   });
+
+  it('keeps wheel raycasts grounded under extreme compression and nose-dive pitch without catching low ceilings', () => {
+    const spec = createTestCarSpec();
+    // Extreme compression + 0.25 rad nose-dive puts front wheel mounts below y = 0.15 m
+    const body = createRigidBodyState(
+      { x: 0, y: 0.12, z: 0 },
+      quatFromAxisAngle({ x: 1, y: 0, z: 0 }, -0.25),
+    );
+    const groundIndex = createFlatGroundIndex();
+    const hits = castSuspensionRays(body, spec, groundIndex);
+    for (const h of hits) {
+      expect(h).not.toBeNull();
+      expect(h!.normal.y).toBeGreaterThanOrEqual(0.5);
+    }
+    const next = solveSuspension(body, spec, hits, createInitialSuspensionStates(spec), FIXED_DT);
+    expect(next.every((w) => w.grounded && w.normalForce > 0)).toBe(true);
+
+    // Low ceiling deck at y = 0.65 m directly above ground y = 0 m must NOT be hit by lifted rays
+    const lowCeilingTro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            centerRaw: [0, 0, 0],
+            subMesh0: {
+              localVertices: [
+                [-2000, -2000, 0],
+                [-2000, 2000, 0],
+                [2000, 2000, 0],
+                [2000, -2000, 0],
+                // Ceiling quad above with downward normal (-Y) at raw Z = 42 (~0.656 m)
+                [-2000, -2000, 42],
+                [2000, -2000, 42],
+                [2000, 2000, 42],
+                [-2000, 2000, 42],
+              ],
+              polygons: [
+                { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 100, g: 100, b: 100 }] },
+                { listIndex: 2, vertices: [4, 5, 6, 7], colors: [{ r: 80, g: 80, b: 80 }] },
+              ],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+          },
+        ],
+      }),
+    );
+    const ceilingIndex = new CollisionIndex(buildCollisionMesh(lowCeilingTro));
+    const normalBody = createRigidBodyState({ x: 0, y: spec.comHeightMeters, z: 0 });
+    const ceilingHits = castSuspensionRays(normalBody, spec, ceilingIndex);
+    for (const h of ceilingHits) {
+      expect(h).not.toBeNull();
+      expect(h!.point.y).toBeCloseTo(0, 4);
+      expect(h!.normal.y).toBeGreaterThan(0.9);
+    }
+  });
 });
