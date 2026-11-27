@@ -647,4 +647,138 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
 
     expect(testedCases).toBe(targetSegments.length * 2);
   }, 60_000);
+
+  it('traverses the full closed centerline loop of Catalog Track #0 and multi-level tracks with zero overpass/underpass blocks', async () => {
+    const allEntries = reader.getAllEntries();
+    const trackIndex = new TrackAssetIndex(allEntries);
+    const tracks = trackIndex.listTracks();
+    expect(tracks.length).toBeGreaterThan(60);
+
+    const halfExtents = { x: 0.88, y: 0.65, z: 2.15 };
+    const comHeight = 0.48;
+
+    let checkedTracks = 0;
+    let checkedOverpassTracks = 0;
+    let totalCenterlineSamples = 0;
+
+    // Test Track #0 and every multi-level track in the catalog
+    for (let ti = 0; ti < tracks.length; ti += 1) {
+      const tr = tracks[ti]!;
+      const troBytes = await gunzip(
+        await cachedSource.read(tr.troEntry.address, tr.troEntry.address + tr.troEntry.size),
+      );
+      const tro = parseTro(troBytes);
+      const pts = tro.segments.map((seg, i) => ({
+        segIdx: i,
+        ...troRawToEngineVec3(
+          seg.centerlineCenterRaw.x,
+          seg.centerlineCenterRaw.y,
+          seg.centerlineCenterRaw.z,
+        ),
+      }));
+
+      let hasOverpass = false;
+      for (let i = 0; i < pts.length && !hasOverpass; i += 1) {
+        for (let j = i + 4; j < pts.length; j += 1) {
+          if (pts.length - (j - i) < 4) continue;
+          const dXZ = Math.hypot(pts[i]!.x - pts[j]!.x, pts[i]!.z - pts[j]!.z);
+          const dY = Math.abs(pts[i]!.y - pts[j]!.y);
+          if (dXZ < 25 && dY > 2.5) {
+            hasOverpass = true;
+            break;
+          }
+        }
+      }
+
+      if (ti !== 0 && !hasOverpass) {
+        continue;
+      }
+
+      checkedTracks += 1;
+      if (hasOverpass) {
+        checkedOverpassTracks += 1;
+      }
+
+      const mesh = buildCollisionMesh(tro);
+      const colIndex = new CollisionIndex(mesh);
+      let falseBlocks = 0;
+
+      for (let i = 0; i < pts.length; i += 1) {
+        const p0 = pts[i]!;
+        const nextIdx =
+          tro.segments[i]!.nextSegment < pts.length
+            ? tro.segments[i]!.nextSegment
+            : (i + 1) % pts.length;
+        const p1 = pts[nextIdx]!;
+        const segLen = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        if (segLen < 0.5 || segLen > 120) {
+          continue;
+        }
+        const steps = Math.max(2, Math.ceil(segLen / 2.0));
+        const dx = (p1.x - p0.x) / segLen;
+        const dz = (p1.z - p0.z) / segLen;
+        const yaw = Math.atan2(-dx, -dz);
+        const quat = { x: 0, y: Math.sin(yaw * 0.5), z: 0, w: Math.cos(yaw * 0.5) };
+        let prevPos: { x: number; y: number; z: number } | null = null;
+
+        for (let s = 0; s < steps; s += 1) {
+          const f = s / steps;
+          const x = p0.x + (p1.x - p0.x) * f;
+          const yEst = p0.y + (p1.y - p0.y) * f;
+          const z = p0.z + (p1.z - p0.z) * f;
+          const hit = colIndex.raycastWheelDown(
+            { x, y: yEst + 2.0, z },
+            { x: 0, y: -1, z: 0 },
+            6.0,
+          );
+          if (hit === null || hit.normal.y < 0.5) {
+            continue;
+          }
+          totalCenterlineSamples += 1;
+          const groundY = hit.point.y;
+          const pos = { x, y: groundY + comHeight, z };
+          const res = colIndex.resolveChassisWallCollisions({
+            position: pos,
+            prevPosition: prevPos ?? { x: x - dx * 2.0, y: groundY + comHeight, z: z - dz * 2.0 },
+            orientation: quat,
+            linearVelocity: { x: dx * 30, y: 0, z: dz * 30 },
+            angularVelocity: { x: 0, y: 0, z: 0 },
+            halfExtents,
+            massKg: 1200,
+            inertiaY: 2000,
+          });
+          if (res.collided) {
+            // Check whether any non-adjacent segment barrier blocked this centerline sample
+            for (const b of mesh.wallBarriers) {
+              const diff = Math.abs(b.segmentIndex - i);
+              const wrapDiff = Math.min(diff, tro.segments.length - diff);
+              if (wrapDiff <= 4) {
+                continue;
+              }
+              const bdx = b.end.x - b.start.x;
+              const bdz = b.end.z - b.start.z;
+              const bLenSq = bdx * bdx + bdz * bdz;
+              if (bLenSq < 1e-6) continue;
+              const t = Math.max(
+                0,
+                Math.min(1, ((x - b.start.x) * bdx + (z - b.start.z) * bdz) / bLenSq),
+              );
+              const distXZ = Math.hypot(x - (b.start.x + bdx * t), z - (b.start.z + bdz * t));
+              if (distXZ < 3.0) {
+                falseBlocks += 1;
+                break;
+              }
+            }
+          }
+          prevPos = pos;
+        }
+      }
+
+      expect(falseBlocks).toBe(0);
+    }
+
+    expect(checkedTracks).toBeGreaterThanOrEqual(10);
+    expect(checkedOverpassTracks).toBeGreaterThanOrEqual(10);
+    expect(totalCenterlineSamples).toBeGreaterThan(5000);
+  }, 120_000);
 });

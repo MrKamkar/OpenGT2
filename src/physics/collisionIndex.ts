@@ -2,7 +2,6 @@ import {
   COLLISION_SURFACE_GROUND,
   COLLISION_SURFACE_WALL,
   type CollisionMesh,
-  type CollisionSegmentRange,
   type CollisionSurfaceType,
   surfaceCodeToType,
   surfaceTypeToCode,
@@ -29,8 +28,11 @@ export const DEFAULT_GRID_CELL_SIZE_METERS = 8.0;
 /** Hard upper bound on grid cell count to cap memory on very large tracks. */
 export const MAX_GRID_CELLS = 160_000;
 
-/** Vertical expansion margin (m) around each track segment's `[minY, maxY]` for barrier filtering. */
-export const WALL_BARRIER_VERTICAL_MARGIN_METERS = 2.5;
+/** Downward vertical margin (m) below barrier endpoints so overhead bridges never block lower decks. */
+export const WALL_BARRIER_BELOW_MARGIN_METERS = 0.4;
+
+/** Upward vertical margin (m) above barrier endpoints for bank/chassis containment. */
+export const WALL_BARRIER_ABOVE_MARGIN_METERS = 2.0;
 
 /** Maximum signed distance (m) behind a barrier normal still considered a wall penetration (prevents snapping across distant walls). */
 export const WALL_MAX_PENETRATION_DEPTH_METERS = 2.2;
@@ -319,10 +321,6 @@ function orientBarrierNormalInward(
 }
 
 function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
-  const segByIndex = new Map<number, CollisionSegmentRange>();
-  for (const seg of mesh.segments) {
-    segByIndex.set(seg.segmentIndex, seg);
-  }
   const groundLookup = buildSegmentGroundLookup(mesh);
 
   const result: IndexedWallBarrier[] = [];
@@ -363,17 +361,9 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
         nz /= nLen;
       }
 
-      const segBounds = segByIndex.get(barrier.segmentIndex)?.bounds;
-      const rawMinY = Math.min(
-        barrier.start.y,
-        barrier.end.y,
-        segBounds !== undefined ? segBounds.min.y : barrier.start.y,
-      );
-      const rawMaxY = Math.max(
-        barrier.start.y,
-        barrier.end.y,
-        segBounds !== undefined ? segBounds.max.y : barrier.start.y,
-      );
+      // Use strictly the barrier's own vertical endpoint span; segBounds includes tall scenery/piers.
+      const rawMinY = Math.min(barrier.start.y, barrier.end.y);
+      const rawMaxY = Math.max(barrier.start.y, barrier.end.y);
 
       segmentsWithExplicitWalls.add(barrier.segmentIndex);
       result.push({
@@ -388,8 +378,8 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
         segLenSq: segLen * segLen,
         nx,
         nz,
-        minY: rawMinY - WALL_BARRIER_VERTICAL_MARGIN_METERS,
-        maxY: rawMaxY + WALL_BARRIER_VERTICAL_MARGIN_METERS,
+        minY: rawMinY - WALL_BARRIER_BELOW_MARGIN_METERS,
+        maxY: rawMaxY + WALL_BARRIER_ABOVE_MARGIN_METERS,
       });
     }
   }
@@ -475,8 +465,8 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
     nx = inwardNx;
     nz = inwardNz;
 
-    const minY = triMinY - WALL_BARRIER_VERTICAL_MARGIN_METERS;
-    const maxY = triMaxY + WALL_BARRIER_VERTICAL_MARGIN_METERS;
+    const minY = triMinY - WALL_BARRIER_BELOW_MARGIN_METERS;
+    const maxY = triMaxY + WALL_BARRIER_ABOVE_MARGIN_METERS;
 
     result.push({
       segmentIndex: segIdx,

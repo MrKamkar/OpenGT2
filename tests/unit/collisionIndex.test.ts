@@ -388,4 +388,91 @@ describe('CollisionIndex spatial acceleration & wall collisions (M9.2)', () => {
     expect(res.positionCorrection.x).toBeGreaterThan(0);
     expect(nextPos.x + res.positionCorrection.x).toBeGreaterThan(-4.3);
   });
+
+  it('isolates lower and upper overpass barrier decks even when lower segments contain tall scenery/piers', () => {
+    const tro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            // Lower deck at raw Z = 0 (0 m) with a tall 12 m pier triangle (raw Z = 768) in the same segment
+            centerRaw: [320, 320, 0],
+            subMesh0: {
+              localVertices: [
+                [0, 0, 0],
+                [0, 640, 0],
+                [640, 640, 0],
+                [640, 0, 0],
+                [0, 320, 768],
+                [32, 320, 768],
+              ],
+              polygons: [
+                { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 100, g: 100, b: 100 }] },
+                { listIndex: 1, vertices: [0, 4, 5], colors: [{ r: 120, g: 120, b: 120 }] },
+              ],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+            // Lower road barrier at x = 0 (raw X = 0), y = 0 m
+            walls2D: [{ v0: 0, v1: 1, nxFixed12: 4096, nyFixed12: 0 }],
+          },
+          {
+            // Upper bridge deck directly overhead at raw Z = 230 (3.59 m), barrier along z = -5 (raw Y = 320)
+            centerRaw: [320, 320, 230],
+            subMesh0: {
+              localVertices: [
+                [0, 320, 230],
+                [0, 640, 230],
+                [640, 640, 230],
+                [640, 320, 230],
+              ],
+              polygons: [{ listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 150, g: 150, b: 150 }] }],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+            walls2D: [{ v0: 0, v1: 3, nxFixed12: 0, nyFixed12: -4096 }],
+          },
+        ],
+      }),
+    );
+    const index = new CollisionIndex(buildCollisionMesh(tro));
+
+    // Car on lower deck (y = 0.48 m) passing under upper bridge barrier at z = -5 (y = 3.59 m) must NOT collide
+    const lowerPass = index.resolveChassisWallCollisions({
+      position: { x: 5, y: 0.48, z: -5.0 },
+      prevPosition: { x: 5, y: 0.48, z: -3.5 },
+      orientation: quatIdentity(),
+      linearVelocity: { x: 0, y: 0, z: -25 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+      halfExtents: { x: 0.85, y: 0.65, z: 2.0 },
+      massKg: 1200,
+      inertiaY: 1800,
+    });
+    expect(lowerPass.collided).toBe(false);
+
+    // Car on upper deck (y = 3.59 + 0.48 = 4.07 m) crossing over lower x = 0 barrier (whose segBounds reached +12 m) must NOT hit lower barrier
+    const upperPass = index.resolveChassisWallCollisions({
+      position: { x: 0.1, y: 4.07, z: -7.5 },
+      prevPosition: { x: 2.0, y: 4.07, z: -7.5 },
+      orientation: quatIdentity(),
+      linearVelocity: { x: -20, y: 0, z: 0 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+      halfExtents: { x: 0.85, y: 0.65, z: 2.0 },
+      massKg: 1200,
+      inertiaY: 1800,
+    });
+    expect(upperPass.collided).toBe(false);
+
+    // Car on upper deck hitting its own z = -5 barrier DOES collide
+    const upperOwnHit = index.resolveChassisWallCollisions({
+      position: { x: 5, y: 4.07, z: -5.2 },
+      prevPosition: { x: 5, y: 4.07, z: -7.2 },
+      orientation: quatIdentity(),
+      linearVelocity: { x: 0, y: 0, z: 20 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+      halfExtents: { x: 0.85, y: 0.65, z: 2.0 },
+      massKg: 1200,
+      inertiaY: 1800,
+    });
+    expect(upperOwnHit.collided).toBe(true);
+    expect(upperOwnHit.positionCorrection.z).toBeLessThan(0);
+  });
 });
