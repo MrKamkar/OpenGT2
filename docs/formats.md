@@ -489,7 +489,7 @@ encodeCarId(code):
 | `0x08` | 8 B | `uint16[4]` LE | `rawWheelDiag0x08`: strictly `[0, 0, 0, 0]` across `2,220 / 2,220` models (`0x18` is the active wheel parameter record in GT2) | **E3** |
 | `0x10` | 8 B | `uint16[4]` LE | `unk_0x10`: observed `0` across `2,220 / 2,220` models | **E0** |
 | `0x18` | 8 B | `uint16[4]` LE | `menuWheels`: `frontRadius`, `frontWidth`, `rearRadius`, `rearWidth` (`1/4096 m` units; strictly non-zero across `2,220 / 2,220` models) | **E3** |
-| `0x20` | 32 B | `4×(4×int16)` LE | `wheelPositions`: `[x, y, z, menuX]` per wheel (`1/4096 m`, `menuX / x ≈ 0.874` in `[0.796, 0.920]`). Verified order across `2,220 / 2,220` models: **`[0]` Front-Left (`x<0, z<0`), `[1]` Front-Right (`x>0, z<0`), `[2]` Rear-Left (`x<0, z>0`), `[3]` Rear-Right (`x>0, z>0`)**. | **E3** |
+| `0x20` | 32 B | `4×(4×int16)` LE | `wheelPositions`: `[x, y, z, menuX]` per wheel (`1/4096 m`, `menuX / x ≈ 0.874` in `[0.796, 0.920]`). Verified semantics across `621` GTDB cars (`2,484` wheels): **`x` is the outer tyre face** and **`menuX` is the wheel center** (`|x| - |menuX| = width / 2`, median ratio `1.001`, `2,194 / 2,484 = 88.3%` within `±2 mm`), while **`lod0.boundingBox.low.y ≈ 0.0 m` is the chassis floor/rocker panel** and **`wheel.y - radius` sits below it (`-0.134 m` median ground clearance)**. Verified slot order across `2,220 / 2,220` models: **`[0]` Front-Left (`x<0, z<0`), `[1]` Front-Right (`x>0, z<0`), `[2]` Rear-Left (`x<0, z>0`), `[3]` Rear-Right (`x>0, z>0`)**. | **E3** |
 | `0x40` | `0x828` B | `uint8[]` | `unk_0x40`: unknown gap (`0x40..0x867`), explicitly skipped | **E0** |
 
 ### 2. LOD Table (`0x868`) & Sequential LOD Header (`0x50` bytes)
