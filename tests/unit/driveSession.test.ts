@@ -10,6 +10,7 @@ import {
   CAR_FACE_MODE_UNTEXTURED,
   CAR_WHEEL_CDP_PALETTE_INDEX,
   CAR_WHEEL_SEGMENTS,
+  type CarViewerCanvasInputTarget,
   ChaseCamera,
   DriveRenderer,
   DriveSession,
@@ -959,6 +960,159 @@ describe('DriveRenderer, AssetRepository collision upgrade, and DriveSession (M9
     }
     expect(renderer.getResourceCounts()).toEqual(baseCounts);
     renderer.dispose();
+
+    session.dispose();
+    glContext.dispose();
+    expect(harness.getLiveCounts()).toEqual(EMPTY_GPU_RESOURCE_COUNTS);
+  });
+
+  it('supports debug-only spectator Free Cam toggle (F), releases held keys across contexts, freezes physics, and restores race cleanly', async () => {
+    const harness = createDriveGlHarness();
+    const glContext = new GlContext(harness.canvas, {
+      getDevicePixelRatio: () => 1,
+      createResizeObserver: () => ({ observe: () => {}, disconnect: () => {} }),
+    });
+    const pointerListeners = new Map<string, Set<(event: unknown) => void>>();
+    const canvasInput: CarViewerCanvasInputTarget = {
+      addEventListener: (type, listener) => {
+        let set = pointerListeners.get(type);
+        if (set === undefined) {
+          set = new Set();
+          pointerListeners.set(type, set);
+        }
+        set.add(listener as (event: unknown) => void);
+      },
+      removeEventListener: (type, listener) => {
+        pointerListeners.get(type)?.delete(listener as (event: unknown) => void);
+      },
+    };
+    const emitCanvasEvent = (type: string, event: unknown) => {
+      for (const listener of pointerListeners.get(type) ?? []) {
+        listener(event);
+      }
+    };
+
+    const carModel = makeTestCarModel();
+    const trackModel = makeTestTrackModel(true);
+    const entries: VolEntry[] = [
+      { path: 'carobj/a1000.cdo.gz', kind: 'file', address: 2048, size: 100, unixTime: 0, isGzip: true },
+      { path: 'crsobj/syn_trk.tro.gz', kind: 'file', address: 4096, size: 100, unixTime: 0, isGzip: true },
+    ];
+    const repo = new AssetRepository({
+      volInfo: {
+        fingerprint: 'fp_freecam_test',
+        fileCount: 2,
+        entryCount: 3,
+        warnings: [],
+        variant: 'unknown',
+      },
+      entries,
+      backend: {
+        list: async () => entries,
+        read: async () => new Uint8Array(0),
+        readDecompressed: async () => new Uint8Array(0),
+        loadCarResources: vi.fn(async () => ({ carModel })),
+        loadTrackResources: vi.fn(async () => ({ trackModel })),
+      },
+    });
+
+    // 1. Strict no-op when debugMode is false
+    const nonDebugInput = new InputManager({ initialContext: 'race' });
+    const nonDebugSession = new DriveSession({
+      glContext,
+      gl: harness.gl,
+      canvas: canvasInput,
+      debugMode: false,
+      inputManager: nonDebugInput,
+      assetRepository: repo,
+      raf: { request: () => 1, cancel: () => {} },
+    });
+    nonDebugSession.start();
+    await nonDebugSession.loadSession({
+      carEntry: createTestCatalogEntry(77),
+      bodyCode: 'a1000',
+      trackStem: 'syn_trk',
+    });
+    nonDebugSession.setDebugFreeCam(true);
+    expect(nonDebugSession.getSnapshot().debugFreeCamActive).toBe(false);
+    nonDebugInput.handleKeyEvent({ type: 'keydown', code: 'KeyF', repeat: false });
+    nonDebugSession.stepFrame(0.016);
+    nonDebugInput.handleKeyEvent({ type: 'keyup', code: 'KeyF', repeat: false });
+    expect(nonDebugSession.getSnapshot().debugFreeCamActive).toBe(false);
+    nonDebugSession.dispose();
+
+    // 2. Full debugMode: true behavior
+    const input = new InputManager({ initialContext: 'race' });
+    const session = new DriveSession({
+      glContext,
+      gl: harness.gl,
+      canvas: canvasInput,
+      debugMode: true,
+      inputManager: input,
+      assetRepository: repo,
+      gamepadProvider: () => [],
+      raf: { request: () => 1, cancel: () => {} },
+    });
+    session.start();
+    await session.loadSession({
+      carEntry: createTestCatalogEntry(77),
+      bodyCode: 'a1000',
+      trackStem: 'syn_trk',
+    });
+
+    // Accelerate forward with held KeyW, then toggle Free Cam with KeyF
+    input.handleKeyEvent({ type: 'keydown', code: 'KeyW', repeat: false });
+    for (let i = 0; i < 20; i += 1) {
+      session.stepFrame(0.05);
+    }
+    const frozenPosBefore = { ...session.getTelemetry().pose.position };
+    const frozenTimeBefore = session.getTelemetry().elapsedSeconds;
+    expect(frozenTimeBefore).toBeGreaterThan(0.5);
+
+    input.handleKeyEvent({ type: 'keydown', code: 'KeyF', repeat: false });
+    session.stepFrame(0.016);
+    input.handleKeyEvent({ type: 'keyup', code: 'KeyF', repeat: false });
+
+    expect(session.getSnapshot().debugFreeCamActive).toBe(true);
+    expect(session.getTelemetry().debugFreeCamActive).toBe(true);
+    expect(input.getContext()).toBe('freecam');
+    // Previously held KeyW must be cleared when switching to freecam
+    expect(input.isCodePressed('KeyW')).toBe(false);
+
+    // Move FreeCamera with WASD/E/Shift + pointer drag/wheel while car physics stay frozen
+    const detachedState = session.freeCamera.getState();
+    input.handleKeyEvent({ type: 'keydown', code: 'KeyE', repeat: false });
+    input.handleKeyEvent({ type: 'keydown', code: 'ShiftLeft', repeat: false });
+    emitCanvasEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 100, clientY: 100 });
+    emitCanvasEvent('pointermove', { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 180, clientY: 70 });
+    emitCanvasEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 180, clientY: 70 });
+    emitCanvasEvent('wheel', { deltaY: -120, preventDefault: () => {} });
+
+    for (let i = 0; i < 10; i += 1) {
+      session.stepFrame(0.05);
+    }
+    const movedCam = session.freeCamera.getState();
+    expect(movedCam.position[1]).toBeGreaterThan(detachedState.position[1] + 1.0);
+    expect(movedCam.yaw).not.toBe(detachedState.yaw);
+    expect(movedCam.moveSpeedMps).toBeGreaterThan(detachedState.moveSpeedMps);
+    expect(session.getTelemetry().elapsedSeconds).toBe(frozenTimeBefore);
+    expect(session.getTelemetry().pose.position).toEqual(frozenPosBefore);
+
+    // Normal KeyC cycle still functions cleanly
+    expect(session.cycleCamera()).toBe('close');
+
+    // Toggle Free Cam back off via KeyF while KeyE is held -> KeyE cleared & context returns to race
+    input.handleKeyEvent({ type: 'keydown', code: 'KeyF', repeat: false });
+    session.stepFrame(0.016);
+    input.handleKeyEvent({ type: 'keyup', code: 'KeyF', repeat: false });
+
+    expect(session.getSnapshot().debugFreeCamActive).toBe(false);
+    expect(input.getContext()).toBe('race');
+    expect(input.isCodePressed('KeyE')).toBe(false);
+    expect(input.isCodePressed('ShiftLeft')).toBe(false);
+
+    session.stepFrame(0.05);
+    expect(session.getTelemetry().elapsedSeconds).toBeGreaterThan(frozenTimeBefore);
 
     session.dispose();
     glContext.dispose();

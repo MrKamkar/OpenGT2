@@ -20,11 +20,15 @@ import {
 } from '../physics';
 import type { RenderMode } from './carRenderer';
 import type {
+  CarViewerCanvasInputTarget,
   CarViewerGlContextLike,
   CarViewerPixelSample,
+  CarViewerPointerEventLike,
   CarViewerRafScheduler,
+  CarViewerWheelEventLike,
 } from './carViewerSession';
 import { ChaseCamera, type ChaseCameraPresetId } from './chaseCamera';
+import { FreeCamera } from './freecam';
 import {
   DriveRenderer,
   type DriveRendererOptions,
@@ -60,6 +64,7 @@ export interface DriveTelemetrySnapshot {
   readonly maxSlipAngleDeg: number;
   readonly wallCollisionCount: number;
   readonly cameraPreset: ChaseCameraPresetId;
+  readonly debugFreeCamActive: boolean;
   readonly transmissionMode: TransmissionMode;
   readonly paused: boolean;
   readonly muted: boolean;
@@ -91,6 +96,7 @@ export interface DriveSessionSnapshot {
   readonly wireframe: boolean;
   readonly transmissionMode: TransmissionMode;
   readonly cameraPreset: ChaseCameraPresetId;
+  readonly debugFreeCamActive: boolean;
   readonly paused: boolean;
   readonly muted: boolean;
   readonly loading: boolean;
@@ -110,6 +116,8 @@ export interface DriveSessionSnapshot {
 export interface DriveSessionOptions {
   readonly glContext: CarViewerGlContextLike;
   readonly gl?: WebGL2DriveRendererContext;
+  readonly canvas?: CarViewerCanvasInputTarget;
+  readonly debugMode?: boolean;
   readonly inputManager: InputManager;
   readonly assetRepository: AssetRepository;
   readonly gamepadProvider?: GamepadProvider;
@@ -302,6 +310,8 @@ export function findTrackSpawnPose(
 export class DriveSession {
   private readonly glContext: CarViewerGlContextLike;
   private readonly gl: WebGL2DriveRendererContext;
+  private readonly canvas: CarViewerCanvasInputTarget | undefined;
+  private readonly debugMode: boolean;
   private readonly inputManager: InputManager;
   private readonly assetRepository: AssetRepository;
   private readonly controlsAdapter: DriveControlAdapter;
@@ -316,6 +326,7 @@ export class DriveSession {
   private readonly onStatsUpdate: ((stats: DriveDebugStats) => void) | undefined;
 
   public readonly camera = new ChaseCamera();
+  public readonly freeCamera = new FreeCamera({ moveSpeedMps: 20 });
 
   private renderer: DriveRenderer | null = null;
   private carEntry: CarCatalogEntry | null = null;
@@ -368,10 +379,55 @@ export class DriveSession {
   };
   private glErrorCount = 0;
   private readonly removeContextListener: (() => void) | null = null;
+  private debugFreeCamActive = false;
+  private prevDebugFreeCamKeyDown = false;
+  private readonly activePointers = new Map<number, { x: number; y: number }>();
+
+  private readonly handlePointerDown = (event: CarViewerPointerEventLike): void => {
+    if (this.disposed || !this.running || !this.debugFreeCamActive) {
+      return;
+    }
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    this.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  };
+
+  private readonly handlePointerMove = (event: CarViewerPointerEventLike): void => {
+    if (this.disposed || !this.running || !this.debugFreeCamActive) {
+      return;
+    }
+    const prev = this.activePointers.get(event.pointerId);
+    if (prev === undefined) {
+      return;
+    }
+    if (this.activePointers.size === 1) {
+      const dx = event.clientX - prev.x;
+      const dy = event.clientY - prev.y;
+      prev.x = event.clientX;
+      prev.y = event.clientY;
+      const viewportHeight = Math.max(1, this.glContext.getSize().height);
+      this.freeCamera.lookByPixels(dx, dy, viewportHeight);
+    }
+  };
+
+  private readonly handlePointerUp = (event: CarViewerPointerEventLike): void => {
+    this.activePointers.delete(event.pointerId);
+  };
+
+  private readonly handleWheel = (event: CarViewerWheelEventLike): void => {
+    if (this.disposed || !this.running || !this.debugFreeCamActive) {
+      return;
+    }
+    event.preventDefault();
+    this.freeCamera.adjustSpeedByWheel(event.deltaY);
+  };
 
   public constructor(options: DriveSessionOptions) {
     this.glContext = options.glContext;
     this.gl = options.gl ?? (options.glContext.gl as unknown as WebGL2DriveRendererContext);
+    this.canvas = options.canvas;
+    this.debugMode = options.debugMode === true;
     this.inputManager = options.inputManager;
     this.assetRepository = options.assetRepository;
     this.controlsAdapter = new DriveControlAdapter({
@@ -387,6 +443,14 @@ export class DriveSession {
     this.onTelemetryUpdate = options.onTelemetryUpdate;
     this.onStatsUpdate = options.onStatsUpdate;
     this.contextLost = this.glContext.isContextLost();
+
+    if (this.canvas !== undefined) {
+      this.canvas.addEventListener('pointerdown', this.handlePointerDown);
+      this.canvas.addEventListener('pointermove', this.handlePointerMove);
+      this.canvas.addEventListener('pointerup', this.handlePointerUp);
+      this.canvas.addEventListener('pointercancel', this.handlePointerUp);
+      this.canvas.addEventListener('wheel', this.handleWheel, { passive: false });
+    }
 
     if (typeof this.glContext.addContextListener === 'function') {
       this.removeContextListener = this.glContext.addContextListener({
@@ -419,6 +483,14 @@ export class DriveSession {
 
   public pause(): void {
     this.pausedByContextLoss = false;
+    if (this.debugFreeCamActive) {
+      this.debugFreeCamActive = false;
+      this.activePointers.clear();
+      this.inputManager.releaseAll();
+      this.controlsAdapter.resetLatches();
+      this.inputManager.setContext('race');
+    }
+    this.prevDebugFreeCamKeyDown = false;
     if (!this.running) {
       return;
     }
@@ -478,6 +550,45 @@ export class DriveSession {
     this.emitStateChange();
     this.emitTelemetry();
     return preset;
+  }
+
+  /**
+   * Toggles spectator `FreeCamera` inspection mode in Drive Mode (active ONLY when `debugMode === true`).
+   * Releases held inputs and latches cleanly across `'race' <-> 'freecam'` while freezing physics.
+   */
+  public setDebugFreeCam(enabled: boolean): void {
+    if (!this.debugMode || this.disposed || this.debugFreeCamActive === enabled) {
+      return;
+    }
+    this.activePointers.clear();
+    this.inputManager.releaseAll();
+    this.controlsAdapter.resetLatches();
+
+    if (enabled) {
+      const eye = this.camera.getPosition();
+      const target = this.camera.getTarget();
+      const dx = target[0] - eye[0];
+      const dy = target[1] - eye[1];
+      const dz = target[2] - eye[2];
+      const len = Math.hypot(dx, dy, dz);
+      const yaw = len > 1e-6 ? Math.atan2(-dx, -dz) : 0;
+      const pitch =
+        len > 1e-6 ? Math.asin(Math.max(-1, Math.min(1, dy / len))) : 0;
+      this.freeCamera.setPose(eye, yaw, pitch);
+      this.inputManager.setContext('freecam');
+      this.debugFreeCamActive = true;
+    } else {
+      this.inputManager.setContext('race');
+      this.debugFreeCamActive = false;
+    }
+
+    this.renderCurrentFrame();
+    this.emitStateChange();
+    this.emitTelemetry();
+  }
+
+  public toggleDebugFreeCam(): void {
+    this.setDebugFreeCam(!this.debugFreeCamActive);
   }
 
   public resetCar(): void {
@@ -710,6 +821,22 @@ export class DriveSession {
       Number.isFinite(dtSeconds) && dtSeconds > 0
         ? Math.min(dtSeconds, MAX_FRAME_DT_SECONDS)
         : 0;
+
+    if (this.debugMode) {
+      const keyFDown = this.inputManager.isCodePressed('KeyF');
+      if (keyFDown && !this.prevDebugFreeCamKeyDown) {
+        this.toggleDebugFreeCam();
+      }
+      this.prevDebugFreeCamKeyDown = keyFDown;
+    }
+
+    if (this.debugFreeCamActive) {
+      this.freeCamera.updateFromInput(this.inputManager, safeDt);
+      this.renderCurrentFrame(this.simulation?.getPose());
+      this.emitTelemetry();
+      return;
+    }
+
     const currentSpeedMps = this.simulation?.getSnapshot().speedMps ?? 0;
     const frameInput = this.controlsAdapter.step(safeDt, currentSpeedMps);
     this.gamepadConnected = frameInput.gamepadConnected;
@@ -773,9 +900,9 @@ export class DriveSession {
     const safeW = Math.max(1, width);
     const safeH = Math.max(1, height);
 
-    this.camera.setAspect(
-      this.renderMode === 'ps1' ? DEFAULT_PS1_DISPLAY_ASPECT : safeW / safeH,
-    );
+    const aspect = this.renderMode === 'ps1' ? DEFAULT_PS1_DISPLAY_ASPECT : safeW / safeH;
+    this.camera.setAspect(aspect);
+    this.freeCamera.setAspect(aspect);
 
     const simSnapshot = this.simulation.getSnapshot();
     const wheelStates: DriveWheelRenderTuple = [
@@ -801,8 +928,9 @@ export class DriveSession {
       },
     ];
     const pose = poseOverride ?? simSnapshot.pose;
+    const activeCamera = this.debugFreeCamActive ? this.freeCamera : this.camera;
     this.lastRenderStats = renderer.render(
-      this.camera,
+      activeCamera,
       pose,
       this.activePhysicsSpec.comHeightMeters,
       safeW,
@@ -851,6 +979,7 @@ export class DriveSession {
         maxSlipAngleDeg: 0,
         wallCollisionCount: 0,
         cameraPreset: this.camera.getPresetId(),
+        debugFreeCamActive: this.debugFreeCamActive,
         transmissionMode: this.transmissionMode,
         paused: this.paused,
         muted: this.muted,
@@ -888,6 +1017,7 @@ export class DriveSession {
       maxSlipAngleDeg: maxSlipAngleRad * RAD_TO_DEG,
       wallCollisionCount: snap.wallCollisionCount,
       cameraPreset: this.camera.getPresetId(),
+      debugFreeCamActive: this.debugFreeCamActive,
       transmissionMode: this.transmissionMode,
       paused: this.paused,
       muted: this.muted,
@@ -911,6 +1041,7 @@ export class DriveSession {
       wireframe: this.wireframe,
       transmissionMode: this.transmissionMode,
       cameraPreset: this.camera.getPresetId(),
+      debugFreeCamActive: this.debugFreeCamActive,
       paused: this.paused,
       muted: this.muted,
       loading: this.loading,
@@ -1027,6 +1158,13 @@ export class DriveSession {
     }
     this.disposed = true;
     this.pause();
+    if (this.canvas !== undefined) {
+      this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
+      this.canvas.removeEventListener('pointermove', this.handlePointerMove);
+      this.canvas.removeEventListener('pointerup', this.handlePointerUp);
+      this.canvas.removeEventListener('pointercancel', this.handlePointerUp);
+      this.canvas.removeEventListener('wheel', this.handleWheel);
+    }
     this.removeContextListener?.();
     this.loadGeneration += 1;
     if (this.activeLoadAbort !== null) {

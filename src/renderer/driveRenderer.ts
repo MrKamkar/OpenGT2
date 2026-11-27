@@ -3,7 +3,6 @@ import { type IndexedImage, decodeIndexedImageToRgba } from '../formats/ps1';
 import type { TrackModel } from '../formats/track';
 import type { VehiclePose } from '../physics';
 import type { RenderMode, SetCarOptions, WebGL2CarRendererContext } from './carRenderer';
-import type { ChaseCamera } from './chaseCamera';
 import { extractFrustumPlanes, isTrackBoxInFrustum } from './frustum';
 import { HdCarTextureArray } from './hdPipeline';
 import { type IndexedTextureHandle, uploadIndexedTexture } from './indexedTexture';
@@ -72,6 +71,10 @@ export const EMPTY_DRIVE_RENDER_STATS: DriveRenderStats = Object.freeze({
   drawCalls: 0,
   renderedTriangles: 0,
 });
+
+export interface DriveCameraLike {
+  getViewProjectionMatrix(): Float32Array;
+}
 
 export interface DriveRendererOptions {
   readonly initialMode?: RenderMode;
@@ -1045,7 +1048,7 @@ export class DriveRenderer {
   }
 
   public render(
-    camera: ChaseCamera,
+    camera: DriveCameraLike,
     carPose: VehiclePose,
     comHeightMeters: number,
     viewportWidth: number,

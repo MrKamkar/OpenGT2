@@ -364,9 +364,22 @@ test.describe('OpenGT2 M9.9 Drive Mode Integration & Recovery', () => {
       );
       expect(speedAfterArrow).toBeGreaterThan(10);
 
-      // 3. Cycle camera preset with KeyC, toggle Pause with KeyP / Escape, and reset with KeyR.
+      // 3. Cycle camera preset with KeyC, verify ?debug=1 Free Cam toggle (UI + KeyF), toggle Pause, and reset with KeyR.
       await page.keyboard.press('KeyC', { delay: 80 });
       await expect(page.locator('[data-testid="drive-hud-camera"]')).toHaveText('Chase Close');
+
+      const freeCamCheckbox = page.locator('[data-testid="drive-freecam-toggle"]');
+      await freeCamCheckbox.click();
+      await expect(page.locator('[data-testid="drive-hud-camera"]')).toHaveText('Debug Free Cam');
+      await expect
+        .poll(async () => page.evaluate(() => window.__drive?.getSnapshot().debugFreeCamActive))
+        .toBe(true);
+
+      await page.keyboard.press('KeyF', { delay: 80 });
+      await expect(page.locator('[data-testid="drive-hud-camera"]')).toHaveText('Chase Close');
+      await expect
+        .poll(async () => page.evaluate(() => window.__drive?.getSnapshot().debugFreeCamActive))
+        .toBe(false);
 
       await page.keyboard.press('KeyP', { delay: 80 });
       await expect(page.locator('[data-testid="drive-pause-overlay"]')).toBeVisible();

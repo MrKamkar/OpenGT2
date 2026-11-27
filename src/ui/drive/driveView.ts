@@ -471,6 +471,14 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
   wireCheck.dataset['testid'] = 'drive-wireframe-toggle';
   wireCheckLabel.append(wireCheck, document.createTextNode('Wireframe overlay'));
 
+  const freeCamCheckLabel = el('label', 'ogt2-viewer-check ogt2-viewer-debug-wireframe');
+  const freeCamCheck = document.createElement('input');
+  freeCamCheck.id = 'ogt2-drive-freecam';
+  freeCamCheck.name = 'driveFreeCam';
+  freeCamCheck.type = 'checkbox';
+  freeCamCheck.dataset['testid'] = 'drive-freecam-toggle';
+  freeCamCheckLabel.append(freeCamCheck, document.createTextNode('Free Cam (F)'));
+
   const debugList = el('dl', 'ogt2-viewer-debug-list');
   const addDebugRow = (labelText: string, testId: string, initial = '0'): HTMLElement => {
     const dt = el('dt', undefined, labelText);
@@ -489,7 +497,7 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
   dbgGl.classList.add('ogt2-viewer-debug-gl');
   const dbgGpu = addDebugRow('GPU Handles', 'drive-debug-gpu', '0');
 
-  debugPanel.append(debugHeader, wireCheckLabel, debugList);
+  debugPanel.append(debugHeader, wireCheckLabel, freeCamCheckLabel, debugList);
 
   workspace.append(drawer, centerStage, debugPanel);
   hud.append(topbar, workspace);
@@ -726,6 +734,11 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
     refocusCanvas(wireCheck);
   });
 
+  freeCamCheck.addEventListener('change', () => {
+    session.setDebugFreeCam(freeCamCheck.checked);
+    refocusCanvas(freeCamCheck);
+  });
+
   dynoToggleBtn.addEventListener('click', () => {
     dynoOpen = !dynoOpen;
     dynoBody.hidden = !dynoOpen;
@@ -753,10 +766,13 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
     ps1Box.hidden = snapshot.renderMode !== 'ps1';
     resSelect.value = `${String(snapshot.ps1Width)}x${String(snapshot.ps1Height)}`;
     wireCheck.checked = snapshot.wireframe;
+    freeCamCheck.checked = snapshot.debugFreeCamActive;
     pauseBtn.textContent = snapshot.paused ? 'Resume (P)' : 'Pause (P)';
     pauseOverlay.hidden = !snapshot.paused || !snapshot.ready;
 
-    camBadgeEl.textContent = CHASE_CAMERA_PRESETS[snapshot.cameraPreset].label;
+    camBadgeEl.textContent = snapshot.debugFreeCamActive
+      ? 'Debug Free Cam'
+      : CHASE_CAMERA_PRESETS[snapshot.cameraPreset].label;
     transBadgeEl.textContent = snapshot.transmissionMode === 'auto' ? 'AUTO' : 'MANUAL';
 
     renderPaintSwatches(snapshot);
@@ -805,7 +821,9 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
     const redline = isRedlineRpm(telemetry.engineRpm, telemetry.redlineRpm);
     rpmBarFill.classList.toggle('is-redline', redline);
 
-    camBadgeEl.textContent = CHASE_CAMERA_PRESETS[telemetry.cameraPreset].label;
+    camBadgeEl.textContent = telemetry.debugFreeCamActive
+      ? 'Debug Free Cam'
+      : CHASE_CAMERA_PRESETS[telemetry.cameraPreset].label;
     transBadgeEl.textContent = telemetry.transmissionMode === 'auto' ? 'AUTO' : 'MANUAL';
 
     if (dynoOpen && activeDynoCurve !== null) {

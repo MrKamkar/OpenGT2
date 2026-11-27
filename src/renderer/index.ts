@@ -216,6 +216,7 @@ export {
   DEFAULT_CHASE_CAMERA_NEAR,
 } from './chaseCamera';
 export {
+  type DriveCameraLike,
   DriveRenderer,
   EMPTY_DRIVE_RENDER_STATS,
   buildCarWorldModelMatrix,

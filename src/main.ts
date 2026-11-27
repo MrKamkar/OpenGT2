@@ -485,6 +485,8 @@ export function initApp(): void {
           let driveHandleRef: DriveViewHandle | null = null;
           const dSession = new DriveSession({
             glContext,
+            canvas,
+            debugMode,
             inputManager,
             assetRepository: repo,
             initialMode: 'hd',
