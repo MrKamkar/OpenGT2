@@ -10,3 +10,4 @@ export * from './drivetrain';
 export * from './tyres';
 export * from './vehicleSim';
 export * from './driveControls';
+export * from './benchmark';

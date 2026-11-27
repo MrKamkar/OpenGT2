@@ -287,6 +287,7 @@ export function stepDrivetrain(
   const totalRatio = gearRatio * spec.drivetrain.finalDriveRatio;
   const shaftOmega = computeDrivenShaftOmega(spec, wheelAngularSpeeds, totalRatio);
   const engineOmega = state.engineRpm * RPM_TO_RAD_S;
+  const lockThresholdRpm = spec.engine.idleRpm * 0.95;
 
   let clutchEngagement = 0;
   const holdingStillWithBrake =
@@ -294,7 +295,7 @@ export function stepDrivetrain(
 
   if (state.gear !== 0 && !holdingStillWithBrake) {
     const shaftRpm = shaftOmega * RAD_S_TO_RPM;
-    if (shaftRpm >= spec.engine.idleRpm * 0.95) {
+    if (shaftRpm >= lockThresholdRpm) {
       clutchEngagement = 1.0;
     } else {
       const rpmLift = clamp(
@@ -310,16 +311,32 @@ export function stepDrivetrain(
   let clutchTorqueNm = 0;
   if (clutchEngagement > 0) {
     const slipOmega = engineOmega - shaftOmega;
-    const rawClutchTorque =
-      slipOmega * CLUTCH_COUPLING_GAIN_NM_S_PER_RAD * clutchEngagement;
-    // Also transmit driver combustion torque smoothly during locked engagement
-    const blendedTorque =
-      rawClutchTorque + netEngineInternalTorqueNm * clutchEngagement * 0.85;
-    clutchTorqueNm = clamp(
-      blendedTorque,
-      -spec.drivetrain.clutchMaxTorqueNm,
-      spec.drivetrain.clutchMaxTorqueNm,
-    );
+    const ratioSq = Math.max(1, totalRatio * totalRatio);
+    const safeDt = Math.max(dt, 1e-4);
+    const minWheelInertia = Math.min(spec.wheels[0].inertiaKgM2, spec.wheels[2].inertiaKgM2);
+    const maxStableGain =
+      (0.35 * Math.max(0.2, minWheelInertia)) /
+      (0.5 * ratioSq * Math.max(0.5, spec.drivetrain.drivetrainEfficiency) * safeDt);
+    const effectiveClutchGain = Math.min(CLUTCH_COUPLING_GAIN_NM_S_PER_RAD, maxStableGain);
+
+    if (clutchEngagement >= 0.95) {
+      const rawClutchTorque = slipOmega * effectiveClutchGain;
+      // Transmit full net engine torque once locked; drivetrainEfficiency handles mechanical losses
+      const blendedTorque = netEngineInternalTorqueNm + rawClutchTorque;
+      clutchTorqueNm = clamp(
+        blendedTorque,
+        -spec.drivetrain.clutchMaxTorqueNm,
+        spec.drivetrain.clutchMaxTorqueNm,
+      );
+    } else {
+      const rawClutchTorque = Math.max(0, slipOmega) * effectiveClutchGain * clutchEngagement;
+      const blendedTorque = netEngineInternalTorqueNm * clutchEngagement + rawClutchTorque;
+      clutchTorqueNm = clamp(
+        blendedTorque,
+        -spec.drivetrain.clutchMaxTorqueNm,
+        spec.drivetrain.clutchMaxTorqueNm,
+      );
+    }
   }
   state.clutchTorqueNm = clutchTorqueNm;
 
@@ -328,9 +345,9 @@ export function stepDrivetrain(
   let nextEngineOmega =
     engineOmega + (flywheelTorqueNm / spec.engine.flywheelInertiaKgM2) * dt;
 
-  // Keep locked clutch smoothly coupled to wheel speed when shaft RPM exceeds idle
+  // Keep locked clutch smoothly coupled to wheel speed across the full lockup band
   const shaftRpm = shaftOmega * RAD_S_TO_RPM;
-  if (clutchEngagement >= 0.95 && shaftRpm > spec.engine.idleRpm) {
+  if (clutchEngagement >= 0.95 && shaftRpm >= lockThresholdRpm) {
     nextEngineOmega = lerp(nextEngineOmega, shaftOmega, 0.35);
   }
 

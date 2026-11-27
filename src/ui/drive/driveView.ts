@@ -4,6 +4,7 @@ import {
   type GtdbRegionVariant,
   selectDefaultGtdbVariant,
 } from '../../formats/gtdb';
+import { type DynoCurveResult } from '../../physics';
 import {
   CHASE_CAMERA_PRESETS,
   type DriveDebugStats,
@@ -28,6 +29,11 @@ import {
   formatSpeedKph,
   isRedlineRpm,
 } from './driveModel';
+import {
+  buildDynoCurveFromSpec,
+  formatDynoSummary,
+  renderDynoChart,
+} from './dynoChart';
 
 export interface DriveViewMountOptions {
   readonly container: HTMLElement;
@@ -110,6 +116,10 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
   let catalogAbort: AbortController | null = null;
   let drawerCollapsed = false;
   let currentPaused = false;
+  let dynoOpen = false;
+  let activeDynoCurve: DynoCurveResult | null = null;
+  let lastDynoSpecRef: unknown = null;
+  let lastEngineRpm = 0;
 
   const refocusCanvas = (controlToBlur?: HTMLElement): void => {
     controlToBlur?.blur();
@@ -303,9 +313,38 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
   pauseBtn.dataset['testid'] = 'drive-pause-btn';
   actionRow.append(cameraBtn, resetCarBtn, pauseBtn);
 
-  // Dyno panel slot (expanded in M9.10)
+  // Dyno panel slot (M9.10)
   const dynoSlot = el('div', 'ogt2-drive-dyno-slot');
   dynoSlot.dataset['testid'] = 'drive-dyno-slot';
+  const dynoToggleBtn = el('button', 'ogt2-button ogt2-button-subtle', 'Dyno Chart');
+  dynoToggleBtn.type = 'button';
+  dynoToggleBtn.dataset['testid'] = 'drive-dyno-toggle';
+  const dynoBody = el('div', 'ogt2-drive-dyno-body');
+  dynoBody.dataset['testid'] = 'drive-dyno-body';
+  dynoBody.hidden = true;
+  const dynoCanvas = document.createElement('canvas');
+  dynoCanvas.className = 'ogt2-drive-dyno-canvas';
+  dynoCanvas.width = 248;
+  dynoCanvas.height = 148;
+  dynoCanvas.dataset['testid'] = 'drive-dyno-canvas';
+  dynoCanvas.setAttribute('aria-label', 'Engine torque and power dyno chart');
+  const dynoMeta = el('p', 'ogt2-drive-dyno-meta', 'Load a car to inspect dyno data.');
+  dynoMeta.dataset['testid'] = 'drive-dyno-meta';
+  dynoBody.append(dynoCanvas, dynoMeta);
+  dynoSlot.append(dynoToggleBtn, dynoBody);
+
+  const syncDynoPanel = (): void => {
+    if (activeDynoCurve === null) {
+      dynoMeta.textContent = 'Load a car to inspect dyno data.';
+      return;
+    }
+    const summary = formatDynoSummary(activeDynoCurve);
+    dynoMeta.textContent =
+      `Peak Power: ${summary.peakPsLabel} (${summary.peakKwLabel}) · Peak Torque: ${summary.peakTorqueLabel} · ${summary.massAndRatioLabel}`;
+    if (dynoOpen) {
+      renderDynoChart(dynoCanvas, activeDynoCurve, lastEngineRpm);
+    }
+  };
 
   const controlsHint = el(
     'p',
@@ -687,6 +726,14 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
     refocusCanvas(wireCheck);
   });
 
+  dynoToggleBtn.addEventListener('click', () => {
+    dynoOpen = !dynoOpen;
+    dynoBody.hidden = !dynoOpen;
+    dynoToggleBtn.classList.toggle('is-active', dynoOpen);
+    syncDynoPanel();
+    refocusCanvas(dynoToggleBtn);
+  });
+
   void loadVariantCatalog(activeVariant);
 
   const updateState = (snapshot: DriveSessionSnapshot): void => {
@@ -713,6 +760,14 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
     transBadgeEl.textContent = snapshot.transmissionMode === 'auto' ? 'AUTO' : 'MANUAL';
 
     renderPaintSwatches(snapshot);
+    if (snapshot.activePhysicsSpec !== lastDynoSpecRef) {
+      lastDynoSpecRef = snapshot.activePhysicsSpec;
+      activeDynoCurve =
+        snapshot.activePhysicsSpec !== null
+          ? buildDynoCurveFromSpec(snapshot.activePhysicsSpec)
+          : null;
+      syncDynoPanel();
+    }
 
     if (snapshot.loading) {
       progressBanner.hidden = false;
@@ -739,6 +794,7 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
     if (disposed) {
       return;
     }
+    lastEngineRpm = telemetry.engineRpm;
     speedValueEl.textContent = formatSpeedKph(telemetry.speedKph);
     gearValueEl.textContent = formatGearLabel(telemetry.gear);
     timerValueEl.textContent = formatElapsedTime(telemetry.elapsedSeconds);
@@ -751,6 +807,10 @@ export function mountDriveView(options: DriveViewMountOptions): DriveViewHandle 
 
     camBadgeEl.textContent = CHASE_CAMERA_PRESETS[telemetry.cameraPreset].label;
     transBadgeEl.textContent = telemetry.transmissionMode === 'auto' ? 'AUTO' : 'MANUAL';
+
+    if (dynoOpen && activeDynoCurve !== null) {
+      renderDynoChart(dynoCanvas, activeDynoCurve, lastEngineRpm);
+    }
 
     if (debugMode) {
       dbgGrounded.textContent = `${String(telemetry.groundedWheels)}/4`;

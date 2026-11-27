@@ -19,8 +19,8 @@ import {
 } from './math';
 import type { PhysicsQuat, PhysicsVec3 } from './types';
 
-/** Default linear velocity damping rate (1/s) representing parasitic air/mechanical losses. */
-export const DEFAULT_LINEAR_DAMPING = 0.02;
+/** Default minimal linear velocity damping rate (1/s); aero drag and rolling resistance handle real losses. */
+export const DEFAULT_LINEAR_DAMPING = 0.001;
 
 /** Default angular velocity damping rate (1/s) stabilizing pitch/roll/yaw oscillation. */
 export const DEFAULT_ANGULAR_DAMPING = 0.35;

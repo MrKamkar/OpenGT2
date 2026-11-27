@@ -16,3 +16,9 @@ export {
   type DriveViewHandle,
   type DriveViewMountOptions,
 } from './driveView';
+export {
+  buildDynoCurveFromSpec,
+  formatDynoSummary,
+  renderDynoChart,
+  type DynoChartSummary,
+} from './dynoChart';
