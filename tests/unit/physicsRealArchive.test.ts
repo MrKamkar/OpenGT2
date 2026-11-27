@@ -23,8 +23,12 @@ import {
 import {
   CollisionIndex,
   FIXED_DT,
+  RAD_S_TO_RPM,
   VehicleSimulation,
   buildCarPhysicsSpec,
+  createFlatAsphaltCollisionIndex,
+  getDrivenWheelRadiusMeters,
+  getGearRatio,
 } from '../../src/physics';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -457,5 +461,87 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
     expect(totalCheckedBarriers).toBeGreaterThan(500);
     expect(inwardBarriers / totalCheckedBarriers).toBeGreaterThanOrEqual(0.99);
     expect(rammedTracks).toBeGreaterThanOrEqual(2);
+  }, 60_000);
+
+  it('keeps high-power (~550 PS) cars in low gears (1-2, never 4-5) across 40-80 km/h under full throttle', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    expect(preferred).toBeDefined();
+
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const assetIndex = buildCarAssetIndex(allEntries);
+    const highPowerCar = catalog
+      .listCars()
+      .find(
+        (c) =>
+          c.engine !== null &&
+          c.dimensions !== null &&
+          c.gearboxes.length > 0 &&
+          c.engine.ps >= 480 &&
+          c.engine.ps <= 780 &&
+          c.dimensions.weightKg <= 1350 &&
+          assetIndex.resolve(c.carId).dayModel !== null,
+      );
+    expect(highPowerCar).toBeDefined();
+
+    const carAssets = assetIndex.resolve(highPowerCar!.carId);
+    const cdoBytes = await gunzip(
+      await cachedSource.read(
+        carAssets.dayModel!.address,
+        carAssets.dayModel!.address + carAssets.dayModel!.size,
+      ),
+    );
+    const spec = buildCarPhysicsSpec(highPowerCar!, {
+      carModel: buildCarModel(parseCdo(cdoBytes)),
+    });
+    const sim = new VehicleSimulation(spec, createFlatAsphaltCollisionIndex(6000, 40), {
+      initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      transmissionMode: 'auto',
+    });
+
+    for (let i = 0; i < 18; i += 1) {
+      sim.stepFixed({ throttle: 0, brake: 0, handbrake: 1, steer: 0 }, FIXED_DT);
+    }
+
+    const gearsInBand: number[] = [];
+    let checkedHookedRpm = 0;
+    const drivenRadius = getDrivenWheelRadiusMeters(spec);
+
+    for (let step = 0; step < 1200; step += 1) {
+      sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+      const snap = sim.getSnapshot();
+      if (snap.speedKph >= 40 && snap.speedKph <= 80) {
+        gearsInBand.push(snap.gear);
+      }
+      const rearSlip = Math.abs(snap.wheels[2].slipRatio);
+      if (snap.speedKph >= 40 && rearSlip < 0.12 && snap.gear >= 1) {
+        const expectedRpm =
+          (snap.forwardSpeedMps / drivenRadius) *
+          getGearRatio(spec, snap.gear) *
+          spec.drivetrain.finalDriveRatio *
+          RAD_S_TO_RPM;
+        if (expectedRpm > spec.engine.idleRpm * 1.2) {
+          const relErr = Math.abs(snap.engineRpm - expectedRpm) / expectedRpm;
+          expect(relErr).toBeLessThanOrEqual(0.15);
+          checkedHookedRpm += 1;
+        }
+      }
+      if (snap.speedKph >= 150) {
+        break;
+      }
+    }
+
+    expect(gearsInBand.length).toBeGreaterThan(20);
+    for (const g of gearsInBand) {
+      expect(g).toBeGreaterThanOrEqual(1);
+      expect(g).toBeLessThanOrEqual(2);
+    }
+    expect(checkedHookedRpm).toBeGreaterThan(10);
   }, 60_000);
 });

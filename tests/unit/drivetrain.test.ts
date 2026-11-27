@@ -314,4 +314,47 @@ describe('Drivetrain model (M9.5)', () => {
     );
     expect(lsdState.wheelDriveTorquesNm[3]).toBeGreaterThan(lsdState.wheelDriveTorquesNm[2]);
   });
+
+  it('blocks automatic upshifts during low-speed wheelspin and shifts only once road speed matches RPM', () => {
+    const spec = createTestSpec();
+    const state = createDrivetrainState(spec, 'auto');
+
+    // Pin driven wheels at redline-equivalent spin while chassis road speed is only 5 m/s (18 km/h)
+    const wheelSpinOmega =
+      ((spec.engine.redlineRpm * Math.PI) / 30) /
+      (spec.drivetrain.gearRatios[0]! * spec.drivetrain.finalDriveRatio);
+
+    for (let i = 0; i < 120; i += 1) {
+      stepDrivetrain(
+        state,
+        spec,
+        { throttle: 1, brake: 0, handbrake: 0, steer: 0 },
+        [5 / spec.wheels[0].radiusMeters, 5 / spec.wheels[1].radiusMeters, wheelSpinOmega, wheelSpinOmega],
+        5.0,
+        FIXED_DT,
+        1.8, // severe wheelspin slip ratio
+      );
+    }
+    expect(state.gear).toBe(1);
+
+    // Once traction hooks up (slipRatio = 0.08) and chassis speed matches ~95% of 1st-gear redline, upshift fires
+    const hookedSpeedMps =
+      ((spec.engine.redlineRpm * 0.95 * Math.PI) / 30) /
+      (spec.drivetrain.gearRatios[0]! * spec.drivetrain.finalDriveRatio) *
+      spec.wheels[2].radiusMeters;
+    const hookedOmega = hookedSpeedMps / spec.wheels[2].radiusMeters;
+
+    for (let i = 0; i < 40; i += 1) {
+      stepDrivetrain(
+        state,
+        spec,
+        { throttle: 1, brake: 0, handbrake: 0, steer: 0 },
+        [hookedOmega, hookedOmega, hookedOmega, hookedOmega],
+        hookedSpeedMps,
+        FIXED_DT,
+        0.08,
+      );
+    }
+    expect(state.gear).toBe(2);
+  });
 });

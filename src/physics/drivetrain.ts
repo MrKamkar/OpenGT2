@@ -17,6 +17,21 @@ export const AUTO_MIN_SHIFT_HYSTERESIS_RPM = 600;
 /** Minimum throttle input required to trigger an automatic upshift. */
 export const AUTO_UPSHIFT_MIN_THROTTLE = 0.2;
 
+/** Minimum fraction of upshift RPM that chassis road speed must reach before automatic upshift fires (SI assumption). */
+export const AUTO_UPSHIFT_ROAD_RPM_FRACTION = 0.9;
+
+/** Maximum driven-wheel longitudinal slip ratio magnitude allowed for automatic upshift (SI assumption). */
+export const AUTO_UPSHIFT_MAX_SLIP_RATIO = 0.35;
+
+/** Driven-wheel slip ratio above which launch traction modulation gently feathers excessive digital throttle (SI assumption). */
+export const LAUNCH_TRACTION_SLIP_THRESHOLD = 0.42;
+
+/** Minimum throttle multiplier applied by launch traction modulation under severe wheelspin (SI assumption). */
+export const LAUNCH_TRACTION_MIN_THROTTLE_SCALE = 0.52;
+
+/** Upper bound (kg·m^2) on flywheel inertia reflected into each driven wheel to damp single-frame spin spikes without bogging low-power launches. */
+export const MAX_REFLECTED_WHEEL_INERTIA_KG_M2 = 0.35;
+
 /** Maximum forward speed (m/s) below which automatic mode engages Reverse while braking. */
 export const REVERSE_ENGAGE_MAX_SPEED_MPS = 0.5;
 
@@ -116,6 +131,38 @@ export function getGearRatio(spec: CarPhysicsSpec, gear: number): number {
   return spec.drivetrain.gearRatios[gear - 1] ?? 0;
 }
 
+/**
+ * Computes the torque-split-weighted effective driven wheel radius (m) from E3 `CarModel` wheel specs.
+ */
+export function getDrivenWheelRadiusMeters(spec: CarPhysicsSpec): number {
+  const frontSplit = clamp(spec.drivetrain.frontTorqueSplit, 0, 1);
+  const rearSplit = 1 - frontSplit;
+  const frontRadius = 0.5 * (spec.wheels[0].radiusMeters + spec.wheels[1].radiusMeters);
+  const rearRadius = 0.5 * (spec.wheels[2].radiusMeters + spec.wheels[3].radiusMeters);
+  return Math.max(0.15, frontRadius * frontSplit + rearRadius * rearSplit);
+}
+
+/**
+ * Computes reflected engine flywheel rotational inertia (`kg·m^2`) seen at each driven wheel
+ * through the active gear, final drive, and clutch engagement (bounded for explicit Euler stability).
+ */
+export function computeReflectedWheelInertiaKgM2(
+  spec: CarPhysicsSpec,
+  gear: number,
+  clutchEngagement: number,
+): number {
+  if (gear === 0 || clutchEngagement <= 0) {
+    return 0;
+  }
+  const totalRatio = getGearRatio(spec, gear) * spec.drivetrain.finalDriveRatio;
+  const frontSplit = spec.drivetrain.frontTorqueSplit;
+  const drivenAxles = frontSplit > 0.01 && frontSplit < 0.99 ? 2 : 1;
+  const rawReflected =
+    (0.02 * spec.engine.flywheelInertiaKgM2 * totalRatio * totalRatio * clamp(clutchEngagement, 0, 1)) /
+    drivenAxles;
+  return clamp(rawReflected, 0, MAX_REFLECTED_WHEEL_INERTIA_KG_M2);
+}
+
 function computeDrivenShaftOmega(
   spec: CarPhysicsSpec,
   wheelAngularSpeeds: WheelSlotTuple<number>,
@@ -172,6 +219,7 @@ export function stepDrivetrain(
   wheelAngularSpeeds: WheelSlotTuple<number>,
   forwardSpeedMps: number,
   dt: number,
+  drivenWheelSlipRatio = 0,
 ): void {
   if (!Number.isFinite(dt) || dt <= 0) {
     return;
@@ -221,11 +269,19 @@ export function stepDrivetrain(
           spec.engine.idleRpm + 1000,
           spec.engine.redlineRpm * AUTO_UPSHIFT_RPM_FRACTION,
         );
+        const currTotalRatio =
+          Math.abs(getGearRatio(spec, state.gear)) * spec.drivetrain.finalDriveRatio;
+        const drivenRadius = getDrivenWheelRadiusMeters(spec);
+        const roadRpm =
+          (Math.max(0, forwardSpeedMps) / drivenRadius) * currTotalRatio * RAD_S_TO_RPM;
 
         if (
           state.gear < maxGear &&
           state.engineRpm >= upshiftRpm &&
-          throttle >= AUTO_UPSHIFT_MIN_THROTTLE
+          throttle >= AUTO_UPSHIFT_MIN_THROTTLE &&
+          forwardSpeedMps > 1.0 &&
+          roadRpm >= upshiftRpm * AUTO_UPSHIFT_ROAD_RPM_FRACTION &&
+          Math.abs(drivenWheelSlipRatio) <= AUTO_UPSHIFT_MAX_SLIP_RATIO
         ) {
           state.gear += 1;
           state.shiftCooldown = AUTO_SHIFT_COOLDOWN_SECONDS;
@@ -242,7 +298,9 @@ export function stepDrivetrain(
             upshiftRpm - AUTO_MIN_SHIFT_HYSTERESIS_RPM,
           );
 
-          if (state.engineRpm <= downshiftRpm) {
+          const effectiveDownshiftRpm =
+            forwardSpeedMps > 2.0 ? Math.min(state.engineRpm, roadRpm) : state.engineRpm;
+          if (effectiveDownshiftRpm <= downshiftRpm) {
             state.gear -= 1;
             state.shiftCooldown = AUTO_SHIFT_COOLDOWN_SECONDS;
           }
@@ -258,7 +316,7 @@ export function stepDrivetrain(
     state.revLimiterActive = false;
   }
 
-  // 3. Engine combustion + idle governor + engine braking
+  // 3. Engine combustion + idle governor + launch traction progression + engine braking
   const wotTorqueNm = sampleEngineTorqueNm(spec, state.engineRpm);
   let effectiveThrottle = throttle;
   if (throttle < IDLE_GOVERNOR_MAX_THROTTLE && state.engineRpm < spec.engine.idleRpm) {
@@ -268,6 +326,18 @@ export function stepDrivetrain(
       1,
     );
     effectiveThrottle = Math.max(throttle, idleErrorFrac * IDLE_GOVERNOR_MAX_THROTTLE);
+  }
+  if (
+    throttle > 0.45 &&
+    state.gear >= 1 &&
+    drivenWheelSlipRatio > LAUNCH_TRACTION_SLIP_THRESHOLD
+  ) {
+    const excess = clamp(
+      (drivenWheelSlipRatio - LAUNCH_TRACTION_SLIP_THRESHOLD) / 0.85,
+      0,
+      1,
+    );
+    effectiveThrottle *= lerp(1, LAUNCH_TRACTION_MIN_THROTTLE_SCALE, excess);
   }
 
   const combustionTorqueNm = state.revLimiterActive ? 0 : wotTorqueNm * effectiveThrottle;
@@ -287,7 +357,8 @@ export function stepDrivetrain(
   const totalRatio = gearRatio * spec.drivetrain.finalDriveRatio;
   const shaftOmega = computeDrivenShaftOmega(spec, wheelAngularSpeeds, totalRatio);
   const engineOmega = state.engineRpm * RPM_TO_RAD_S;
-  const lockThresholdRpm = spec.engine.idleRpm * 0.95;
+  const lockThresholdRpm =
+    spec.engine.idleRpm * 0.95 + (throttle > 0.2 ? 550 * throttle : 0);
 
   let clutchEngagement = 0;
   const holdingStillWithBrake =
@@ -345,10 +416,10 @@ export function stepDrivetrain(
   let nextEngineOmega =
     engineOmega + (flywheelTorqueNm / spec.engine.flywheelInertiaKgM2) * dt;
 
-  // Keep locked clutch smoothly coupled to wheel speed across the full lockup band
+  // Keep locked clutch tightly coupled to wheel speed across the full lockup band
   const shaftRpm = shaftOmega * RAD_S_TO_RPM;
   if (clutchEngagement >= 0.95 && shaftRpm >= lockThresholdRpm) {
-    nextEngineOmega = lerp(nextEngineOmega, shaftOmega, 0.35);
+    nextEngineOmega = lerp(nextEngineOmega, shaftOmega, 0.85);
   }
 
   const minEngineOmega = spec.engine.idleRpm * 0.7 * RPM_TO_RAD_S;

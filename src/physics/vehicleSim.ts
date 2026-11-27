@@ -2,6 +2,7 @@ import { type CarPhysicsSpec } from './carSpec';
 import { type CollisionIndex } from './collisionIndex';
 import {
   type DrivetrainState,
+  computeReflectedWheelInertiaKgM2,
   createDrivetrainState,
   stepDrivetrain,
 } from './drivetrain';
@@ -66,9 +67,11 @@ export const BRAKE_HOLD_DAMPING_RATE = 25.0;
 export interface WheelSimulationSnapshot {
   readonly grounded: boolean;
   readonly compression: number;
+  readonly suspensionDeltaMeters: number;
   readonly normalForce: number;
   readonly surfaceType: PhysicsSurfaceType;
   readonly angularSpeedRadS: number;
+  readonly spinAngleRad: number;
   readonly slipRatio: number;
   readonly slipAngleRad: number;
   readonly longitudinalForceN: number;
@@ -119,6 +122,7 @@ export class VehicleSimulation {
   private drivetrain: DrivetrainState;
 
   private wheelAngularSpeeds: [number, number, number, number] = [0, 0, 0, 0];
+  private wheelSpinAngles: [number, number, number, number] = [0, 0, 0, 0];
   private wheelSlipRatios: [number, number, number, number] = [0, 0, 0, 0];
   private wheelSlipAngles: [number, number, number, number] = [0, 0, 0, 0];
   private wheelLongForces: [number, number, number, number] = [0, 0, 0, 0];
@@ -182,6 +186,7 @@ export class VehicleSimulation {
     this.suspension = createInitialSuspensionStates(this.spec);
     this.drivetrain = createDrivetrainState(this.spec, this.drivetrain.transmissionMode);
     this.wheelAngularSpeeds = [0, 0, 0, 0];
+    this.wheelSpinAngles = [0, 0, 0, 0];
     this.wheelSlipRatios = [0, 0, 0, 0];
     this.wheelSlipAngles = [0, 0, 0, 0];
     this.wheelLongForces = [0, 0, 0, 0];
@@ -241,6 +246,11 @@ export class VehicleSimulation {
     // 2. Compute forward speed along chassis -Z and advance drivetrain
     const chassisForward = quatRotateVec3(this.body.orientation, VEC3_FORWARD);
     const forwardSpeedMps = vec3Dot(this.body.linearVelocity, chassisForward);
+    const frontSplit = this.spec.drivetrain.frontTorqueSplit;
+    const rearSplit = 1 - frontSplit;
+    const frontSlipAvg = (this.wheelSlipRatios[0] + this.wheelSlipRatios[1]) * 0.5;
+    const rearSlipAvg = (this.wheelSlipRatios[2] + this.wheelSlipRatios[3]) * 0.5;
+    const drivenSlipRatio = frontSlipAvg * frontSplit + rearSlipAvg * rearSplit;
 
     stepDrivetrain(
       this.drivetrain,
@@ -261,6 +271,13 @@ export class VehicleSimulation {
       ],
       forwardSpeedMps,
       dt,
+      drivenSlipRatio,
+    );
+
+    const reflectedInertia = computeReflectedWheelInertiaKgM2(
+      this.spec,
+      this.drivetrain.gear,
+      this.drivetrain.clutchEngagement,
     );
 
     // 3. Per-wheel tyre forces and spin integration
@@ -289,22 +306,29 @@ export class VehicleSimulation {
       const worldWheelFwd = quatRotateVec3(this.body.orientation, localFwd);
       const worldWheelRight = quatRotateVec3(this.body.orientation, localRight);
 
+      const isDrivenWheel = wheelSpec.axle === 'front' ? frontSplit > 0 : rearSplit > 0;
+      const isWheelSpinning = Math.abs(this.wheelSlipRatios[i] ?? 0) > 0.55;
+      const effectiveWheelInertia =
+        wheelSpec.inertiaKgM2 + (isDrivenWheel && isWheelSpinning ? reflectedInertia : 0);
+
       if (!susp.grounded || susp.normalForce <= 0) {
         this.wheelSlipRatios[i] = 0;
         this.wheelSlipAngles[i] = 0;
         this.wheelLongForces[i] = 0;
         this.wheelLatForces[i] = 0;
 
-        this.wheelAngularSpeeds[i] = stepWheelSpin(
+        const nextOmega = stepWheelSpin(
           this.wheelAngularSpeeds[i] ?? 0,
           driveTorque,
           brakeTorque,
           0,
           wheelSpec.radiusMeters,
-          wheelSpec.inertiaKgM2,
+          effectiveWheelInertia,
           0,
           dt,
         );
+        this.wheelAngularSpeeds[i] = nextOmega;
+        this.wheelSpinAngles[i] = ((this.wheelSpinAngles[i] ?? 0) + nextOmega * dt) % (Math.PI * 2);
         continue;
       }
 
@@ -346,16 +370,18 @@ export class VehicleSimulation {
       );
       applyWorldForceAtPoint(this.body, worldTyreForce, susp.contactPoint);
 
-      this.wheelAngularSpeeds[i] = stepWheelSpin(
+      const nextOmega = stepWheelSpin(
         this.wheelAngularSpeeds[i] ?? 0,
         driveTorque,
         brakeTorque,
         tyreOut.longitudinalForceN,
         wheelSpec.radiusMeters,
-        wheelSpec.inertiaKgM2,
+        effectiveWheelInertia,
         patchForwardSpeed,
         dt,
       );
+      this.wheelAngularSpeeds[i] = nextOmega;
+      this.wheelSpinAngles[i] = ((this.wheelSpinAngles[i] ?? 0) + nextOmega * dt) % (Math.PI * 2);
     }
 
     // 4. Gravity, aerodynamics, mild yaw-rate stability damping, and rigid-body integration
@@ -446,12 +472,17 @@ export class VehicleSimulation {
     const makeWheelSnap = (idx: 0 | 1 | 2 | 3): WheelSimulationSnapshot => {
       const susp = this.suspension[idx];
       const wheelSpec = this.spec.wheels[idx];
+      const staticComp = this.spec.suspension[wheelSpec.axle].staticCompressionMeters;
       return {
         grounded: susp.grounded,
         compression: susp.compression,
+        suspensionDeltaMeters: susp.grounded
+          ? susp.compression - staticComp
+          : -(this.spec.suspension[wheelSpec.axle].maxTravelMeters - staticComp),
         normalForce: susp.normalForce,
         surfaceType: susp.surfaceType,
         angularSpeedRadS: this.wheelAngularSpeeds[idx],
+        spinAngleRad: this.wheelSpinAngles[idx],
         slipRatio: this.wheelSlipRatios[idx],
         slipAngleRad: this.wheelSlipAngles[idx],
         longitudinalForceN: this.wheelLongForces[idx],
