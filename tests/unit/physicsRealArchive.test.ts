@@ -285,4 +285,177 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
     expect(Object.is(runA.finalSnap.engineRpm, runB.finalSnap.engineRpm)).toBe(true);
     expect(runA.finalSnap.gear).toBe(runB.finalSnap.gear);
   }, 60_000);
+
+  it('orients >= 99% of real subBlock98 barriers inward and keeps wall-ramming cars inside track bounds', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    expect(preferred).toBeDefined();
+
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const cars = catalog.listCars();
+    const fastCar = cars.find((c) => c.engine !== null && c.engine.ps >= 220) ?? cars[0]!;
+    const assetIndex = buildCarAssetIndex(allEntries);
+    const carAssets = assetIndex.resolve(fastCar.carId);
+    const cdoBytes = await gunzip(
+      await cachedSource.read(
+        carAssets.dayModel!.address,
+        carAssets.dayModel!.address + carAssets.dayModel!.size,
+      ),
+    );
+    const carSpec = buildCarPhysicsSpec(fastCar, { carModel: buildCarModel(parseCdo(cdoBytes)) });
+
+    const troEntries = allEntries
+      .filter(
+        (e) =>
+          e.kind === 'file' &&
+          e.path.toLowerCase().startsWith('crsobj/') &&
+          e.path.toLowerCase().endsWith('.tro.gz'),
+      )
+      .sort((a, b) => a.size - b.size);
+
+    let totalCheckedBarriers = 0;
+    let inwardBarriers = 0;
+    let rammedTracks = 0;
+
+    for (let t = 0; t < Math.min(5, troEntries.length); t += 1) {
+      const troEntry = troEntries[t]!;
+      const troBytes = await gunzip(
+        await cachedSource.read(troEntry.address, troEntry.address + troEntry.size),
+      );
+      const tro = parseTro(troBytes);
+      const mesh = buildCollisionMesh(tro);
+
+      // Verify barrier normals point inward toward adjacent ground triangle (or segment centroid fallback)
+      const segGroundSum = new Map<number, { sx: number; sz: number; n: number; tris: number[] }>();
+      for (let ti = 0; ti < mesh.triangleCount; ti += 1) {
+        if (mesh.surfaceTypes[ti] !== 0) continue;
+        const si = mesh.segmentIndices[ti] ?? 0;
+        const vb = ti * 9;
+        const cx = ((mesh.vertices[vb] ?? 0) + (mesh.vertices[vb + 3] ?? 0) + (mesh.vertices[vb + 6] ?? 0)) / 3;
+        const cz = ((mesh.vertices[vb + 2] ?? 0) + (mesh.vertices[vb + 5] ?? 0) + (mesh.vertices[vb + 8] ?? 0)) / 3;
+        const rec = segGroundSum.get(si) ?? { sx: 0, sz: 0, n: 0, tris: [] };
+        rec.sx += cx;
+        rec.sz += cz;
+        rec.n += 1;
+        rec.tris.push(ti);
+        segGroundSum.set(si, rec);
+      }
+
+      const tolSq = 0.05 * 0.05;
+      for (const b of mesh.wallBarriers) {
+        const g = segGroundSum.get(b.segmentIndex);
+        if (g === undefined || g.n === 0) continue;
+        const mx = (b.start.x + b.end.x) * 0.5;
+        const mz = (b.start.z + b.end.z) * 0.5;
+        let refX = 0;
+        let refZ = 0;
+        let adjCount = 0;
+        let hasPos = false;
+        let hasNeg = false;
+        for (const ti of g.tris) {
+          const vb = ti * 9;
+          const pts: readonly (readonly [number, number])[] = [
+            [mesh.vertices[vb] ?? 0, mesh.vertices[vb + 2] ?? 0],
+            [mesh.vertices[vb + 3] ?? 0, mesh.vertices[vb + 5] ?? 0],
+            [mesh.vertices[vb + 6] ?? 0, mesh.vertices[vb + 8] ?? 0],
+          ];
+          let hA = -1;
+          let hB = -1;
+          for (let k = 0; k < 3; k += 1) {
+            const [px, pz] = pts[k]!;
+            if (hA < 0 && (px - b.start.x) ** 2 + (pz - b.start.z) ** 2 <= tolSq) {
+              hA = k;
+              continue;
+            }
+            if (hB < 0 && (px - b.end.x) ** 2 + (pz - b.end.z) ** 2 <= tolSq) {
+              hB = k;
+            }
+          }
+          if (hA >= 0 && hB >= 0 && hA !== hB) {
+            const [ox, oz] = pts[3 - hA - hB]!;
+            const sideDot = (ox - mx) * b.normal.x + (oz - mz) * b.normal.z;
+            if (sideDot > 0.2) hasPos = true;
+            if (sideDot < -0.2) hasNeg = true;
+            refX += ox;
+            refZ += oz;
+            adjCount += 1;
+          }
+        }
+        // Skip double-sided barrier edges (e.g., road-to-grass-apron dividers with ground polygons on both sides).
+        if (adjCount === 0 || (hasPos && hasNeg)) continue;
+        const dot = (refX / adjCount - mx) * b.normal.x + (refZ / adjCount - mz) * b.normal.z;
+        totalCheckedBarriers += 1;
+        if (dot >= -0.05) {
+          inwardBarriers += 1;
+        }
+      }
+
+      // Run aggressive wall-ramming stress test on first 3 tracks with grounded spawn
+      if (rammedTracks >= 3) {
+        continue;
+      }
+      const idx = new CollisionIndex(mesh);
+      let spawnPos: { x: number; y: number; z: number } | null = null;
+      let spawnYaw = 0;
+      for (let si = 0; si < tro.segments.length; si += 1) {
+        const seg = tro.segments[si]!;
+        const nextSeg = tro.segments[seg.nextSegment] ?? tro.segments[(si + 1) % tro.segments.length]!;
+        const c0 = troRawToEngineVec3(seg.centerlineCenterRaw.x, seg.centerlineCenterRaw.y, seg.centerlineCenterRaw.z);
+        const c1 = troRawToEngineVec3(nextSeg.centerlineCenterRaw.x, nextSeg.centerlineCenterRaw.y, nextSeg.centerlineCenterRaw.z);
+        const fx = c1.x - c0.x;
+        const fz = c1.z - c0.z;
+        const fLen = Math.hypot(fx, fz);
+        if (fLen < 1.0) continue;
+        const hit = idx.raycastWheelDown({ x: c0.x, y: c0.y + 8, z: c0.z }, { x: 0, y: -1, z: 0 }, 20);
+        if (hit !== null && hit.normal.y > 0.9) {
+          spawnPos = { x: hit.point.x, y: hit.point.y + carSpec.comHeightMeters + 0.05, z: hit.point.z };
+          spawnYaw = Math.atan2(-(fx / fLen), -(fz / fLen));
+          break;
+        }
+      }
+      if (spawnPos === null) continue;
+      rammedTracks += 1;
+
+      const sim = new VehicleSimulation(carSpec, idx, {
+        initialPosition: spawnPos,
+        initialYawRad: spawnYaw,
+      });
+
+      // Accelerate hard into left barriers (steps 60..420) then right barriers (steps 420..840)
+      for (let step = 0; step < 840; step += 1) {
+        const steer = step < 60 ? 0 : step < 420 ? 0.85 : -0.85;
+        sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer }, FIXED_DT);
+        const snap = sim.getSnapshot();
+        expect(Number.isFinite(snap.pose.position.x)).toBe(true);
+        expect(Number.isFinite(snap.pose.position.y)).toBe(true);
+        expect(Number.isFinite(snap.pose.position.z)).toBe(true);
+        // Car must remain strictly inside track bounds (never fall into void or escape behind barriers)
+        expect(snap.pose.position.x).toBeGreaterThanOrEqual(mesh.bounds.min.x - 1.0);
+        expect(snap.pose.position.x).toBeLessThanOrEqual(mesh.bounds.max.x + 1.0);
+        expect(snap.pose.position.z).toBeGreaterThanOrEqual(mesh.bounds.min.z - 1.0);
+        expect(snap.pose.position.z).toBeLessThanOrEqual(mesh.bounds.max.z + 1.0);
+        expect(snap.pose.position.y).toBeGreaterThanOrEqual(mesh.bounds.min.y - 1.0);
+        expect(snap.pose.position.y).toBeLessThanOrEqual(mesh.bounds.max.y + 6.0);
+      }
+
+      const finalSnap = sim.getSnapshot();
+      expect(finalSnap.wallCollisionCount).toBeGreaterThan(0);
+      const downCheck = idx.raycastWheelDown(
+        { x: finalSnap.pose.position.x, y: finalSnap.pose.position.y + 3, z: finalSnap.pose.position.z },
+        { x: 0, y: -1, z: 0 },
+        10,
+      );
+      expect(downCheck).not.toBeNull();
+    }
+
+    expect(totalCheckedBarriers).toBeGreaterThan(500);
+    expect(inwardBarriers / totalCheckedBarriers).toBeGreaterThanOrEqual(0.99);
+    expect(rammedTracks).toBeGreaterThanOrEqual(2);
+  }, 60_000);
 });

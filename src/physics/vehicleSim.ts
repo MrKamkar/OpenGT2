@@ -383,9 +383,10 @@ export class VehicleSimulation {
       };
     }
 
-    // 6. Horizontal chassis wall barrier collision resolution
+    // 6. Horizontal chassis wall barrier collision resolution (with swept prevPosition CCD)
     const wallRes = this.collisionIndex.resolveChassisWallCollisions({
       position: this.body.position,
+      prevPosition: safePoseBefore.position,
       orientation: this.body.orientation,
       linearVelocity: this.body.linearVelocity,
       angularVelocity: this.body.angularVelocity,

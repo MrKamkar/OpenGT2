@@ -204,4 +204,132 @@ describe('CollisionIndex spatial acceleration & wall collisions (M9.2)', () => {
     expect(hit!.point.y).toBeCloseTo(0, 5);
     expect(index.trianglesTestedLastQuery).toBeLessThan(30);
   });
+
+  it('auto-flips outward subBlock98 normals inward without invisible pre-wall boundaries', () => {
+    const tro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            centerRaw: [320, 320, 0],
+            subMesh0: {
+              localVertices: [
+                [0, 0, 0],
+                [0, 640, 0],
+                [640, 640, 0],
+                [640, 0, 0],
+              ],
+              polygons: [{ listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 100, g: 100, b: 100 }] }],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+            // Deliberately inverted outward normal: raw -Y -> engine +Z (pointing away from road z < 0)
+            walls2D: [{ v0: 0, v1: 3, nxFixed12: 0, nyFixed12: -4096 }],
+          },
+        ],
+      }),
+    );
+
+    const mesh = buildCollisionMesh(tro);
+    expect(mesh.wallBarriers[0]!.normal.z).toBeLessThan(-0.9);
+    const index = new CollisionIndex(mesh);
+
+    // 1.5 m inside the track (z = -3.0 with hl = 1.4 -> front bumper at z = -1.6) must NOT collide!
+    const insideRoad = index.resolveChassisWallCollisions({
+      position: { x: 5, y: 0.6, z: -3.0 },
+      orientation: quatIdentity(),
+      linearVelocity: { x: 0, y: 0, z: 15 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+      halfExtents: { x: 0.85, y: 0.6, z: 1.4 },
+      massKg: 1200,
+      inertiaY: 1800,
+    });
+    expect(insideRoad.collided).toBe(false);
+
+    // Penetrating z = 0 wall pushes car inward (-Z), never outward (+Z)
+    const hitWall = index.resolveChassisWallCollisions({
+      position: { x: 5, y: 0.6, z: -0.9 },
+      orientation: quatIdentity(),
+      linearVelocity: { x: 0, y: 0, z: 15 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+      halfExtents: { x: 0.85, y: 0.6, z: 1.4 },
+      massKg: 1200,
+      inertiaY: 1800,
+    });
+    expect(hitWall.collided).toBe(true);
+    expect(hitWall.contactNormal.z).toBeLessThan(-0.9);
+    expect(hitWall.positionCorrection.z).toBeLessThan(0);
+    expect(hitWall.linearVelocityDelta.z).toBeLessThan(-15);
+  });
+
+  it('prevents high-speed oblique tunneling across zero-thickness barriers via swept CCD', () => {
+    const mesh = buildMultiSegmentTestMesh();
+    const index = new CollisionIndex(mesh);
+
+    // 80 m/s oblique strike crossing wall z = 0 from z = -2.2 (inward) to z = +3.2 (far beyond 2.5 m static band)
+    const prevPos = { x: 10, y: 0.6, z: -2.2 };
+    const nextPos = { x: 14, y: 0.6, z: 3.2 };
+    const res = index.resolveChassisWallCollisions({
+      position: nextPos,
+      prevPosition: prevPos,
+      orientation: quatFromAxisAngle({ x: 0, y: 1, z: 0 }, -Math.PI / 6),
+      linearVelocity: { x: 40, y: 0, z: 69.28 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+      halfExtents: { x: 0.9, y: 0.6, z: 2.0 },
+      massKg: 1250,
+      inertiaY: 2000,
+    });
+
+    expect(res.collided).toBe(true);
+    const resolvedZ = nextPos.z + res.positionCorrection.z;
+    // Chassis center & corners must be pushed strictly back onto inward side (z < 0)
+    expect(resolvedZ).toBeLessThan(-0.5);
+    expect(res.linearVelocityDelta.z).toBeLessThan(-69);
+  });
+
+  it('resolves V-corner consecutive barrier joins cleanly without gaps or snagging', () => {
+    const tro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            centerRaw: [320, 320, 0],
+            subMesh0: {
+              localVertices: [
+                [0, 0, 0],
+                [0, 640, 0],
+                [640, 640, 0],
+                [640, 0, 0],
+              ],
+              polygons: [{ listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 100, g: 100, b: 100 }] }],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+            // V-corner at (10 m, 0 m): bottom wall along z=0 (v0->v3) and right wall along x=10 (v3->v2)
+            walls2D: [
+              { v0: 0, v1: 3, nxFixed12: 0, nyFixed12: -4096 },
+              { v0: 3, v1: 2, nxFixed12: 4096, nyFixed12: 0 },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const index = new CollisionIndex(buildCollisionMesh(tro));
+    const res = index.resolveChassisWallCollisions({
+      position: { x: 9.8, y: 0.6, z: -0.2 },
+      prevPosition: { x: 7.5, y: 0.6, z: -2.5 },
+      orientation: quatIdentity(),
+      linearVelocity: { x: 18, y: 0, z: 18 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+      halfExtents: { x: 0.85, y: 0.6, z: 1.8 },
+      massKg: 1200,
+      inertiaY: 1800,
+    });
+
+    expect(res.collided).toBe(true);
+    const finalX = 9.8 + res.positionCorrection.x;
+    const finalZ = -0.2 + res.positionCorrection.z;
+    // Pushed back inside BOTH corner walls (x < 10 - hw, z < -hl)
+    expect(finalX).toBeLessThan(9.2);
+    expect(finalZ).toBeLessThan(-1.7);
+  });
 });

@@ -1,4 +1,5 @@
 import {
+  COLLISION_SURFACE_GROUND,
   COLLISION_SURFACE_WALL,
   type CollisionMesh,
   type CollisionSegmentRange,
@@ -29,7 +30,7 @@ export const DEFAULT_GRID_CELL_SIZE_METERS = 8.0;
 export const MAX_GRID_CELLS = 160_000;
 
 /** Vertical expansion margin (m) around each track segment's `[minY, maxY]` for barrier filtering. */
-export const WALL_BARRIER_VERTICAL_MARGIN_METERS = 1.5;
+export const WALL_BARRIER_VERTICAL_MARGIN_METERS = 2.5;
 
 /** Maximum signed distance (m) behind a barrier normal still considered a wall penetration (prevents snapping across distant walls). */
 export const WALL_MAX_PENETRATION_DEPTH_METERS = 2.5;
@@ -75,6 +76,7 @@ export interface SpatialRaycastOptions {
 
 export interface ChassisWallCollisionQuery {
   readonly position: PhysicsVec3;
+  readonly prevPosition?: PhysicsVec3;
   readonly orientation: PhysicsQuat;
   readonly linearVelocity: PhysicsVec3;
   readonly angularVelocity: PhysicsVec3;
@@ -171,13 +173,161 @@ function rayIntersectsBoxT(
   return tMax >= tMin ? [tMin, tMax] : null;
 }
 
+interface SegmentGroundInfo {
+  readonly centroidX: number;
+  readonly centroidZ: number;
+  readonly minY: number;
+  readonly maxY: number;
+  readonly triIndices: number[];
+}
+
+function buildSegmentGroundLookup(mesh: CollisionMesh): Map<number, SegmentGroundInfo> {
+  const accum = new Map<
+    number,
+    { sumX: number; sumZ: number; minY: number; maxY: number; triIndices: number[] }
+  >();
+  const { vertices, surfaceTypes, segmentIndices, triangleCount } = mesh;
+  for (let ti = 0; ti < triangleCount; ti += 1) {
+    if (surfaceTypes[ti] !== COLLISION_SURFACE_GROUND) {
+      continue;
+    }
+    const segIdx = segmentIndices[ti] ?? 0;
+    const base = ti * 9;
+    const y0 = vertices[base + 1] ?? 0;
+    const y1 = vertices[base + 4] ?? 0;
+    const y2 = vertices[base + 7] ?? 0;
+    const cx =
+      ((vertices[base] ?? 0) + (vertices[base + 3] ?? 0) + (vertices[base + 6] ?? 0)) / 3;
+    const cz =
+      ((vertices[base + 2] ?? 0) + (vertices[base + 5] ?? 0) + (vertices[base + 8] ?? 0)) / 3;
+    let entry = accum.get(segIdx);
+    if (entry === undefined) {
+      entry = { sumX: 0, sumZ: 0, minY: Infinity, maxY: -Infinity, triIndices: [] };
+      accum.set(segIdx, entry);
+    }
+    entry.sumX += cx;
+    entry.sumZ += cz;
+    entry.minY = Math.min(entry.minY, y0, y1, y2);
+    entry.maxY = Math.max(entry.maxY, y0, y1, y2);
+    entry.triIndices.push(ti);
+  }
+
+  const out = new Map<number, SegmentGroundInfo>();
+  for (const [segIdx, entry] of accum.entries()) {
+    const count = Math.max(1, entry.triIndices.length);
+    out.set(segIdx, {
+      centroidX: entry.sumX / count,
+      centroidZ: entry.sumZ / count,
+      minY: entry.minY,
+      maxY: entry.maxY,
+      triIndices: entry.triIndices,
+    });
+  }
+  return out;
+}
+
+function findInwardGroundRefForEdge(
+  mesh: CollisionMesh,
+  groundLookup: ReadonlyMap<number, SegmentGroundInfo>,
+  segmentIndex: number,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+): { readonly x: number; readonly z: number } | null {
+  const info = groundLookup.get(segmentIndex);
+  if (info === undefined) {
+    return null;
+  }
+
+  const tolSq = 0.05 * 0.05;
+  const { vertices } = mesh;
+  let sumX = 0;
+  let sumZ = 0;
+  let matchCount = 0;
+
+  for (const ti of info.triIndices) {
+    const base = ti * 9;
+    const vx0 = vertices[base] ?? 0;
+    const vz0 = vertices[base + 2] ?? 0;
+    const vx1 = vertices[base + 3] ?? 0;
+    const vz1 = vertices[base + 5] ?? 0;
+    const vx2 = vertices[base + 6] ?? 0;
+    const vz2 = vertices[base + 8] ?? 0;
+
+    const pts: readonly (readonly [number, number])[] = [
+      [vx0, vz0],
+      [vx1, vz1],
+      [vx2, vz2],
+    ];
+    let hitA = -1;
+    let hitB = -1;
+    for (let k = 0; k < 3; k += 1) {
+      const [px, pz] = pts[k]!;
+      if (hitA < 0 && (px - ax) ** 2 + (pz - az) ** 2 <= tolSq) {
+        hitA = k;
+        continue;
+      }
+      if (hitB < 0 && (px - bx) ** 2 + (pz - bz) ** 2 <= tolSq) {
+        hitB = k;
+      }
+    }
+
+    if (hitA >= 0 && hitB >= 0 && hitA !== hitB) {
+      const oppIdx = 3 - hitA - hitB;
+      const [ox, oz] = pts[oppIdx]!;
+      sumX += ox;
+      sumZ += oz;
+      matchCount += 1;
+    }
+  }
+
+  if (matchCount > 0) {
+    return { x: sumX / matchCount, z: sumZ / matchCount };
+  }
+
+  const midX = (ax + bx) * 0.5;
+  const midZ = (az + bz) * 0.5;
+  if (Math.hypot(info.centroidX - midX, info.centroidZ - midZ) > 0.5) {
+    return { x: info.centroidX, z: info.centroidZ };
+  }
+
+  return null;
+}
+
+function orientBarrierNormalInward(
+  mesh: CollisionMesh,
+  groundLookup: ReadonlyMap<number, SegmentGroundInfo>,
+  segmentIndex: number,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  nx: number,
+  nz: number,
+): readonly [number, number] {
+  const ref = findInwardGroundRefForEdge(mesh, groundLookup, segmentIndex, ax, az, bx, bz);
+  if (ref === null) {
+    return [nx, nz];
+  }
+  const midX = (ax + bx) * 0.5;
+  const midZ = (az + bz) * 0.5;
+  if ((ref.x - midX) * nx + (ref.z - midZ) * nz < 0) {
+    return [-nx, -nz];
+  }
+  return [nx, nz];
+}
+
 function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
   const segByIndex = new Map<number, CollisionSegmentRange>();
   for (const seg of mesh.segments) {
     segByIndex.set(seg.segmentIndex, seg);
   }
+  const groundLookup = buildSegmentGroundLookup(mesh);
 
   const result: IndexedWallBarrier[] = [];
+
+  const segmentsWithExplicitWalls = new Set<number>();
 
   if (mesh.wallBarriers.length > 0) {
     for (const barrier of mesh.wallBarriers) {
@@ -199,6 +349,20 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
         nz /= nLen;
       }
 
+      const [inwardNx, inwardNz] = orientBarrierNormalInward(
+        mesh,
+        groundLookup,
+        barrier.segmentIndex,
+        barrier.start.x,
+        barrier.start.z,
+        barrier.end.x,
+        barrier.end.z,
+        nx,
+        nz,
+      );
+      nx = inwardNx;
+      nz = inwardNz;
+
       const segBounds = segByIndex.get(barrier.segmentIndex)?.bounds;
       const rawMinY = Math.min(
         barrier.start.y,
@@ -211,6 +375,7 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
         segBounds !== undefined ? segBounds.max.y : barrier.start.y,
       );
 
+      segmentsWithExplicitWalls.add(barrier.segmentIndex);
       result.push({
         segmentIndex: barrier.segmentIndex,
         ax: barrier.start.x,
@@ -227,13 +392,16 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
         maxY: rawMaxY + WALL_BARRIER_VERTICAL_MARGIN_METERS,
       });
     }
-    return result;
   }
 
-  // Fallback for synthetic CollisionMeshes that provide wall triangles without subBlock98 barriers.
+  // Synthesize barrier walls from COLLISION_SURFACE_WALL triangles for segments lacking explicit subBlock98 barriers.
   const { vertices, normals, surfaceTypes, segmentIndices, triangleCount } = mesh;
   for (let ti = 0; ti < triangleCount; ti += 1) {
     if (surfaceTypes[ti] !== COLLISION_SURFACE_WALL) {
+      continue;
+    }
+    const segIdx = segmentIndices[ti] ?? 0;
+    if (segmentsWithExplicitWalls.has(segIdx)) {
       continue;
     }
     const nBase = ti * 3;
@@ -243,8 +411,8 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
     if (nLen <= 1e-4) {
       continue;
     }
-    const nx = rawNx / nLen;
-    const nz = rawNz / nLen;
+    let nx = rawNx / nLen;
+    let nz = rawNz / nLen;
 
     const vBase = ti * 9;
     const p0x = vertices[vBase] ?? 0;
@@ -278,6 +446,14 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
       bz = p0z;
     }
 
+    const triMinY = Math.min(p0y, p1y, p2y);
+    const triMaxY = Math.max(p0y, p1y, p2y);
+    const segGround = groundLookup.get(segIdx);
+    // Ignore elevated overhead signs/gantries above road level in zero-barrier fallback segments
+    if (segGround !== undefined && (triMinY > segGround.maxY + 1.0 || triMaxY < segGround.minY - 1.0)) {
+      continue;
+    }
+
     const segDx = bx - ax;
     const segDz = bz - az;
     const segLen = Math.hypot(segDx, segDz);
@@ -285,11 +461,25 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
       continue;
     }
 
-    const minY = Math.min(p0y, p1y, p2y) - WALL_BARRIER_VERTICAL_MARGIN_METERS;
-    const maxY = Math.max(p0y, p1y, p2y) + WALL_BARRIER_VERTICAL_MARGIN_METERS;
+    const [inwardNx, inwardNz] = orientBarrierNormalInward(
+      mesh,
+      groundLookup,
+      segIdx,
+      ax,
+      az,
+      bx,
+      bz,
+      nx,
+      nz,
+    );
+    nx = inwardNx;
+    nz = inwardNz;
+
+    const minY = triMinY - WALL_BARRIER_VERTICAL_MARGIN_METERS;
+    const maxY = triMaxY + WALL_BARRIER_VERTICAL_MARGIN_METERS;
 
     result.push({
-      segmentIndex: segmentIndices[ti] ?? 0,
+      segmentIndex: segIdx,
       ax,
       az,
       bx,
@@ -798,7 +988,8 @@ export class CollisionIndex {
 
   /**
    * Resolves horizontal chassis footprint penetrations against vertically filtered `subBlock98`
-   * barrier walls (or wall triangle fallbacks), returning clamped push-out and sliding velocity deltas.
+   * barrier walls (or wall triangle fallbacks) using continuous swept-segment CCD (`prevPosition -> position`)
+   * followed by iterative 2-pass perimeter push-out so corners and high-speed oblique impacts never tunnel.
    */
   resolveChassisWallCollisions(query: ChassisWallCollisionQuery): WallCollisionResolution {
     this.lastWallsTested = 0;
@@ -822,25 +1013,46 @@ export class CollisionIndex {
     const hh = Math.max(0.2, query.halfExtents.y);
     const hl = Math.max(0.2, query.halfExtents.z);
 
-    // 6 perimeter sample points in XZ: 4 corners + 2 side midpoints
-    const samplePoints: PhysicsVec3[] = [
-      vec3Add(query.position, vec3Add(vec3Scale(right, -hw), vec3Scale(forward, hl))),
-      vec3Add(query.position, vec3Add(vec3Scale(right, hw), vec3Scale(forward, hl))),
-      vec3Add(query.position, vec3Add(vec3Scale(right, -hw), vec3Scale(forward, -hl))),
-      vec3Add(query.position, vec3Add(vec3Scale(right, hw), vec3Scale(forward, -hl))),
-      vec3Add(query.position, vec3Scale(right, -hw)),
-      vec3Add(query.position, vec3Scale(right, hw)),
+    // 9 local XZ offsets: 4 corners, 2 side midpoints, front/rear bumper midpoints, and chassis center.
+    const localOffsets: readonly PhysicsVec3[] = [
+      vec3Add(vec3Scale(right, -hw), vec3Scale(forward, hl)),
+      vec3Add(vec3Scale(right, hw), vec3Scale(forward, hl)),
+      vec3Add(vec3Scale(right, -hw), vec3Scale(forward, -hl)),
+      vec3Add(vec3Scale(right, hw), vec3Scale(forward, -hl)),
+      vec3Scale(right, -hw),
+      vec3Scale(right, hw),
+      vec3Scale(forward, hl),
+      vec3Scale(forward, -hl),
+      VEC3_ZERO,
     ];
+
+    const hasPrev =
+      query.prevPosition !== undefined &&
+      Number.isFinite(query.prevPosition.x) &&
+      Number.isFinite(query.prevPosition.z);
+    const moveDx = hasPrev ? query.position.x - query.prevPosition!.x : 0;
+    const moveDz = hasPrev ? query.position.z - query.prevPosition!.z : 0;
+    const hasSweep = hasPrev && Math.hypot(moveDx, moveDz) > 1e-5;
 
     let qMinX = Infinity;
     let qMaxX = -Infinity;
     let qMinZ = Infinity;
     let qMaxZ = -Infinity;
-    for (const pt of samplePoints) {
-      if (pt.x < qMinX) qMinX = pt.x;
-      if (pt.x > qMaxX) qMaxX = pt.x;
-      if (pt.z < qMinZ) qMinZ = pt.z;
-      if (pt.z > qMaxZ) qMaxZ = pt.z;
+    for (const off of localOffsets) {
+      const px = query.position.x + off.x;
+      const pz = query.position.z + off.z;
+      if (px < qMinX) qMinX = px;
+      if (px > qMaxX) qMaxX = px;
+      if (pz < qMinZ) qMinZ = pz;
+      if (pz > qMaxZ) qMaxZ = pz;
+      if (hasSweep) {
+        const prevX = query.prevPosition!.x + off.x;
+        const prevZ = query.prevPosition!.z + off.z;
+        if (prevX < qMinX) qMinX = prevX;
+        if (prevX > qMaxX) qMaxX = prevX;
+        if (prevZ < qMinZ) qMinZ = prevZ;
+        if (prevZ > qMaxZ) qMaxZ = prevZ;
+      }
     }
 
     const searchPad = 0.5;
@@ -850,19 +1062,18 @@ export class CollisionIndex {
     const r0 = clamp(Math.floor((qMinZ - searchPad - this.minZ) * invCell), 0, this.rows - 1);
     const r1 = clamp(Math.floor((qMaxZ + searchPad - this.minZ) * invCell), 0, this.rows - 1);
 
-    const chassisMinY = query.position.y - hh;
-    const chassisMaxY = query.position.y + hh;
+    const chassisMinY = Math.min(
+      query.position.y,
+      hasPrev ? query.prevPosition!.y : query.position.y,
+    ) - hh;
+    const chassisMaxY = Math.max(
+      query.position.y,
+      hasPrev ? query.prevPosition!.y : query.position.y,
+    ) + hh;
 
+    // Collect deduplicated vertically-eligible candidate barriers in the swept broadphase box.
     const gen = this.nextGeneration();
-    let wallsTested = 0;
-    let contactCount = 0;
-    let deepestPenetration = 0;
-    let bestNormalX = 0;
-    let bestNormalZ = 0;
-    let bestContactPoint: PhysicsVec3 = query.position;
-    let sumNormalX = 0;
-    let sumNormalZ = 0;
-
+    const candidates: IndexedWallBarrier[] = [];
     for (let r = r0; r <= r1; r += 1) {
       const rowOff = r * this.cols;
       for (let c = c0; c <= c1; c += 1) {
@@ -875,47 +1086,161 @@ export class CollisionIndex {
             continue;
           }
           this.wallStamp[bi] = gen;
-          wallsTested += 1;
-
           const b = this.barriers[bi]!;
           // Vertical deck isolation for bridges, overpasses, and tunnels
           if (chassisMaxY < b.minY || chassisMinY > b.maxY) {
             continue;
           }
+          candidates.push(b);
+        }
+      }
+    }
 
-          const endPadFrac = WALL_ENDPOINT_RADIUS_METERS / b.segLen;
-          for (const pt of samplePoints) {
-            const vx = pt.x - b.ax;
-            const vz = pt.z - b.az;
-            const t = (vx * b.segDx + vz * b.segDz) / b.segLenSq;
-            if (t < -endPadFrac || t > 1 + endPadFrac) {
-              continue;
-            }
+    this.lastWallsTested = candidates.length;
+    if (candidates.length === 0) {
+      return {
+        collided: false,
+        contactCount: 0,
+        deepestPenetration: 0,
+        contactNormal: VEC3_ZERO,
+        positionCorrection: VEC3_ZERO,
+        linearVelocityDelta: VEC3_ZERO,
+        angularVelocityDelta: VEC3_ZERO,
+      };
+    }
 
-            const signedDist = vx * b.nx + vz * b.nz;
-            if (signedDist >= 0 || signedDist < -WALL_MAX_PENETRATION_DEPTH_METERS) {
-              continue;
-            }
+    let workingX = query.position.x;
+    let workingZ = query.position.z;
+    let totalContacts = 0;
+    let deepestPenetration = 0;
+    let bestNormalX = 0;
+    let bestNormalZ = 0;
+    let bestContactOffsetX = 0;
+    let bestContactOffsetZ = 0;
+    let sumNormalX = 0;
+    let sumNormalZ = 0;
 
-            const pen = -signedDist;
-            contactCount += 1;
-            sumNormalX += b.nx * pen;
-            sumNormalZ += b.nz * pen;
+    // Phase 1: Continuous swept-segment CCD (prevPosition -> position) on center + 4 corners.
+    if (hasSweep) {
+      const sweptIndices = [8, 0, 1, 2, 3] as const;
+      for (const b of candidates) {
+        const endPadFrac = WALL_ENDPOINT_RADIUS_METERS / b.segLen;
+        let maxCcdPenForBarrier = 0;
+        let bestOffIdx = 8;
 
-            if (pen > deepestPenetration) {
-              deepestPenetration = pen;
-              bestNormalX = b.nx;
-              bestNormalZ = b.nz;
-              bestContactPoint = pt;
-            }
+        for (const oi of sweptIndices) {
+          const off = localOffsets[oi]!;
+          const p0x = query.prevPosition!.x + off.x;
+          const p0z = query.prevPosition!.z + off.z;
+          const p1x = workingX + off.x;
+          const p1z = workingZ + off.z;
+
+          const d0 = (p0x - b.ax) * b.nx + (p0z - b.az) * b.nz;
+          const d1 = (p1x - b.ax) * b.nx + (p1z - b.az) * b.nz;
+          if (d0 < -0.05 || d1 >= 0) {
+            continue;
+          }
+
+          const alpha = d0 <= 0 ? 0 : d0 / (d0 - d1);
+          const ix = p0x + (p1x - p0x) * alpha;
+          const iz = p0z + (p1z - p0z) * alpha;
+          const t = ((ix - b.ax) * b.segDx + (iz - b.az) * b.segDz) / b.segLenSq;
+          if (t < -endPadFrac || t > 1 + endPadFrac) {
+            continue;
+          }
+
+          const pen = -d1 + 0.02;
+          if (pen > maxCcdPenForBarrier) {
+            maxCcdPenForBarrier = pen;
+            bestOffIdx = oi;
+          }
+        }
+
+        if (maxCcdPenForBarrier > 0) {
+          workingX += b.nx * maxCcdPenForBarrier;
+          workingZ += b.nz * maxCcdPenForBarrier;
+          totalContacts += 1;
+          sumNormalX += b.nx * maxCcdPenForBarrier;
+          sumNormalZ += b.nz * maxCcdPenForBarrier;
+          if (maxCcdPenForBarrier > deepestPenetration) {
+            deepestPenetration = maxCcdPenForBarrier;
+            bestNormalX = b.nx;
+            bestNormalZ = b.nz;
+            const off = localOffsets[bestOffIdx]!;
+            bestContactOffsetX = off.x;
+            bestContactOffsetZ = off.z;
           }
         }
       }
     }
 
-    this.lastWallsTested = wallsTested;
+    // Phase 2: Iterative 2-pass static perimeter containment so V-corners resolve cleanly without snagging.
+    for (let pass = 0; pass < 2; pass += 1) {
+      let passContacts = 0;
+      let passDeepest = 0;
+      let passSumNx = 0;
+      let passSumNz = 0;
+      let passBestNx = 0;
+      let passBestNz = 0;
+      let passBestOffX = 0;
+      let passBestOffZ = 0;
 
-    if (contactCount === 0 || deepestPenetration <= 0) {
+      for (const b of candidates) {
+        const endPadFrac = WALL_ENDPOINT_RADIUS_METERS / b.segLen;
+        for (const off of localOffsets) {
+          const px = workingX + off.x;
+          const pz = workingZ + off.z;
+          const vx = px - b.ax;
+          const vz = pz - b.az;
+          const t = (vx * b.segDx + vz * b.segDz) / b.segLenSq;
+          if (t < -endPadFrac || t > 1 + endPadFrac) {
+            continue;
+          }
+
+          const signedDist = vx * b.nx + vz * b.nz;
+          if (signedDist >= 0 || signedDist < -WALL_MAX_PENETRATION_DEPTH_METERS) {
+            continue;
+          }
+
+          const pen = -signedDist;
+          passContacts += 1;
+          passSumNx += b.nx * pen;
+          passSumNz += b.nz * pen;
+
+          if (pen > passDeepest) {
+            passDeepest = pen;
+            passBestNx = b.nx;
+            passBestNz = b.nz;
+            passBestOffX = off.x;
+            passBestOffZ = off.z;
+          }
+        }
+      }
+
+      if (passContacts === 0 || passDeepest <= 0) {
+        break;
+      }
+
+      const passLen = Math.hypot(passSumNx, passSumNz);
+      const pnx = passLen > 1e-6 ? passSumNx / passLen : passBestNx;
+      const pnz = passLen > 1e-6 ? passSumNz / passLen : passBestNz;
+      const pushOut = Math.min(passDeepest, WALL_MAX_PUSH_OUT_METERS);
+      workingX += pnx * pushOut;
+      workingZ += pnz * pushOut;
+
+      totalContacts += passContacts;
+      sumNormalX += passSumNx;
+      sumNormalZ += passSumNz;
+      if (passDeepest > deepestPenetration) {
+        deepestPenetration = passDeepest;
+        bestNormalX = passBestNx;
+        bestNormalZ = passBestNz;
+        bestContactOffsetX = passBestOffX;
+        bestContactOffsetZ = passBestOffZ;
+      }
+    }
+
+    if (totalContacts === 0 || deepestPenetration <= 0) {
       return {
         collided: false,
         contactCount: 0,
@@ -933,10 +1258,17 @@ export class CollisionIndex {
         ? { x: sumNormalX / avgLen, y: 0, z: sumNormalZ / avgLen }
         : { x: bestNormalX, y: 0, z: bestNormalZ };
 
-    const pushOut = Math.min(deepestPenetration, WALL_MAX_PUSH_OUT_METERS);
-    const positionCorrection = vec3Scale(contactNormal, pushOut);
+    const positionCorrection: PhysicsVec3 = {
+      x: workingX - query.position.x,
+      y: 0,
+      z: workingZ - query.position.z,
+    };
 
-    const rContact = vec3Sub(bestContactPoint, query.position);
+    const rContact: PhysicsVec3 = {
+      x: bestContactOffsetX,
+      y: 0,
+      z: bestContactOffsetZ,
+    };
     const contactVel = vec3Add(
       query.linearVelocity,
       vec3Cross(query.angularVelocity, rContact),
@@ -978,7 +1310,7 @@ export class CollisionIndex {
 
     return {
       collided: true,
-      contactCount,
+      contactCount: totalContacts,
       deepestPenetration,
       contactNormal,
       positionCorrection,

@@ -149,12 +149,87 @@ function transformSubMeshVertices(subMesh: TroSubMesh, invScale: number): Float3
   return out;
 }
 
+function makeUndirectedEdgeKey(a: number, b: number): string {
+  return a < b ? `${String(a)}:${String(b)}` : `${String(b)}:${String(a)}`;
+}
+
+interface GroundEdgeRef {
+  sumX: number;
+  sumZ: number;
+  count: number;
+  hasPos: boolean;
+  hasNeg: boolean;
+}
+
+function addGroundTriangleEdgeRefs(
+  edgeRefs: Map<string, GroundEdgeRef>,
+  v0: number,
+  v1: number,
+  v2: number,
+  engVerts: Float32Array,
+): void {
+  const edges: readonly (readonly [number, number, number])[] = [
+    [v0, v1, v2],
+    [v1, v2, v0],
+    [v2, v0, v1],
+  ];
+  for (const [a, b, opp] of edges) {
+    const lo = a < b ? a : b;
+    const hi = a < b ? b : a;
+    const loBase = lo * 3;
+    const hiBase = hi * 3;
+    const oppBase = opp * 3;
+    const loX = engVerts[loBase] ?? 0;
+    const loZ = engVerts[loBase + 2] ?? 0;
+    const hiX = engVerts[hiBase] ?? 0;
+    const hiZ = engVerts[hiBase + 2] ?? 0;
+    const ox = engVerts[oppBase] ?? 0;
+    const oz = engVerts[oppBase + 2] ?? 0;
+    const ex = hiX - loX;
+    const ez = hiZ - loZ;
+    const side = (ox - loX) * -ez + (oz - loZ) * ex;
+    const pos = side > 1e-4;
+    const neg = side < -1e-4;
+    const key = makeUndirectedEdgeKey(a, b);
+    const existing = edgeRefs.get(key);
+    if (existing === undefined) {
+      edgeRefs.set(key, { sumX: ox, sumZ: oz, count: 1, hasPos: pos, hasNeg: neg });
+    } else {
+      existing.sumX += ox;
+      existing.sumZ += oz;
+      existing.count += 1;
+      if (pos) existing.hasPos = true;
+      if (neg) existing.hasNeg = true;
+    }
+  }
+}
+
+function orientHorizontalNormalInward(
+  nx: number,
+  nz: number,
+  startX: number,
+  startZ: number,
+  endX: number,
+  endZ: number,
+  refX: number,
+  refZ: number,
+): readonly [number, number] {
+  const midX = (startX + endX) * 0.5;
+  const midZ = (startZ + endZ) * 0.5;
+  const dot = (refX - midX) * nx + (refZ - midZ) * nz;
+  if (dot < 0) {
+    return [-nx, -nz];
+  }
+  return [nx, nz];
+}
+
 /**
  * Builds a deterministic `CollisionMesh` from the E3 primary renderable track geometry
  * (`subMesh0`, falling back to `subMesh1` when `subMesh0` is empty) plus converted
- * E3 `subBlock98` 2D barrier walls, indexed per segment with world-space AABBs for M9.2 raycasting.
+ * E3 `subBlock98` 2D barrier walls (guaranteed inward-facing), indexed per segment
+ * with world-space AABBs for M9.2 raycasting and wall containment.
  *
- * @evidence E3 (geometry, winding, `subBlock98` walls) / E1 (`unitsPerMeter = 64`)
+ * @evidence E3
  */
 export function buildCollisionMesh(
   tro: TroFile,
@@ -190,6 +265,11 @@ export function buildCollisionMesh(
         ? seg.subMesh1
         : null;
 
+    const groundEdgeRefs = new Map<string, GroundEdgeRef>();
+    let segGroundSumX = 0;
+    let segGroundSumZ = 0;
+    let segGroundCount = 0;
+
     if (activeSubMesh !== null && activeSubMesh.polygons.length > 0) {
       const engVerts = transformSubMeshVertices(activeSubMesh, invScale);
       const reverseWinding = useSubMesh0;
@@ -202,9 +282,12 @@ export function buildCollisionMesh(
           : [reverseWinding ? TRI_CW_TO_CCW : TRI_CCW];
 
         for (const tri of triSets) {
-          const i0 = (poly.vertices[tri[0]] ?? 0) * 3;
-          const i1 = (poly.vertices[tri[1]] ?? 0) * 3;
-          const i2 = (poly.vertices[tri[2]] ?? 0) * 3;
+          const vIdx0 = poly.vertices[tri[0]] ?? 0;
+          const vIdx1 = poly.vertices[tri[1]] ?? 0;
+          const vIdx2 = poly.vertices[tri[2]] ?? 0;
+          const i0 = vIdx0 * 3;
+          const i1 = vIdx1 * 3;
+          const i2 = vIdx2 * 3;
 
           const x0 = engVerts[i0] ?? 0;
           const y0 = engVerts[i0 + 1] ?? 0;
@@ -235,11 +318,19 @@ export function buildCollisionMesh(
           const nx = cx * invLen;
           const ny = cy * invLen;
           const nz = cz * invLen;
+          const surfaceType = classifySurfaceNormalY(ny, options);
 
           verticesList.push(x0, y0, z0, x1, y1, z1, x2, y2, z2);
           normalsList.push(nx, ny, nz);
-          surfaceTypesList.push(surfaceTypeToCode(classifySurfaceNormalY(ny, options)));
+          surfaceTypesList.push(surfaceTypeToCode(surfaceType));
           segmentIndicesList.push(seg.segmentIndex);
+
+          if (surfaceType === 'ground') {
+            segGroundSumX += (x0 + x1 + x2) / 3;
+            segGroundSumZ += (z0 + z1 + z2) / 3;
+            segGroundCount += 1;
+            addGroundTriangleEdgeRefs(groundEdgeRefs, vIdx0, vIdx1, vIdx2, engVerts);
+          }
 
           expandBox(segBox, x0, y0, z0);
           expandBox(segBox, x1, y1, z1);
@@ -249,7 +340,18 @@ export function buildCollisionMesh(
       }
     }
 
-    // Convert E3 subBlock98 2D barrier walls (indices into subMesh0 vertices).
+    const centerlineFallback = troRawToEngineVec3(
+      seg.centerlineCenterRaw.x,
+      seg.centerlineCenterRaw.y,
+      seg.centerlineCenterRaw.z,
+      unitsPerMeter,
+    );
+    const defaultInwardRefX =
+      segGroundCount > 0 ? segGroundSumX / segGroundCount : centerlineFallback.x;
+    const defaultInwardRefZ =
+      segGroundCount > 0 ? segGroundSumZ / segGroundCount : centerlineFallback.z;
+
+    // Convert E3 subBlock98 2D barrier walls (indices into subMesh0 vertices) and enforce inward normals.
     if (seg.walls2D.length > 0 && seg.subMesh0.vertexCount > 0) {
       const sm0Verts = seg.subMesh0.worldVerticesRaw;
       for (const wall of seg.walls2D) {
@@ -267,30 +369,64 @@ export function buildCollisionMesh(
           sm0Verts[b1 + 2] ?? 0,
           unitsPerMeter,
         );
+
+        const segDx = end.x - start.x;
+        const segDz = end.z - start.z;
+        const segLen = Math.hypot(segDx, segDz);
         const rawNx = wall.nxFixed12 / TRO_WALL_NORMAL_SCALE;
         const rawNy = wall.nyFixed12 / TRO_WALL_NORMAL_SCALE;
         const nLen = Math.hypot(rawNx, rawNy);
-        const normal: Vec3 =
-          nLen > 1e-6
-            ? { x: rawNx / nLen, y: 0, z: -rawNy / nLen }
-            : { x: 0, y: 0, z: 0 };
+
+        let nx = 0;
+        let nz = 0;
+        if (nLen > 1e-6) {
+          nx = rawNx / nLen;
+          nz = -rawNy / nLen;
+        } else if (segLen > 1e-5) {
+          nx = -segDz / segLen;
+          nz = segDx / segLen;
+        }
+
+        if (nx !== 0 || nz !== 0) {
+          const edgeRef = groundEdgeRefs.get(makeUndirectedEdgeKey(wall.v0, wall.v1));
+          const midX = (start.x + end.x) * 0.5;
+          const midZ = (start.z + end.z) * 0.5;
+          let refX: number;
+          let refZ: number;
+          if (edgeRef !== undefined && edgeRef.hasPos !== edgeRef.hasNeg) {
+            refX = edgeRef.sumX / edgeRef.count;
+            refZ = edgeRef.sumZ / edgeRef.count;
+          } else if (Math.hypot(centerlineFallback.x - midX, centerlineFallback.z - midZ) >= 0.1) {
+            refX = centerlineFallback.x;
+            refZ = centerlineFallback.z;
+          } else {
+            refX = defaultInwardRefX;
+            refZ = defaultInwardRefZ;
+          }
+          const [orientedNx, orientedNz] = orientHorizontalNormalInward(
+            nx,
+            nz,
+            start.x,
+            start.z,
+            end.x,
+            end.z,
+            refX,
+            refZ,
+          );
+          nx = orientedNx;
+          nz = orientedNz;
+        }
 
         wallBarriers.push({
           segmentIndex: seg.segmentIndex,
           start,
           end,
-          normal,
+          normal: { x: nx, y: 0, z: nz },
         });
       }
     }
 
     const triSegCount = triangleCount - triStart;
-    const centerlineFallback = troRawToEngineVec3(
-      seg.centerlineCenterRaw.x,
-      seg.centerlineCenterRaw.y,
-      seg.centerlineCenterRaw.z,
-      unitsPerMeter,
-    );
     const bounds = finalizeBox(segBox, centerlineFallback);
     if (triSegCount > 0) {
       expandBox(globalBox, bounds.min.x, bounds.min.y, bounds.min.z);
