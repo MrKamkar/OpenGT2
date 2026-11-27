@@ -465,3 +465,23 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
   - `buildCollisionMesh` builds unit-normal collision triangles (`ground` / `wall` / `ceiling`) plus converted `subBlock98` wall barriers and segment-AABB-culled `raycastCollisionMesh` queries for M9.2.
 - **Confidence:** **E3** for `.trp`/`.tro` parsing, VRAM/CLUT resolution, `gl.CCW` winding normalization, and `subBlock98` barriers; **E1** for `TRO_UNITS_PER_METER = 64` and unparsed auxiliary blocks.
 - **Consequences for Code:** Pure TypeScript track data pipeline (M8.3–M8.5) is complete and verified; ready for M8.6 (freecam), M8.7 (WebGL2 track renderer & culling), M8.8 (skybox investigation), and M8.9 (Track Viewer UI).
+
+## 2026-11-27 — M8.6–M8.8 — Track Texture Budget, Gouraud Modulation, Skybox/Fog Deferral, and Track Name Probe
+
+- **Question:** (a) What is the maximum texture page / `(page, palette)` memory budget across all `126/126` tracks for HD vs PS1 rendering (M8.7)? (b) How do vertex RGB values scale on textured vs untextured track polygons? (c) Do `.bso`/`.tro` skybox/fog parameters (M8.8) or `gtmode_race.dat`/`unistrdb` → `.tro` track display names (M8.9) reach `E2`/`E3` cleanly within a bounded streaming check?
+- **Method:** Read-only streaming traversal of all `126` `.tro.gz`/`.trp.gz` pairs, all `34` `.bso.gz` headers, and `eng_gtmode_race.dat.gz` / `eng_unistrdb.dat.gz` in `local_assets/GT2.VOL` via `VolReader` + `CachedByteSource` + `gunzip` (zero track/file names, hex ≤ 64 B).
+- **Findings:**
+  - **M8.7 Texture & Geometry Budget (`126/126` tracks, `E3`):**
+    - `3–10` `256×256` 4 bpp texture pages per track (median `7`, `p95 = 10`, max `10`); `5–93` 16-color CLUTs (median `43`, `p95 = 81`, max `93`), `1:1` with unique `(page, palette)` pairs; up to `19` distinct CLUTs share a single `256×256` page.
+    - Geometry counts: `12–229` segments (`1` track has an empty `segments[0]`), `491` avg / `1,236` max `TrackMeshPart`s, `18,772` avg / `38,190` max vertices, `10,408` avg / `22,939` max triangles.
+    - Architectural decision: upload one shared `256×256×N` `R8` `TEXTURE_2D_ARRAY` (`≤ 640 KiB`) + one `16×M` `RGBA8` CLUT texture (`≤ 6 KiB`) used by both HD (4-tap alpha-weighted bilinear shader lookup with `uv - 0.5` texel-center alignment) and PS1 (`NEAREST` indexed lookup), avoiding ~32.5 MiB VRAM bloat and mipmap palette bleeding.
+  - **M8.7 Gouraud Color Scaling (`E3`):**
+    - Textured primary faces (`649,041` polys): `p05=33, p10=40, p50=69, p90=98, p99=128` (`99.52% < 128`, `0.47% = 128`, `1.16% > 128`) → confirms PS1 `0x80` = `1.0×` modulation `clamp(texel.rgb * (v_color * 2.0), 0.0, 1.0)`.
+    - Untextured primary faces (`53,793` polys): `p05=24, p10=25, p50=93, p90=179, p99=255` (`52.94% > 128`) → confirms direct `v_color` without `2×` scaling.
+  - **M8.8 Skybox & Fog (`E0`/`E1` — deferred without placeholders):**
+    - `34/34` `.bso` headers (`7,232–22,096 B` raw) start with `"BG\0\0"` (`E2`), carry candidate GP0 `0x28` color words at `0x04`/`0x08` (`E1`) and counts `194..382` at `0x0C` (`E1`). However, `0/34` stems match `crsobj/`, `0/126` `.tro` files reference `.bso` stems, and fog parameters remain unverified (`E0`). Per §1.1/§3, M8.8 keeps a plain clear canvas background with zero procedural sky or fog.
+  - **M8.9 Track Name Mapping (`E0`/`E1` — deferred to dynamic TOC stems):**
+    - `eng_gtmode_race.dat` (`248` `RaceInfo` records, `2,670 B` `RaceStrings`) yields only `24` `.tro` stem matches in `RaceStrings`, and `eng_unistrdb.dat` (`846` strings) holds car/engine strings (`1` accidental stem match). Per §1.1/§3, the Track Viewer lists `.tro` stems discovered dynamically from the user's `GT2.VOL` TOC with zero hardcoded names.
+- **Confidence:** **E3** for track texture/palette budgets and textured vs untextured Gouraud modulation; **E2** for `.bso` `"BG\0\0"` signature; **E0/E1** for `.bso` skybox geometry, `.tro`→`.bso` assignment, fog parameters, and localized track display names.
+- **Consequences for Code:** M8.7 `TrackRenderer` shares `R8`+`RGBA8` textures across HD/PS1 with verified modulation; M8.8 introduces zero placeholder sky/fog code; M8.9 lists dynamic `crsobj/*.tro*` stems from `TrackAssetIndex`.
+- **Open Questions:** Revisit `.bso`/`.bsp` geometry, `.tro`→`.bso` assignment, fog, and localized track display name tables in a future research milestone if independent `E2` documentation becomes available.

@@ -671,6 +671,14 @@ encodeCarId(code):
   - Trailing primitive bytes after `w0, w1`: `+0x08..+0x0A` = `[R, G, B]` (`uint8[3]`), `+0x0B` = PS1 GP0 command byte (`0x20, 0x28, 0x30, 0x38, 0x24, 0x2C, 0x34, 0x3C` for lists `1..8` on `100.0%` of polygons; `0` semi-transparent tags). Gouraud lists (`3, 4, 7, 8`) store additional `[R, G, B, 0x00]` color words at `+0x0C`, `+0x10`, and (quads `4, 8`) `+0x14` (`byte +3 === 0x00` on `100%`). Textured lists use PS1 modulated brightness (`0x80` = `1.0×`).
   - **Quad Triangulation (**E3**):** Quads `[v0, v1, v2, v3]` follow perimeter order; normalized to engine `gl.CCW` via `(0,2,1)+(0,3,2)` for `subMesh0` and `(0,1,2)+(0,2,3)` for `subMesh1`.
 
+- **Polygon GPU Command Tags, Colors (`E3`), and Flags (`E1`):**
+  - Across all `126/126` tracks (`649,041` textured primary polygons / `2,297,520` RGB samples; `53,793` untextured primary polygons / `295,272` RGB samples):
+    - Textured polygons use PS1 modulated brightness (`0x80` = `1.0×`, `p50 = 69`, `p90 = 98`, `p99 = 128`, `99.52% < 128`), requiring `clamp(texel.rgb * (v_color * 2.0), 0.0, 1.0)` (**E3**).
+    - Untextured polygons store direct unscaled vertex colors (`p50 = 93`, `p90 = 179`, `p99 = 255`, `52.94% > 128`), rendered directly as `v_color` (**E3**).
+- **Texture Page & CLUT Budget (`126/126` tracks, `E3`):**
+  - `3–10` `256×256` 4 bpp pages per track (median `7`, `p95 = 10`, max `10`), `5–93` 16-color CLUTs (median `43`, `p95 = 81`, max `93`), `1:1` with unique `(page, palette)` pairs, and up to `19` distinct CLUTs sharing a single `256×256` page.
+  - Because `10 × 256×256` `R8` layers + `93 × 16` `RGBA8` CLUTs total `≤ 650 KiB` VRAM, both HD Remaster (4-tap shader-side bilinear with `uv - 0.5` texel-center alignment) and PS1 (`NEAREST`) share the exact same GPU texture atlas without cross-palette mipmap bleeding.
+
 ### 5. UV Table (`uvCount × 32 B` at `uvTableOff`, **E3**)
 
 Each `32 B` entry holds two `16 B` records (`+0x00` hi-res, `+0x10` mipmap):
@@ -689,6 +697,9 @@ Each `32 B` entry holds two `16 B` records (`+0x00` hi-res, `+0x10` mipmap):
 
 ---
 
-## GT2 Track Background Object Container: `BSO` (M8.1)
+## GT2 Track Background Object Container: `BSO` (M8.1, M8.8)
 
-- **Confidence:** **E2** (`34` files under `bgsobj/*.bso.gz`, 1:1 paired with `bgsobj/*.bsp.gz`, ASCII magic `"BG\0\0"` = `42 47 00 00` across `34/34`); **E0** internal skybox geometry payload (currently unparsed; zero identical stems match `crsobj/`, confirming a separate shared sky-mapping table).
+- **Confidence:** **E2** (`34` files under `bgsobj/*.bso.gz`, 1:1 paired with `bgsobj/*.bsp.gz`, ASCII magic `"BG\0\0"` = `42 47 00 00` across `34/34`); **E1** (candidate GP0 `0x28`-tagged sky gradient/color words at `0x04` and `0x08`, and `uint32` count `194..382` at `0x0C` across `34/34` files); **E0** (internal skybox geometry payload, `.tro` → `.bso` sky assignment, fog parameters).
+- **Bounded M8.8 Check:**
+  - `0/34` `bgsobj/` stems match `crsobj/` stems, and `0/126` decompressed `.tro` files contain ASCII references to any `.bso` stem.
+  - No verified fog distance/color table or `.tro` → `.bso` sky index was established at `E2`/`E3`. Per §1.1/§3, production track rendering keeps a plain clear background color with zero procedural skyboxes or fog.
