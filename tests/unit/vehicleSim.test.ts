@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { InputManager } from '../../src/core/input';
 import type { CarCatalogEntry } from '../../src/formats/gtdb';
 import { buildCollisionMesh, parseTro } from '../../src/formats/track';
 import { buildCarPhysicsSpec } from '../../src/physics/carSpec';
 import { CollisionIndex } from '../../src/physics/collisionIndex';
-import { VEC3_FORWARD, quatRotateVec3 } from '../../src/physics/math';
+import { DriveControlAdapter } from '../../src/physics/driveControls';
+import { FIXED_DT } from '../../src/physics/fixedStep';
+import { GRAVITY_MPS2, createFlatAsphaltCollisionIndex } from '../../src/physics';
+import { VEC3_FORWARD, VEC3_RIGHT, quatRotateVec3, vec3Dot } from '../../src/physics/math';
 import { VehicleSimulation } from '../../src/physics/vehicleSim';
 import { buildSyntheticTro, type SyntheticSegmentSpec } from '../fixtures/buildTro';
 
@@ -311,5 +315,128 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
     expect(Number.isFinite(endSnap.speedMps)).toBe(true);
     expect(Math.abs(endSnap.angularVelocity.y)).toBeLessThan(midYawRate * 0.35);
     expect(endSnap.wheels.filter((w) => w.grounded).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('delivers crisp keyboard turn-in at 50 km/h and 120 km/h without spinout and reverses cleanly', () => {
+    const spec = buildCarPhysicsSpec(createTestEntry());
+    const index = createFlatAsphaltCollisionIndex(4000, 4000);
+    const radToDeg = 180 / Math.PI;
+
+    const measureTurnAtTargetKph = (targetKph: number) => {
+      const input = new InputManager({ initialContext: 'race' });
+      const adapter = new DriveControlAdapter({
+        inputManager: input,
+        gamepadProvider: () => [],
+      });
+      const sim = new VehicleSimulation(spec, index, {
+        initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+      });
+
+      // Accelerate straight up to target speed
+      input.handleKeyEvent({ type: 'keydown', code: 'KeyW', repeat: false });
+      for (let i = 0; i < 1200; i += 1) {
+        const snap = sim.getSnapshot();
+        if (snap.speedKph >= targetKph) {
+          break;
+        }
+        const { controls } = adapter.step(FIXED_DT, snap.speedMps);
+        sim.stepFixed(controls, FIXED_DT);
+      }
+      expect(sim.getSnapshot().speedKph).toBeGreaterThanOrEqual(targetKph - 2);
+
+      // Modulate light throttle while steering full left via KeyA for 1.0 s
+      input.handleKeyEvent({ type: 'keyup', code: 'KeyW', repeat: false });
+      input.handleKeyEvent({ type: 'keydown', code: 'KeyA', repeat: false });
+
+      const startFwd = quatRotateVec3(sim.getPose().orientation, VEC3_FORWARD);
+      const startAngle = Math.atan2(-startFwd.x, -startFwd.z);
+      let unwrappedDeltaRad = 0;
+      let prevAngle = startAngle;
+      let peakLatG = 0;
+      let maxBodySlipDeg = 0;
+
+      for (let step = 0; step < 120; step += 1) {
+        const preSnap = sim.getSnapshot();
+        if (preSnap.speedKph < targetKph - 1) {
+          input.handleKeyEvent({ type: 'keydown', code: 'KeyW', repeat: false });
+        } else {
+          input.handleKeyEvent({ type: 'keyup', code: 'KeyW', repeat: false });
+        }
+        const { controls } = adapter.step(FIXED_DT, preSnap.speedMps);
+        sim.stepFixed(controls, FIXED_DT);
+
+        const snap = sim.getSnapshot();
+        const fwd = quatRotateVec3(snap.pose.orientation, VEC3_FORWARD);
+        const right = quatRotateVec3(snap.pose.orientation, VEC3_RIGHT);
+        const angle = Math.atan2(-fwd.x, -fwd.z);
+        let dAng = angle - prevAngle;
+        if (dAng > Math.PI) dAng -= Math.PI * 2;
+        if (dAng < -Math.PI) dAng += Math.PI * 2;
+        unwrappedDeltaRad += dAng;
+        prevAngle = angle;
+
+        const latG = (snap.speedMps * Math.abs(snap.angularVelocity.y)) / GRAVITY_MPS2;
+        if (latG > peakLatG) peakLatG = latG;
+
+        const latSpeed = vec3Dot(snap.linearVelocity, right);
+        const slipDeg = Math.abs(
+          Math.atan2(latSpeed, Math.max(Math.abs(snap.forwardSpeedMps), 1.0)) * radToDeg,
+        );
+        if (slipDeg > maxBodySlipDeg) maxBodySlipDeg = slipDeg;
+      }
+
+      return {
+        headingDeg: unwrappedDeltaRad * radToDeg,
+        peakLatG,
+        maxBodySlipDeg,
+        finalGrounded: sim.getSnapshot().wheels.filter((w) => w.grounded).length,
+      };
+    };
+
+    const low = measureTurnAtTargetKph(50);
+    expect(low.headingDeg).toBeGreaterThanOrEqual(25);
+    expect(low.peakLatG).toBeGreaterThanOrEqual(0.8);
+    expect(low.maxBodySlipDeg).toBeLessThan(25);
+    expect(low.finalGrounded).toBe(4);
+
+    const high = measureTurnAtTargetKph(120);
+    expect(high.headingDeg).toBeGreaterThanOrEqual(18);
+    expect(high.peakLatG).toBeGreaterThanOrEqual(0.8);
+    expect(high.maxBodySlipDeg).toBeLessThan(25);
+    expect(high.finalGrounded).toBe(4);
+
+    // Steering reversal KeyA -> KeyD at 80 km/h reverses yaw rate cleanly within 0.5 s
+    const revInput = new InputManager({ initialContext: 'race' });
+    const revAdapter = new DriveControlAdapter({
+      inputManager: revInput,
+      gamepadProvider: () => [],
+    });
+    const revSim = new VehicleSimulation(spec, index, {
+      initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+    });
+    revInput.handleKeyEvent({ type: 'keydown', code: 'KeyW', repeat: false });
+    for (let i = 0; i < 600; i += 1) {
+      const snap = revSim.getSnapshot();
+      if (snap.speedKph >= 80) break;
+      const { controls } = revAdapter.step(FIXED_DT, snap.speedMps);
+      revSim.stepFixed(controls, FIXED_DT);
+    }
+    revInput.handleKeyEvent({ type: 'keyup', code: 'KeyW', repeat: false });
+    revInput.handleKeyEvent({ type: 'keydown', code: 'KeyA', repeat: false });
+    for (let i = 0; i < 48; i += 1) {
+      const { controls } = revAdapter.step(FIXED_DT, revSim.getSnapshot().speedMps);
+      revSim.stepFixed(controls, FIXED_DT);
+    }
+    const yawLeft = revSim.getSnapshot().angularVelocity.y;
+    expect(yawLeft).toBeGreaterThan(0.2);
+
+    revInput.handleKeyEvent({ type: 'keyup', code: 'KeyA', repeat: false });
+    revInput.handleKeyEvent({ type: 'keydown', code: 'KeyD', repeat: false });
+    for (let i = 0; i < 60; i += 1) {
+      const { controls } = revAdapter.step(FIXED_DT, revSim.getSnapshot().speedMps);
+      revSim.stepFixed(controls, FIXED_DT);
+    }
+    const yawRight = revSim.getSnapshot().angularVelocity.y;
+    expect(yawRight).toBeLessThan(-0.2);
   });
 });

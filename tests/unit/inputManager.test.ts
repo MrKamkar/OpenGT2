@@ -162,26 +162,27 @@ describe('InputManager (M0.11)', () => {
     expect(centered.steering).toBe(0);
 
     // Speed sensitivity: high speed shrinks maximum steering angle monotonically.
+    const refSpeed = DEFAULT_INPUT_SMOOTHING.speedSensitivityReferenceSpeedMps;
     const maxAt0 = computeMaxSteeringForSpeed(0);
     const maxAt30 = computeMaxSteeringForSpeed(30);
-    const maxAt60 = computeMaxSteeringForSpeed(60);
+    const maxAtRef = computeMaxSteeringForSpeed(refSpeed);
     const maxAt100 = computeMaxSteeringForSpeed(100);
     expect(maxAt0).toBe(1);
     expect(maxAt30).toBeLessThan(maxAt0);
-    expect(maxAt30).toBeGreaterThan(maxAt60);
-    expect(maxAt60).toBeCloseTo(DEFAULT_INPUT_SMOOTHING.speedSensitivityMinScale, 5);
+    expect(maxAt30).toBeGreaterThan(maxAtRef);
+    expect(maxAtRef).toBeCloseTo(DEFAULT_INPUT_SMOOTHING.speedSensitivityMinScale, 5);
     expect(maxAt100).toBeCloseTo(DEFAULT_INPUT_SMOOTHING.speedSensitivityMinScale, 5);
 
     input.handleKeyEvent(keyEvent('keydown', 'ArrowLeft'));
-    const highSpeedSteer = input.update(1.0, 60);
-    expect(highSpeedSteer.steering).toBeCloseTo(-maxAt60, 5);
+    const highSpeedSteer = input.update(1.0, refSpeed);
+    expect(highSpeedSteer.steering).toBeCloseTo(-maxAtRef, 5);
 
     // Reversing direction crosses zero smoothly.
     input.handleKeyEvent(keyEvent('keyup', 'ArrowLeft'));
     input.handleKeyEvent(keyEvent('keydown', 'ArrowRight'));
-    const reversed = input.update(0.2, 60);
+    const reversed = input.update(0.2, refSpeed);
     expect(reversed.steering).toBeGreaterThan(0);
-    expect(reversed.steering).toBeLessThanOrEqual(maxAt60);
+    expect(reversed.steering).toBeLessThanOrEqual(maxAtRef);
 
     // Throttle & brake smoothing and invalid dt resilience.
     input.releaseAll();

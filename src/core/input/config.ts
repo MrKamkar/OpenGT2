@@ -115,17 +115,17 @@ export const DEFAULT_INPUT_BINDINGS: InputBindings = {
  * Centralized in configuration rather than hardcoded in physics.
  */
 export const DEFAULT_INPUT_SMOOTHING: InputSmoothingConfig = Object.freeze({
-  // Reaches full steering lock in ~0.18 s, centers briskly in ~0.12 s for responsive keyboard control.
-  steeringRiseRate: 5.5,
-  steeringReturnRate: 8.5,
+  // Reaches full steering lock in ~0.13 s, centers briskly in ~0.105 s for crisp keyboard control.
+  steeringRiseRate: 7.5,
+  steeringReturnRate: 9.5,
   // Responsive pedal ramp emulating analog travel without sluggishness.
   throttleRiseRate: 6.0,
   throttleReturnRate: 10.0,
   brakeRiseRate: 7.5,
   brakeReturnRate: 10.0,
-  // Nonlinear speed-sensitive curve reduces steering lock cleanly down to 26% at 60 m/s (~216 km/h).
-  speedSensitivityMinScale: 0.26,
-  speedSensitivityReferenceSpeedMps: 60,
+  // Nonlinear speed-sensitive curve reduces steering lock cleanly down to 30% at 65 m/s (~234 km/h).
+  speedSensitivityMinScale: 0.3,
+  speedSensitivityReferenceSpeedMps: 65,
 });
 
 export class ForbiddenModifierBindingError extends Error {

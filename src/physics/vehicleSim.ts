@@ -384,25 +384,44 @@ export class VehicleSimulation {
       this.wheelSpinAngles[i] = ((this.wheelSpinAngles[i] ?? 0) + nextOmega * dt) % (Math.PI * 2);
     }
 
-    // 4. Gravity, aerodynamics, mild yaw-rate stability damping, and rigid-body integration
+    // 4. Gravity, aerodynamics, oversteer/zero-steer yaw stability damping, and rigid-body integration
     applyGravityForce(this.body, this.rbParams);
     applyAerodynamicForces(this.body, this.rbParams);
     if (groundedCount >= 2 && handbrake < 0.1 && forwardSpeedMps > 3.0) {
       const yawRate = this.body.angularVelocity.y;
       if (Math.abs(yawRate) > 1e-4) {
-        const opposingSteer =
-          (steer > 0.05 && yawRate < 0) ||
-          (steer < -0.05 && yawRate > 0) ||
-          Math.abs(steer) <= 0.05;
-        const gain = opposingSteer ? 2.6 : 1.0;
-        const speedFactor = clamp(forwardSpeedMps / 25, 0.35, 1.4);
-        const maxAccel = 6.0 * this.spec.inertiaLocal.y;
-        const yawStabilityTorque = clamp(
-          -yawRate * gain * speedFactor * this.spec.inertiaLocal.y,
-          -maxAccel,
-          maxAccel,
-        );
-        applyWorldTorque(this.body, { x: 0, y: yawStabilityTorque, z: 0 });
+        const frontSlipAbs =
+          (Math.abs(this.wheelSlipAngles[0]) + Math.abs(this.wheelSlipAngles[1])) * 0.5;
+        const rearSlipAbs =
+          (Math.abs(this.wheelSlipAngles[2]) + Math.abs(this.wheelSlipAngles[3])) * 0.5;
+        const chassisRight = quatRotateVec3(this.body.orientation, VEC3_RIGHT);
+        const latSpeed = vec3Dot(this.body.linearVelocity, chassisRight);
+        const bodySlipRad = Math.atan2(latSpeed, Math.max(Math.abs(forwardSpeedMps), 1.0));
+
+        const zeroSteer = Math.abs(steer) <= 0.05;
+        const counterSteer =
+          (steer > 0.05 && yawRate < -0.05) || (steer < -0.05 && yawRate > 0.05);
+        const oversteerExcess = Math.max(0, rearSlipAbs - frontSlipAbs - 0.06);
+
+        let gain = 0;
+        if (zeroSteer) {
+          gain = 1.8;
+        } else if (counterSteer) {
+          gain = 2.4;
+        } else if (oversteerExcess > 0 && Math.abs(bodySlipRad) > 0.12) {
+          gain = clamp(oversteerExcess * 8.0, 0, 1.8);
+        }
+
+        if (gain > 0) {
+          const speedFactor = clamp(forwardSpeedMps / 25, 0.35, 1.4);
+          const maxAccel = 6.0 * this.spec.inertiaLocal.y;
+          const yawStabilityTorque = clamp(
+            -yawRate * gain * speedFactor * this.spec.inertiaLocal.y,
+            -maxAccel,
+            maxAccel,
+          );
+          applyWorldTorque(this.body, { x: 0, y: yawStabilityTorque, z: 0 });
+        }
       }
     }
     integrateRigidBody(this.body, this.rbParams, dt);

@@ -45,7 +45,7 @@ export function computeMaxSteeringForSpeed(
   const reference = Math.max(ZERO_EPSILON, smoothing.speedSensitivityReferenceSpeedMps);
   const minScale = clamp(smoothing.speedSensitivityMinScale, 0, 1);
   const ratio = clamp(safeSpeed / reference, 0, 1);
-  return minScale + (1 - minScale) * Math.pow(1 - ratio, 1.6);
+  return minScale + (1 - minScale) * Math.pow(1 - ratio, 1.35);
 }
 
 function approachUnipolar(
@@ -95,12 +95,13 @@ function approachBipolar(
   }
 
   // Crossing through zero when steering direction reverses: return to 0 at
-  // returnRate, then apply remaining dt toward the new direction at riseRate.
+  // accelerated reversal rate, then apply remaining dt toward the new direction at riseRate.
   if (current !== 0 && Math.sign(current) !== Math.sign(clampedTarget)) {
+    const reverseReturnRate = returnRate * 1.4;
     const distanceToZero = Math.abs(current);
-    const timeToZero = returnRate > 0 ? distanceToZero / returnRate : 0;
+    const timeToZero = reverseReturnRate > 0 ? distanceToZero / reverseReturnRate : 0;
     if (dtSeconds <= timeToZero) {
-      const step = returnRate * dtSeconds;
+      const step = reverseReturnRate * dtSeconds;
       const next = current > 0 ? current - step : current + step;
       return snapNearZero(clamp(next, -limit, limit));
     }
