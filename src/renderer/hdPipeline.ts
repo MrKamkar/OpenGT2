@@ -442,10 +442,14 @@ void main() {
 
   float normalLen = length(v_normal);
   vec3 n = normalLen > 1e-5 ? v_normal / normalLen : vec3(0.0, 1.0, 0.0);
+  if (!gl_FrontFacing) {
+    n = -n;
+  }
   vec3 l = normalize(u_lightDir);
   float ndl = max(dot(n, l), 0.0);
+  float fill = max(dot(n, -l), 0.0);
   float hemi = 0.5 + 0.5 * n.y;
-  float lighting = mix(0.28, 0.48, hemi) + 0.62 * ndl;
+  float lighting = mix(0.42, 0.62, hemi) + 0.52 * ndl + 0.14 * fill;
 
   fragColor = vec4(clamp(baseColor.rgb * lighting, 0.0, 1.0), baseColor.a);
 }

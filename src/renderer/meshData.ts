@@ -140,6 +140,34 @@ function readNormalSafe(
   return [nx, ny, nz];
 }
 
+function computeGeometricTriangleNormal(
+  lod: CarModelLod,
+  v0Idx: number,
+  v1Idx: number,
+  v2Idx: number,
+): readonly [number, number, number] {
+  const b0 = v0Idx * 4;
+  const b1 = v1Idx * 4;
+  const b2 = v2Idx * 4;
+  const ax = lod.rawVerticesInt16[b0] ?? 0;
+  const ay = lod.rawVerticesInt16[b0 + 1] ?? 0;
+  const az = lod.rawVerticesInt16[b0 + 2] ?? 0;
+  const ux = (lod.rawVerticesInt16[b1] ?? 0) - ax;
+  const uy = (lod.rawVerticesInt16[b1 + 1] ?? 0) - ay;
+  const uz = (lod.rawVerticesInt16[b1 + 2] ?? 0) - az;
+  const vx = (lod.rawVerticesInt16[b2] ?? 0) - ax;
+  const vy = (lod.rawVerticesInt16[b2 + 1] ?? 0) - ay;
+  const vz = (lod.rawVerticesInt16[b2 + 2] ?? 0) - az;
+  const nx = uy * vz - uz * vy;
+  const ny = uz * vx - ux * vz;
+  const nz = ux * vy - uy * vx;
+  const len = Math.hypot(nx, ny, nz);
+  if (len <= 1e-6) {
+    return CAR_DEFAULT_FALLBACK_NORMAL;
+  }
+  return [nx / len, ny / len, nz / len];
+}
+
 function clampByte(value: number): number {
   if (!Number.isFinite(value)) {
     return 0;
@@ -155,14 +183,14 @@ function clampByte(value: number): number {
 
 function buildCompositeKey(
   posIndex: number,
-  normIndex: number,
+  normKey: string,
   u: number,
   v: number,
   rawColor24: number,
   paletteIndex: number,
   faceMode: CarFaceMode,
 ): string {
-  return `${String(posIndex)}:${String(normIndex)}:${String(u)}:${String(v)}:${String(rawColor24)}:${String(paletteIndex)}:${String(faceMode)}`;
+  return `${String(posIndex)}:${normKey}:${String(u)}:${String(v)}:${String(rawColor24)}:${String(paletteIndex)}:${String(faceMode)}`;
 }
 
 /**
@@ -199,6 +227,7 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
     rawColor24: number,
     paletteIndex: number,
     faceMode: CarFaceMode,
+    normalOverride?: readonly [number, number, number],
   ): number => {
     if (posIndex < 0 || posIndex >= lod.vertexCount) {
       throw new RangeError(
@@ -207,11 +236,15 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
     }
 
     const effectiveNormIndex = lod.normalCount > 0 ? normIndex : -1;
+    const normKey =
+      normalOverride !== undefined
+        ? `g:${String(Math.round(normalOverride[0] * 1000))},${String(Math.round(normalOverride[1] * 1000))},${String(Math.round(normalOverride[2] * 1000))}`
+        : String(effectiveNormIndex);
     const u = clampByte(uRaw);
     const v = clampByte(vRaw);
     const key = buildCompositeKey(
       posIndex,
-      effectiveNormIndex,
+      normKey,
       u,
       v,
       rawColor24,
@@ -234,7 +267,8 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
     const x = lod.rawVerticesInt16[posBase] ?? 0;
     const y = lod.rawVerticesInt16[posBase + 1] ?? 0;
     const z = lod.rawVerticesInt16[posBase + 2] ?? 0;
-    const [nx, ny, nz] = readNormalSafe(lod, effectiveNormIndex);
+    const [nx, ny, nz] =
+      normalOverride !== undefined ? normalOverride : readNormalSafe(lod, effectiveNormIndex);
 
     const outIndex = vertices.length;
     vertices.push({
@@ -301,12 +335,71 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
     });
   };
 
+  const resolveUnindexedDoubleSidedNormal = (
+    tri: CarUntexturedTriangle | CarTexturedTriangle,
+  ): readonly [number, number, number] | undefined => {
+    // Verified 100% across 2,220 CDO/CNO models: (renderFlags & 0x08) === 0 (singleSided=false) leaves all
+    // normal indices 0; use each triangle's geometric face normal instead of inheriting lod.normals[0].
+    if (
+      !tri.singleSided &&
+      lod.normalCount > 0 &&
+      tri.normals[0] === 0 &&
+      tri.normals[1] === 0 &&
+      tri.normals[2] === 0
+    ) {
+      return computeGeometricTriangleNormal(
+        lod,
+        tri.vertices[0],
+        tri.vertices[1],
+        tri.vertices[2],
+      );
+    }
+    return undefined;
+  };
+
   const appendUntextured = (tri: CarUntexturedTriangle): void => {
     const faceMode = resolveFaceMode(tri.faceType);
     const { r, g, b, raw24 } = tri.color;
-    const i0 = getOrAddVertex(tri.vertices[0], tri.normals[0], 0, 0, r, g, b, raw24, 0, faceMode);
-    const i1 = getOrAddVertex(tri.vertices[1], tri.normals[1], 0, 0, r, g, b, raw24, 0, faceMode);
-    const i2 = getOrAddVertex(tri.vertices[2], tri.normals[2], 0, 0, r, g, b, raw24, 0, faceMode);
+    const geomNormal = resolveUnindexedDoubleSidedNormal(tri);
+    const i0 = getOrAddVertex(
+      tri.vertices[0],
+      tri.normals[0],
+      0,
+      0,
+      r,
+      g,
+      b,
+      raw24,
+      0,
+      faceMode,
+      geomNormal,
+    );
+    const i1 = getOrAddVertex(
+      tri.vertices[1],
+      tri.normals[1],
+      0,
+      0,
+      r,
+      g,
+      b,
+      raw24,
+      0,
+      faceMode,
+      geomNormal,
+    );
+    const i2 = getOrAddVertex(
+      tri.vertices[2],
+      tri.normals[2],
+      0,
+      0,
+      r,
+      g,
+      b,
+      raw24,
+      0,
+      faceMode,
+      geomNormal,
+    );
     pushTriangle(i0, i1, i2, tri.singleSided, tri.renderOrder, tri.faceType, 0);
   };
 
@@ -314,6 +407,7 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
     const faceMode = resolveFaceMode(tri.faceType);
     const { r, g, b, raw24 } = tri.color;
     const paletteIndex = tri.paletteIndex & 0x0f;
+    const geomNormal = resolveUnindexedDoubleSidedNormal(tri);
     const i0 = getOrAddVertex(
       tri.vertices[0],
       tri.normals[0],
@@ -325,6 +419,7 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
       raw24,
       paletteIndex,
       faceMode,
+      geomNormal,
     );
     const i1 = getOrAddVertex(
       tri.vertices[1],
@@ -337,6 +432,7 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
       raw24,
       paletteIndex,
       faceMode,
+      geomNormal,
     );
     const i2 = getOrAddVertex(
       tri.vertices[2],
@@ -349,6 +445,7 @@ export function buildCarMeshData(carModel: CarModel, lodIndex = 0): CarMeshBuffe
       raw24,
       paletteIndex,
       faceMode,
+      geomNormal,
     );
     pushTriangle(i0, i1, i2, tri.singleSided, tri.renderOrder, tri.faceType, paletteIndex);
   };

@@ -163,7 +163,8 @@ uniform float u_vertexScale;
 out vec3 v_uvw;
 out vec2 v_uvPerspective;
 out vec3 v_color;
-out float v_light;
+out float v_lightFront;
+out float v_lightBack;
 flat out uvec2 v_material;
 
 void main() {
@@ -183,12 +184,23 @@ void main() {
   v_uvw = vec3(a_uv * clipPos.w, clipPos.w);
   v_uvPerspective = a_uv;
 
-  // Vertex-only Gouraud-style directional + ambient lighting from 10-bit normals
+  // Vertex-only Gouraud-style directional + ambient two-sided lighting from 10-bit normals
   vec3 worldNormal = mat3(u_model) * a_normal;
   float normLen = length(worldNormal);
   vec3 n = normLen > 1e-5 ? worldNormal / normLen : vec3(0.0, 1.0, 0.0);
-  float ndl = max(dot(n, normalize(u_lightDir)), 0.0);
-  v_light = clamp(0.45 + 0.65 * ndl, 0.0, 1.15);
+  vec3 l = normalize(u_lightDir);
+  float hemiFront = 0.5 + 0.5 * n.y;
+  float hemiBack = 0.5 - 0.5 * n.y;
+  v_lightFront = clamp(
+    mix(0.42, 0.60, hemiFront) + 0.52 * max(dot(n, l), 0.0) + 0.12 * max(dot(n, -l), 0.0),
+    0.0,
+    1.15
+  );
+  v_lightBack = clamp(
+    mix(0.42, 0.60, hemiBack) + 0.52 * max(dot(-n, l), 0.0) + 0.12 * max(dot(-n, -l), 0.0),
+    0.0,
+    1.15
+  );
 
   v_color = a_color;
   v_material = a_material;
@@ -212,7 +224,8 @@ uniform int u_quantize15;
 in vec3 v_uvw;
 in vec2 v_uvPerspective;
 in vec3 v_color;
-in float v_light;
+in float v_lightFront;
+in float v_lightBack;
 flat in uvec2 v_material;
 
 out vec4 fragColor;
@@ -256,7 +269,8 @@ void main() {
     }
   }
 
-  vec3 lit = clamp(baseColor.rgb * v_light, 0.0, 1.0);
+  float light = gl_FrontFacing ? v_lightFront : v_lightBack;
+  vec3 lit = clamp(baseColor.rgb * light, 0.0, 1.0);
 
   if (u_dithering != 0) {
     float dither = ps1DitherOffset(ivec2(gl_FragCoord.xy)) / 255.0;
