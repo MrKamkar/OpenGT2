@@ -107,6 +107,34 @@ export const FORMAT_REGISTRY: readonly FormatRegistryEntry[] = [
     notes:
       'GT2 car texture and palettes (day/night, 256x224 4 bpp, no fixed magic); verified 2,220 files in GT2.VOL (M6.7).',
   },
+  {
+    id: 'tro',
+    ext: ['.tro'],
+    magic: [0x40, 0x28, 0x23, 0x29, 0x47, 0x54, 0x2d, 0x50, 0x53, 0x00, 0x00, 0x00],
+    formatName: 'GT2 Track Geometry (TRO)',
+    evidence: 'E3',
+    notes:
+      'GT2 3D track geometry and UV table ("@(#)GT-PS\\0\\0\\0"); verified 126 files in GT2.VOL (M8.1–M8.2).',
+  },
+  {
+    id: 'trp',
+    ext: ['.trp', '.bsp'],
+    magic: [0x10, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00],
+    magicOffset: 4,
+    formatName: 'GT2 Track/Background TIM Pack (TRP/BSP)',
+    evidence: 'E3',
+    notes:
+      'Count-prefixed concatenated 4 bpp PS1 TIM pack (uint32 count + TIM[count]); verified 126 .trp and 34 .bsp files in GT2.VOL (M8.1–M8.2).',
+  },
+  {
+    id: 'bso',
+    ext: ['.bso'],
+    magic: [0x42, 0x47, 0x00, 0x00],
+    formatName: 'GT2 Track Background Object (BSO)',
+    evidence: 'E2',
+    notes:
+      'GT2 skybox/background container signature ("BG\\0\\0") verified on 34 files in GT2.VOL (M8.1); internal payload unparsed.',
+  },
 ];
 
 function extractNormalizedExtension(path: string | undefined): string | null {

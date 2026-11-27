@@ -78,6 +78,45 @@ describe('file format classifier registry (M3.4)', () => {
     expect(cdo.id).toBe('cdo');
     expect(cdo.evidence).toBe('E3');
     expect(cdo.matchedBy).toBe('magic+ext');
+
+    const tro = classifyFile({
+      path: 'crsobj/sample.tro',
+      headBytes: new Uint8Array([
+        0x40, 0x28, 0x23, 0x29, 0x47, 0x54, 0x2d, 0x50, 0x53, 0x00, 0x00, 0x00,
+      ]),
+    });
+    expect(tro.id).toBe('tro');
+    expect(tro.evidence).toBe('E3');
+    expect(tro.matchedBy).toBe('magic+ext');
+
+    // Also test timCount === 16 (0x10), which collides at byte 0 with TIM magic unless magicOffset: 4 wins.
+    const trpCount16 = classifyFile({
+      path: 'crsobj/sample.trp',
+      headBytes: new Uint8Array([
+        0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+      ]),
+    });
+    expect(trpCount16.id).toBe('trp');
+    expect(trpCount16.evidence).toBe('E3');
+    expect(trpCount16.matchedBy).toBe('magic+ext');
+
+    const bsp = classifyFile({
+      path: 'bgsobj/sample.bsp',
+      headBytes: new Uint8Array([
+        0x03, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+      ]),
+    });
+    expect(bsp.id).toBe('trp');
+    expect(bsp.evidence).toBe('E3');
+    expect(bsp.matchedBy).toBe('magic+ext');
+
+    const bso = classifyFile({
+      path: 'bgsobj/sample.bso',
+      headBytes: new Uint8Array([0x42, 0x47, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+    });
+    expect(bso.id).toBe('bso');
+    expect(bso.evidence).toBe('E2');
+    expect(bso.matchedBy).toBe('magic+ext');
   });
 
   it('does not misclassify plain data with misleading .gz extension', () => {
