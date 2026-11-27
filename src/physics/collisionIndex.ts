@@ -33,7 +33,7 @@ export const MAX_GRID_CELLS = 160_000;
 export const WALL_BARRIER_VERTICAL_MARGIN_METERS = 2.5;
 
 /** Maximum signed distance (m) behind a barrier normal still considered a wall penetration (prevents snapping across distant walls). */
-export const WALL_MAX_PENETRATION_DEPTH_METERS = 2.5;
+export const WALL_MAX_PENETRATION_DEPTH_METERS = 2.2;
 
 /** Maximum single-step positional push-out (m) when resolving chassis wall penetration. */
 export const WALL_MAX_PUSH_OUT_METERS = 1.0;
@@ -344,24 +344,24 @@ function extractWallBarriers(mesh: CollisionMesh): IndexedWallBarrier[] {
       if (!Number.isFinite(nLen) || nLen <= 1e-5) {
         nx = -segDz / segLen;
         nz = segDx / segLen;
+        const [inwardNx, inwardNz] = orientBarrierNormalInward(
+          mesh,
+          groundLookup,
+          barrier.segmentIndex,
+          barrier.start.x,
+          barrier.start.z,
+          barrier.end.x,
+          barrier.end.z,
+          nx,
+          nz,
+        );
+        nx = inwardNx;
+        nz = inwardNz;
       } else {
+        // Explicit subBlock98 barrier normals are already oriented inward by buildCollisionMesh using groundEdgeRefs.
         nx /= nLen;
         nz /= nLen;
       }
-
-      const [inwardNx, inwardNz] = orientBarrierNormalInward(
-        mesh,
-        groundLookup,
-        barrier.segmentIndex,
-        barrier.start.x,
-        barrier.start.z,
-        barrier.end.x,
-        barrier.end.z,
-        nx,
-        nz,
-      );
-      nx = inwardNx;
-      nz = inwardNz;
 
       const segBounds = segByIndex.get(barrier.segmentIndex)?.bounds;
       const rawMinY = Math.min(
@@ -1120,10 +1120,53 @@ export class CollisionIndex {
     let sumNormalX = 0;
     let sumNormalZ = 0;
 
-    // Phase 1: Continuous swept-segment CCD (prevPosition -> position) on center + 4 corners.
+    // Phase 1: Continuous swept-segment CCD (prevPosition -> position) on center + 4 corners, ordered by earliest alpha.
+    const crossedBarriers = new Set<IndexedWallBarrier>();
     if (hasSweep) {
       const sweptIndices = [8, 0, 1, 2, 3] as const;
+      const sweptHits: {
+        readonly barrier: IndexedWallBarrier;
+        readonly earliestAlpha: number;
+      }[] = [];
+
       for (const b of candidates) {
+        const endPadFrac = WALL_ENDPOINT_RADIUS_METERS / b.segLen;
+        let earliestAlpha = Infinity;
+
+        for (const oi of sweptIndices) {
+          const off = localOffsets[oi]!;
+          const p0x = query.prevPosition!.x + off.x;
+          const p0z = query.prevPosition!.z + off.z;
+          const p1x = query.position.x + off.x;
+          const p1z = query.position.z + off.z;
+
+          const d0 = (p0x - b.ax) * b.nx + (p0z - b.az) * b.nz;
+          const d1 = (p1x - b.ax) * b.nx + (p1z - b.az) * b.nz;
+          if (d0 < -0.05 || d1 >= 0) {
+            continue;
+          }
+
+          const alpha = d0 <= 0 ? 0 : d0 / (d0 - d1);
+          const ix = p0x + (p1x - p0x) * alpha;
+          const iz = p0z + (p1z - p0z) * alpha;
+          const t = ((ix - b.ax) * b.segDx + (iz - b.az) * b.segDz) / b.segLenSq;
+          if (t < -endPadFrac || t > 1 + endPadFrac) {
+            continue;
+          }
+          if (alpha < earliestAlpha) {
+            earliestAlpha = alpha;
+          }
+        }
+
+        if (Number.isFinite(earliestAlpha)) {
+          sweptHits.push({ barrier: b, earliestAlpha });
+        }
+      }
+
+      sweptHits.sort((a, b) => a.earliestAlpha - b.earliestAlpha);
+
+      for (const hit of sweptHits) {
+        const b = hit.barrier;
         const endPadFrac = WALL_ENDPOINT_RADIUS_METERS / b.segLen;
         let maxCcdPenForBarrier = 0;
         let bestOffIdx = 8;
@@ -1157,6 +1200,7 @@ export class CollisionIndex {
         }
 
         if (maxCcdPenForBarrier > 0) {
+          crossedBarriers.add(b);
           workingX += b.nx * maxCcdPenForBarrier;
           workingZ += b.nz * maxCcdPenForBarrier;
           totalContacts += 1;
@@ -1186,6 +1230,14 @@ export class CollisionIndex {
       let passBestOffZ = 0;
 
       for (const b of candidates) {
+        if (hasPrev && !crossedBarriers.has(b)) {
+          const prevCenterDist =
+            (query.prevPosition!.x - b.ax) * b.nx + (query.prevPosition!.z - b.az) * b.nz;
+          if (prevCenterDist < -0.25) {
+            // Skip opposing back-faces (e.g., thin pit-lane dividers) that the car center started behind.
+            continue;
+          }
+        }
         const endPadFrac = WALL_ENDPOINT_RADIUS_METERS / b.segLen;
         for (const off of localOffsets) {
           const px = workingX + off.x;

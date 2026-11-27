@@ -332,4 +332,60 @@ describe('CollisionIndex spatial acceleration & wall collisions (M9.2)', () => {
     expect(finalX).toBeLessThan(9.2);
     expect(finalZ).toBeLessThan(-1.7);
   });
+
+  it('prevents back-face suction on thin 1.4 m double-sided pit-divider barriers', () => {
+    const tro = parseTro(
+      buildSyntheticTro({
+        uvEntries: [],
+        segments: [
+          {
+            centerRaw: [0, 320, 0],
+            subMesh0: {
+              // Main road x >= -5 m (rawX >= -320), pit lane x <= -6.4 m (rawX <= -410), divider thickness 1.406 m
+              localVertices: [
+                [-320, 0, 0],
+                [-320, 640, 0],
+                [320, 640, 0],
+                [320, 0, 0],
+                [-640, 0, 0],
+                [-640, 640, 0],
+                [-410, 640, 0],
+                [-410, 0, 0],
+              ],
+              polygons: [
+                { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 100, g: 100, b: 100 }] },
+                { listIndex: 2, vertices: [4, 5, 6, 7], colors: [{ r: 100, g: 100, b: 100 }] },
+              ],
+            },
+            subMesh1: { localVertices: [], polygons: [] },
+            walls2D: [
+              // Main-track side at x = -5 m facing +X
+              { v0: 0, v1: 1, nxFixed12: 4096, nyFixed12: 0 },
+              // Pit-lane side at x = -6.406 m facing -X
+              { v0: 7, v1: 6, nxFixed12: -4096, nyFixed12: 0 },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const index = new CollisionIndex(buildCollisionMesh(tro));
+    const prevPos = { x: -4.0, y: 0.6, z: -5.0 };
+    const nextPos = { x: -5.2, y: 0.6, z: -5.0 };
+    const res = index.resolveChassisWallCollisions({
+      position: nextPos,
+      prevPosition: prevPos,
+      orientation: quatIdentity(),
+      linearVelocity: { x: -18, y: 0, z: 0 },
+      angularVelocity: { x: 0, y: 0, z: 0 },
+      halfExtents: { x: 0.85, y: 0.6, z: 1.8 },
+      massKg: 1200,
+      inertiaY: 1800,
+    });
+
+    expect(res.collided).toBe(true);
+    expect(res.contactNormal.x).toBeGreaterThan(0.9);
+    expect(res.positionCorrection.x).toBeGreaterThan(0);
+    expect(nextPos.x + res.positionCorrection.x).toBeGreaterThan(-4.3);
+  });
 });

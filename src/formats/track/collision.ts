@@ -396,12 +396,12 @@ export function buildCollisionMesh(
           if (edgeRef !== undefined && edgeRef.hasPos !== edgeRef.hasNeg) {
             refX = edgeRef.sumX / edgeRef.count;
             refZ = edgeRef.sumZ / edgeRef.count;
-          } else if (Math.hypot(centerlineFallback.x - midX, centerlineFallback.z - midZ) >= 0.1) {
-            refX = centerlineFallback.x;
-            refZ = centerlineFallback.z;
-          } else {
+          } else if (Math.hypot(defaultInwardRefX - midX, defaultInwardRefZ - midZ) >= 0.1) {
             refX = defaultInwardRefX;
             refZ = defaultInwardRefZ;
+          } else {
+            refX = centerlineFallback.x;
+            refZ = centerlineFallback.z;
           }
           const [orientedNx, orientedNz] = orientHorizontalNormalInward(
             nx,

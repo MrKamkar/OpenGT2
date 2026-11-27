@@ -118,6 +118,7 @@ export class VehicleSimulation {
 
   private body: RigidBodyState;
   private prevPose: VehiclePose;
+  private lastValidOnTrackPose: VehiclePose;
   private suspension: WheelSlotTuple<WheelSuspensionState>;
   private drivetrain: DrivetrainState;
 
@@ -147,6 +148,10 @@ export class VehicleSimulation {
     const startQuat = quatFromAxisAngle(VEC3_UP, options.initialYawRad ?? 0);
     this.body = createRigidBodyState(startPos, startQuat);
     this.prevPose = {
+      position: { ...this.body.position },
+      orientation: { ...this.body.orientation },
+    };
+    this.lastValidOnTrackPose = {
       position: { ...this.body.position },
       orientation: { ...this.body.orientation },
     };
@@ -180,6 +185,10 @@ export class VehicleSimulation {
     const orientation: PhysicsQuat = quatFromAxisAngle(VEC3_UP, yawRad);
     this.body = createRigidBodyState(position, orientation);
     this.prevPose = {
+      position: { ...this.body.position },
+      orientation: { ...this.body.orientation },
+    };
+    this.lastValidOnTrackPose = {
       position: { ...this.body.position },
       orientation: { ...this.body.orientation },
     };
@@ -470,6 +479,45 @@ export class VehicleSimulation {
         this.body.angularVelocity,
         wallRes.angularVelocityDelta,
       );
+    }
+
+    // Hard off-track containment fallback: if all wheels leave ground geometry and no ground exists beneath chassis,
+    // clamp cleanly back to the last valid on-track pose and remove outward escape velocity.
+    if (groundedCount === 0) {
+      const safetyHit = this.collisionIndex.raycastWheelDown(
+        { x: this.body.position.x, y: this.body.position.y + 4, z: this.body.position.z },
+        { x: 0, y: -1, z: 0 },
+        20,
+      );
+      if (safetyHit === null) {
+        const escDx = this.body.position.x - this.lastValidOnTrackPose.position.x;
+        const escDz = this.body.position.z - this.lastValidOnTrackPose.position.z;
+        const escLen = Math.hypot(escDx, escDz);
+        this.body.position = { ...this.lastValidOnTrackPose.position };
+        if (escLen > 1e-4) {
+          const ux = escDx / escLen;
+          const uz = escDz / escLen;
+          const vOut = this.body.linearVelocity.x * ux + this.body.linearVelocity.z * uz;
+          if (vOut > 0) {
+            this.body.linearVelocity = {
+              x: (this.body.linearVelocity.x - ux * vOut) * 0.5,
+              y: this.body.linearVelocity.y * 0.5,
+              z: (this.body.linearVelocity.z - uz * vOut) * 0.5,
+            };
+          } else {
+            this.body.linearVelocity = vec3Scale(this.body.linearVelocity, 0.5);
+          }
+        } else {
+          this.body.linearVelocity = vec3Scale(this.body.linearVelocity, 0.5);
+        }
+        this.body.angularVelocity = vec3Scale(this.body.angularVelocity, 0.5);
+        this.wallCollisionCount += 1;
+      }
+    } else if (groundedCount >= 3 && !wallRes.collided) {
+      this.lastValidOnTrackPose = {
+        position: { ...this.body.position },
+        orientation: { ...this.body.orientation },
+      };
     }
 
     // 7. Finite-state safety guard

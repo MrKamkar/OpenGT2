@@ -3,6 +3,7 @@ import { type FileHandle, open } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { TrackAssetIndex } from '../../src/assets/trackAssetIndex';
 import { buildCarModel, parseCdo } from '../../src/formats/car';
 import {
   buildCarAssetIndex,
@@ -543,5 +544,107 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
       expect(g).toBeLessThanOrEqual(2);
     }
     expect(checkedHookedRpm).toBeGreaterThan(10);
+  }, 60_000);
+
+  it('prevents wall escapes on catalog Track #0 across previously leaking curved and pit-divider segments', async () => {
+    const allEntries = reader.getAllEntries();
+    const preferred = selectDefaultGtdbVariant(pairGtdbRegionVariants(findGtdbEntries(allEntries)));
+    expect(preferred).toBeDefined();
+
+    const rawGtdb = await gunzip(
+      await cachedSource.read(
+        preferred!.gtmodeData.address,
+        preferred!.gtmodeData.address + preferred!.gtmodeData.size,
+      ),
+    );
+    const catalog = buildCarCatalogFromBuffers(rawGtdb, null, preferred!.id);
+    const fastCar = catalog.listCars().find((c) => c.engine !== null && c.engine.ps >= 220) ?? catalog.listCars()[0]!;
+    const assetIndex = buildCarAssetIndex(allEntries);
+    const carAssets = assetIndex.resolve(fastCar.carId);
+    const cdoBytes = await gunzip(
+      await cachedSource.read(
+        carAssets.dayModel!.address,
+        carAssets.dayModel!.address + carAssets.dayModel!.size,
+      ),
+    );
+    const carSpec = buildCarPhysicsSpec(fastCar, { carModel: buildCarModel(parseCdo(cdoBytes)) });
+
+    const trackIndex = new TrackAssetIndex(allEntries);
+    const track0Entry = trackIndex.listTracks()[0];
+    expect(track0Entry).toBeDefined();
+    const troEntry = track0Entry!.troEntry;
+
+    const troBytes = await gunzip(
+      await cachedSource.read(troEntry.address, troEntry.address + troEntry.size),
+    );
+    const tro = parseTro(troBytes);
+    const mesh = buildCollisionMesh(tro);
+    const colIndex = new CollisionIndex(mesh);
+
+    const targetSegments = [63, 99, 102, 105, 108, 141, 144, 147];
+    let testedCases = 0;
+
+    for (const segIdx of targetSegments) {
+      const seg = tro.segments[segIdx];
+      if (seg === undefined || seg.walls2D.length === 0) continue;
+      const nextSeg = tro.segments[seg.nextSegment] ?? tro.segments[(segIdx + 1) % tro.segments.length]!;
+      const c0 = troRawToEngineVec3(seg.centerlineCenterRaw.x, seg.centerlineCenterRaw.y, seg.centerlineCenterRaw.z);
+      const c1 = troRawToEngineVec3(nextSeg.centerlineCenterRaw.x, nextSeg.centerlineCenterRaw.y, nextSeg.centerlineCenterRaw.z);
+      const colSeg = mesh.segments[segIdx];
+      let spawnX = c0.x;
+      let spawnZ = c0.z;
+      let spawnYTop = c0.y + 8;
+      if (colSeg !== undefined && colSeg.triangleCount > 0) {
+        let sx = 0;
+        let sy = -Infinity;
+        let sz = 0;
+        let n = 0;
+        for (let ti = colSeg.triangleStart; ti < colSeg.triangleStart + colSeg.triangleCount; ti += 1) {
+          if (mesh.surfaceTypes[ti] !== 0) continue;
+          const vb = ti * 9;
+          sx += ((mesh.vertices[vb] ?? 0) + (mesh.vertices[vb + 3] ?? 0) + (mesh.vertices[vb + 6] ?? 0)) / 3;
+          sy = Math.max(sy, mesh.vertices[vb + 1] ?? 0, mesh.vertices[vb + 4] ?? 0, mesh.vertices[vb + 7] ?? 0);
+          sz += ((mesh.vertices[vb + 2] ?? 0) + (mesh.vertices[vb + 5] ?? 0) + (mesh.vertices[vb + 8] ?? 0)) / 3;
+          n += 1;
+        }
+        if (n > 0) {
+          spawnX = sx / n;
+          spawnZ = sz / n;
+          spawnYTop = sy + 4;
+        }
+      }
+
+      const hit = colIndex.raycastWheelDown({ x: spawnX, y: spawnYTop, z: spawnZ }, { x: 0, y: -1, z: 0 }, 24);
+      if (hit === null || hit.normal.y < 0.7) continue;
+
+      const fx = c1.x - c0.x;
+      const fz = c1.z - c0.z;
+      const fLen = Math.hypot(fx, fz);
+      const baseYaw = fLen > 1.0 ? Math.atan2(-(fx / fLen), -(fz / fLen)) : 0;
+
+      for (const yawOffset of [-0.9, 0.9]) {
+        const sim = new VehicleSimulation(carSpec, colIndex, {
+          initialPosition: { x: hit.point.x, y: hit.point.y + carSpec.comHeightMeters + 0.05, z: hit.point.z },
+          initialYawRad: baseYaw + yawOffset,
+        });
+        testedCases += 1;
+
+        for (let step = 0; step < 300; step += 1) {
+          sim.stepFixed({ throttle: 1, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
+          const snap = sim.getSnapshot();
+          expect(Number.isFinite(snap.pose.position.x)).toBe(true);
+          expect(Number.isFinite(snap.pose.position.y)).toBe(true);
+          expect(Number.isFinite(snap.pose.position.z)).toBe(true);
+          const down = colIndex.raycastWheelDown(
+            { x: snap.pose.position.x, y: snap.pose.position.y + 4, z: snap.pose.position.z },
+            { x: 0, y: -1, z: 0 },
+            20,
+          );
+          expect(down).not.toBeNull();
+        }
+      }
+    }
+
+    expect(testedCases).toBe(targetSegments.length * 2);
   }, 60_000);
 });
