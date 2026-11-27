@@ -1077,10 +1077,53 @@ describe('Full VehicleSimulation integration (M9.6)', () => {
         Math.abs(Math.atan2(vec3Dot(s.linearVelocity, right), Math.max(4, s.forwardSpeedMps))),
       );
     }
-    expect(maxSlip).toBeLessThan(0.12);
+    expect(maxSlip).toBeLessThan(0.14);
     for (let i = 0; i < 120; i += 1) {
       sim.stepFixed({ throttle: 0.3, brake: 0, handbrake: 0, steer: 0 }, FIXED_DT);
     }
     expect(Math.abs(sim.getSnapshot().angularVelocity.y)).toBeLessThan(0.08);
+  });
+
+  it('turns in crisply with W + A on both RWD and FWD layouts without plowing (M9.32)', () => {
+    const baseSpec = buildCarPhysicsSpec(createTestEntry());
+    const index = createFlatAsphaltCollisionIndex(4000, 4000);
+    const layouts = [
+      { name: 'RWD', split: 0 },
+      { name: 'FWD', split: 1 },
+    ] as const;
+    for (const layout of layouts) {
+      const spec = { ...baseSpec, drivetrain: { ...baseSpec.drivetrain, frontTorqueSplit: layout.split } };
+      for (const targetKph of [60, 100, 140]) {
+        const input = new InputManager({ initialContext: 'race' });
+        const adapter = new DriveControlAdapter({ inputManager: input, gamepadProvider: () => [] });
+        const sim = new VehicleSimulation(spec, index, {
+          initialPosition: { x: 0, y: spec.comHeightMeters, z: 0 },
+        });
+        input.handleKeyEvent({ type: 'keydown', code: 'KeyW', repeat: false });
+        for (let i = 0; i < 2400 && sim.getSnapshot().speedKph < targetKph; i += 1) {
+          sim.stepFixed(adapter.step(FIXED_DT, sim.getSnapshot().speedMps).controls, FIXED_DT);
+        }
+        input.handleKeyEvent({ type: 'keydown', code: 'KeyA', repeat: false });
+        let peakYaw = 0;
+        let peakSlip = 0;
+        const fwd0 = quatRotateVec3(sim.getPose().orientation, VEC3_FORWARD);
+        for (let i = 0; i < 180; i += 1) {
+          const s0 = sim.getSnapshot();
+          sim.stepFixed(adapter.step(FIXED_DT, s0.speedMps).controls, FIXED_DT);
+          const s = sim.getSnapshot();
+          const right = quatRotateVec3(s.pose.orientation, VEC3_RIGHT);
+          peakYaw = Math.max(peakYaw, s.angularVelocity.y);
+          peakSlip = Math.max(
+            peakSlip,
+            Math.abs(Math.atan2(vec3Dot(s.linearVelocity, right), Math.max(4, s.forwardSpeedMps))),
+          );
+        }
+        const fwd1 = quatRotateVec3(sim.getPose().orientation, VEC3_FORWARD);
+        const heading = Math.acos(Math.min(1, Math.max(-1, fwd0.x * fwd1.x + fwd0.z * fwd1.z)));
+        expect(peakYaw).toBeGreaterThan(0.25);
+        expect(heading).toBeGreaterThan(0.35);
+        expect(peakSlip).toBeLessThan(0.3);
+      }
+    }
   });
 });

@@ -34,7 +34,7 @@ export const TYRE_MAX_SPIN_RAD_S = 400;
 export const TYRE_LATERAL_PACEJKA_B_SCALE = 1.28;
 
 /** Scale factor applied to rear lateral tyre grip while the handbrake is pulled for clean drift initiation. */
-export const TYRE_HANDBRAKE_LATERAL_GRIP_SCALE = 0.25;
+export const TYRE_HANDBRAKE_LATERAL_GRIP_SCALE = 0.2;
 
 export interface TyreForceInput {
   readonly normalForceN: number;
@@ -136,12 +136,12 @@ export function computeTyreForces(input: TyreForceInput): TyreForceOutput {
   let lateralC = Math.min(1.28, input.compound.pacejkaC);
   let lateralE = Math.min(0.45, input.compound.pacejkaE);
   if (input.axle === 'front') {
-    lateralB = input.compound.pacejkaB * 1.62;
+    lateralB = input.compound.pacejkaB * 1.85;
     lateralC = Math.min(1.36, input.compound.pacejkaC);
     lateralE = Math.min(0.12, input.compound.pacejkaE);
   } else if (input.axle === 'rear') {
-    lateralB = input.compound.pacejkaB * 1.72;
-    lateralC = Math.min(1.38, input.compound.pacejkaC);
+    lateralB = input.compound.pacejkaB * 1.58;
+    lateralC = Math.min(1.34, input.compound.pacejkaC);
     lateralE = -0.05;
   }
 

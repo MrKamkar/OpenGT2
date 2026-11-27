@@ -123,8 +123,8 @@ export const DEFAULT_INPUT_SMOOTHING: InputSmoothingConfig = Object.freeze({
   throttleReturnRate: 10.0,
   brakeRiseRate: 7.5,
   brakeReturnRate: 10.0,
-  // Nonlinear speed-sensitive curve reduces steering authority cleanly down to 32% at 65 m/s (~234 km/h).
-  speedSensitivityMinScale: 0.32,
+  // Nonlinear speed-sensitive curve reduces steering authority cleanly down to 45% at 65 m/s (~234 km/h).
+  speedSensitivityMinScale: 0.45,
   speedSensitivityReferenceSpeedMps: 65,
 });
 

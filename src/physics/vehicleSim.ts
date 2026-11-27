@@ -90,11 +90,13 @@ export const CHASSIS_UNDERBODY_MIN_CLEARANCE_METERS = 0.005;
 export const VOID_FALL_RESET_DEPTH_METERS = 5.0;
 
 /** Tilt angle (rad, ~26 deg) beyond which progressive anti-rollover stabilization begins. */
-export const ANTI_ROLLOVER_START_TILT_RAD = 0.45;
+export const ANTI_ROLLOVER_START_TILT_RAD = 0.52;
 /** Tilt angle (rad, ~40 deg) beyond which the smooth self-righting recovery rate takes over. */
-export const SELF_RIGHT_START_TILT_RAD = 0.7;
-/** Maximum roll/pitch angular speed (rad/s) kept after a wall impact. */
-export const WALL_MAX_TILT_RATE_RAD_S = 1.2;
+export const SELF_RIGHT_START_TILT_RAD = 0.78;
+/** Roll/pitch angular speed (rad/s) above which wall impacts are gently damped. */
+export const WALL_TILT_DAMP_THRESHOLD_RAD_S = 2.8;
+/** Exponential tilt-rate damping (1/s) applied above the wall threshold. */
+export const WALL_TILT_DAMP_RATE = 8.0;
 
 /**
  * Progressive anti-rollover stabilization and smooth self-righting (velocity-level).
@@ -130,9 +132,9 @@ export function stabilizeChassisTilt(
   let nextWAxis = wAxis;
   // Anti-rollover: damp spin that grows the tilt and add a restoring acceleration.
   if (wAxis < 0) {
-    nextWAxis += -wAxis * (1 - Math.exp(-14 * soft * dt));
+    nextWAxis += -wAxis * (1 - Math.exp(-8 * soft * dt));
   }
-  nextWAxis += 22 * soft * soft * dt;
+  nextWAxis += 14 * soft * soft * dt;
 
   // Self-right: blend toward a righting rate (0.5-1.0 s from fully on its side).
   const righting = clamp((tilt - SELF_RIGHT_START_TILT_RAD) / 0.2, 0, 1);
@@ -703,12 +705,15 @@ export class VehicleSimulation {
         this.body.angularVelocity,
         wallRes.angularVelocityDelta,
       );
-      // Wall impacts push cleanly along XZ: bound roll/pitch spin so the chassis never trips onto its side.
+      // Wall impacts keep natural suspension recoil; only extreme roll/pitch spin is gently damped.
       const w = this.body.angularVelocity;
       const tiltRate = Math.hypot(w.x, w.z);
-      const k = tiltRate > WALL_MAX_TILT_RATE_RAD_S ? WALL_MAX_TILT_RATE_RAD_S / tiltRate : 1;
-      this.body.angularVelocity = { x: w.x * k * 0.6, y: w.y, z: w.z * k * 0.6 };
-      this.body.linearVelocity = { ...this.body.linearVelocity, y: Math.min(this.body.linearVelocity.y, 0.5) };
+      if (tiltRate > WALL_TILT_DAMP_THRESHOLD_RAD_S) {
+        const damp = Math.exp(-WALL_TILT_DAMP_RATE * dt);
+        const target = WALL_TILT_DAMP_THRESHOLD_RAD_S / tiltRate;
+        const k = Math.max(target, damp);
+        this.body.angularVelocity = { x: w.x * k, y: w.y, z: w.z * k };
+      }
     }
 
     // 6a. Anti-rollover stabilization and smooth self-righting
