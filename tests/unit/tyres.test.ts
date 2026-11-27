@@ -194,3 +194,31 @@ describe('Pacejka tyre friction model (M9.6)', () => {
     );
   });
 });
+
+describe('Planted asphalt lateral grip (M9.31)', () => {
+  it('builds >= 60% of peak lateral force by 3 degrees slip and settles low-speed sliding firmly', () => {
+    const stock = TYRE_TYPE_PRESETS[0];
+    const fz = 4000;
+    const base = {
+      normalForceN: fz,
+      wheelAngularSpeedRadS: 20 / 0.31,
+      wheelRadiusMeters: 0.31,
+      patchForwardSpeedMps: 20,
+      compound: stock,
+      surfaceType: 'asphalt' as const,
+    };
+    for (const axle of ['front', 'rear'] as const) {
+      const out = computeTyreForces({ ...base, axle, patchRightSpeedMps: 20 * Math.tan(0.0524) });
+      expect(out.lateralForceN).toBeLessThan(0);
+      expect(Math.abs(out.lateralForceN)).toBeGreaterThan(0.6 * out.effectiveMu * fz);
+    }
+    const slow = computeTyreForces({
+      ...base,
+      axle: 'front',
+      patchForwardSpeedMps: 1.0,
+      wheelAngularSpeedRadS: 1.0 / 0.31,
+      patchRightSpeedMps: 0.3,
+    });
+    expect(Math.abs(slow.lateralForceN)).toBeGreaterThan(0.25 * fz);
+  });
+});

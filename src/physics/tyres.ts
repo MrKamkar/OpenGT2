@@ -13,10 +13,10 @@ export const TYRE_SLIP_MIN_SPEED_MPS = 1.0;
 export const TYRE_MAX_SLIP_RATIO = 2.0;
 
 /** Contact patch speed threshold (m/s) below which low-speed viscous damping stabilizes parked cars. */
-export const TYRE_LOW_SPEED_DAMP_THRESHOLD_MPS = 0.6;
+export const TYRE_LOW_SPEED_DAMP_THRESHOLD_MPS = 1.2;
 
 /** Viscous damping coefficient at near-zero contact patch speed to prevent stationary jitter. */
-export const TYRE_LOW_SPEED_VISCOUS_GAIN = 2.5;
+export const TYRE_LOW_SPEED_VISCOUS_GAIN = 3.2;
 
 /** Reference vertical wheel load (N) for tyre load sensitivity scaling. */
 export const TYRE_LOAD_SENSITIVITY_REF_N = 4000;
@@ -136,11 +136,11 @@ export function computeTyreForces(input: TyreForceInput): TyreForceOutput {
   let lateralC = Math.min(1.28, input.compound.pacejkaC);
   let lateralE = Math.min(0.45, input.compound.pacejkaE);
   if (input.axle === 'front') {
-    lateralB = input.compound.pacejkaB * 1.46;
+    lateralB = input.compound.pacejkaB * 1.62;
     lateralC = Math.min(1.36, input.compound.pacejkaC);
     lateralE = Math.min(0.12, input.compound.pacejkaE);
   } else if (input.axle === 'rear') {
-    lateralB = input.compound.pacejkaB * 1.56;
+    lateralB = input.compound.pacejkaB * 1.72;
     lateralC = Math.min(1.38, input.compound.pacejkaC);
     lateralE = -0.05;
   }
