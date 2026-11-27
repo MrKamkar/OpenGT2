@@ -79,8 +79,8 @@ export const STOCK_DRAG_COEFFICIENT = 0.34;
 export const SPECIAL_DRAG_COEFFICIENT = 0.32;
 
 /** Assumed aerodynamic downforce coefficient (`Cl`, downward along `-chassisUp`). */
-export const STOCK_DOWNFORCE_COEFFICIENT = 0.05;
-export const SPECIAL_DOWNFORCE_COEFFICIENT = 0.25;
+export const STOCK_DOWNFORCE_COEFFICIENT = 0.18;
+export const SPECIAL_DOWNFORCE_COEFFICIENT = 0.55;
 
 /** Assumed fallback wheel geometry & rotational inertia when `CarModel` is omitted. */
 export const DEFAULT_WHEEL_RADIUS_METERS = 0.31;
@@ -128,34 +128,34 @@ export const SUSPENSION_STAGE_PRESETS: readonly [
   {
     stage: 0,
     label: 'Stock',
-    naturalFreqHz: 1.5,
-    dampingRatio: 0.34,
-    maxTravelMeters: 0.14,
-    antiRollRatio: 0.35,
+    naturalFreqHz: 1.75,
+    dampingRatio: 0.62,
+    maxTravelMeters: 0.16,
+    antiRollRatio: 0.38,
   },
   {
     stage: 1,
     label: 'Sports',
-    naturalFreqHz: 1.9,
-    dampingRatio: 0.38,
-    maxTravelMeters: 0.12,
-    antiRollRatio: 0.42,
+    naturalFreqHz: 2.05,
+    dampingRatio: 0.66,
+    maxTravelMeters: 0.14,
+    antiRollRatio: 0.44,
   },
   {
     stage: 2,
     label: 'Semi-Racing',
-    naturalFreqHz: 2.3,
-    dampingRatio: 0.42,
-    maxTravelMeters: 0.1,
-    antiRollRatio: 0.48,
+    naturalFreqHz: 2.2,
+    dampingRatio: 0.66,
+    maxTravelMeters: 0.125,
+    antiRollRatio: 0.5,
   },
   {
     stage: 3,
     label: 'Professional',
-    naturalFreqHz: 2.8,
-    dampingRatio: 0.46,
-    maxTravelMeters: 0.085,
-    antiRollRatio: 0.55,
+    naturalFreqHz: 2.35,
+    dampingRatio: 0.68,
+    maxTravelMeters: 0.115,
+    antiRollRatio: 0.56,
   },
 ] as const;
 
@@ -569,7 +569,7 @@ function buildAxleSuspension(
   const stiffnessNPerM = cornerMassKg * omega * omega;
   const criticalDamping = 2 * Math.sqrt(stiffnessNPerM * cornerMassKg);
   const bumpDampingNPerMps = criticalDamping * preset.dampingRatio;
-  const reboundDampingNPerMps = bumpDampingNPerMps * 1.25;
+  const reboundDampingNPerMps = bumpDampingNPerMps * 1.35;
   const rawStaticComp = (cornerMassKg * GRAVITY_MPS2) / stiffnessNPerM;
   const staticCompressionMeters = clamp(
     rawStaticComp,

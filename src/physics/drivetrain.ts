@@ -419,7 +419,7 @@ export function stepDrivetrain(
   // Keep locked clutch tightly coupled to wheel speed across the full lockup band
   const shaftRpm = shaftOmega * RAD_S_TO_RPM;
   if (clutchEngagement >= 0.95 && shaftRpm >= lockThresholdRpm) {
-    nextEngineOmega = lerp(nextEngineOmega, shaftOmega, 0.85);
+    nextEngineOmega = lerp(nextEngineOmega, shaftOmega, 0.94);
   }
 
   const minEngineOmega = spec.engine.idleRpm * 0.7 * RPM_TO_RAD_S;

@@ -65,7 +65,7 @@ export const BRAKE_HOLD_SPEED_THRESHOLD_MPS = 0.18;
 export const BRAKE_HOLD_DAMPING_RATE = 25.0;
 
 /** Nominal chassis underbody/sill clearance above the tyre-bottom road plane at static ride height (m). */
-export const CHASSIS_UNDERBODY_REST_CLEARANCE_METERS = 0.075;
+export const CHASSIS_UNDERBODY_REST_CLEARANCE_METERS = 0.072;
 
 /** Minimum clearance (m) enforced between chassis underbody sample points and road ground triangles. */
 export const CHASSIS_UNDERBODY_MIN_CLEARANCE_METERS = 0.005;
@@ -557,12 +557,12 @@ export class VehicleSimulation {
       );
     }
 
-    // 6b. Solid chassis underbody & corner ground clearance against actual 3D ground triangles
+    // 6b. Solid chassis underbody & sill ground clearance against actual 3D ground triangles
     const underbodyRight = quatRotateVec3(this.body.orientation, VEC3_RIGHT);
     const underbodyFwd = quatRotateVec3(this.body.orientation, VEC3_FORWARD);
     const underbodyUp = quatRotateVec3(this.body.orientation, VEC3_UP);
-    const sampleHalfW = this.spec.halfExtents.x * 0.98;
-    const sampleHalfL = this.spec.halfExtents.z * 0.98;
+    const sampleHalfW = this.spec.halfExtents.x * 0.82;
+    const sampleHalfL = this.spec.halfExtents.z * 0.78;
     const sampleLocalY =
       -this.spec.comHeightMeters + CHASSIS_UNDERBODY_REST_CLEARANCE_METERS;
     const underbodyPoints: readonly PhysicsVec3[] = [
@@ -598,6 +598,7 @@ export class VehicleSimulation {
     ];
 
     let maxUnderbodyPen = 0;
+    let deepestUnderbodyNormal: PhysicsVec3 = VEC3_UP;
     for (const pt of underbodyPoints) {
       const gHit = this.collisionIndex.raycastWheelDown(
         { x: pt.x, y: pt.y + 0.85, z: pt.z },
@@ -610,24 +611,27 @@ export class VehicleSimulation {
       const pen = gHit.point.y + CHASSIS_UNDERBODY_MIN_CLEARANCE_METERS - pt.y;
       if (pen > maxUnderbodyPen) {
         maxUnderbodyPen = pen;
+        deepestUnderbodyNormal = gHit.normal;
       }
     }
 
     if (maxUnderbodyPen > 0) {
       this.body.position = {
         ...this.body.position,
-        y: this.body.position.y + Math.min(maxUnderbodyPen, 0.55),
+        y: this.body.position.y + Math.min(maxUnderbodyPen, 0.35),
       };
-      if (this.body.linearVelocity.y < 0) {
-        this.body.linearVelocity = {
-          ...this.body.linearVelocity,
-          y: 0,
-        };
+      // Project out only velocity directed INTO the sloped road normal so downhill driving is never launched upward.
+      const vIntoGround = vec3Dot(this.body.linearVelocity, deepestUnderbodyNormal);
+      if (vIntoGround < 0) {
+        this.body.linearVelocity = vec3Add(
+          this.body.linearVelocity,
+          vec3Scale(deepestUnderbodyNormal, -vIntoGround),
+        );
       }
       this.body.angularVelocity = {
-        x: this.body.angularVelocity.x * 0.85,
+        x: this.body.angularVelocity.x * 0.9,
         y: this.body.angularVelocity.y,
-        z: this.body.angularVelocity.z * 0.85,
+        z: this.body.angularVelocity.z * 0.9,
       };
     }
 

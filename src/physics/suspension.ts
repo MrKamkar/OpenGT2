@@ -12,11 +12,14 @@ import {
 import { type RigidBodyState, applyWorldForceAtPoint, getWorldPointVelocity } from './rigidBody';
 import type { PhysicsSurfaceType, PhysicsVec3, WheelSlotTuple } from './types';
 
-/** Progressive bump-stop stiffness multiplier applied when suspension bottoms out beyond `maxTravelMeters`. */
+/** Progressive bump-stop stiffness multiplier applied as suspension nears `maxTravelMeters`. */
 export const BUMP_STOP_STIFFNESS_MULTIPLIER = 4.0;
 
+/** Final fraction of suspension travel where progressive quadratic bump stops engage. */
+export const BUMP_STOP_ENGAGE_FRACTION = 0.15;
+
 /** Upper clamp on per-wheel suspension normal force as a multiple of static corner weight. */
-export const MAX_SUSPENSION_FORCE_WEIGHT_MULTIPLIER = 4.5;
+export const MAX_SUSPENSION_FORCE_WEIGHT_MULTIPLIER = 4.0;
 
 /** Clamp on suspension compression/rebound velocity (m/s) to prevent numerical impulse spikes. */
 export const MAX_SUSPENSION_VELOCITY_MPS = 8.0;
@@ -165,15 +168,19 @@ function evaluateWheelSuspension(
 
   const rawCompression = maxRayDist - hit.distance;
   const compression = clamp(rawCompression, 0, axleSpec.maxTravelMeters);
-  const bumpStopExcess = Math.max(0, rawCompression - axleSpec.maxTravelMeters);
+
+  // Compute chassis contact velocity along hit normal so discrete .tro seam steps cannot inject spikes.
+  const mountVel = getWorldPointVelocity(body, hit.point);
+  const mountCompVel = -vec3Dot(mountVel, hit.normal);
 
   let compressionVelocity: number;
   if (prev.grounded && dt > 0) {
-    compressionVelocity = (compression - prev.compression) / dt;
+    const rawDeriv = (compression - prev.compression) / dt;
+    const clampedDeriv = clamp(rawDeriv, mountCompVel - 2.0, mountCompVel + 2.0);
+    compressionVelocity = 0.55 * mountCompVel + 0.45 * clampedDeriv;
   } else {
     // Smooth touchdown velocity from world contact velocity along hit normal
-    const mountVel = getWorldPointVelocity(body, hit.point);
-    compressionVelocity = Math.max(0, -vec3Dot(mountVel, hit.normal));
+    compressionVelocity = Math.max(0, mountCompVel);
   }
   compressionVelocity = clamp(
     compressionVelocity,
@@ -185,8 +192,24 @@ function evaluateWheelSuspension(
   const damperCoeff =
     compressionVelocity >= 0 ? axleSpec.bumpDampingNPerMps : axleSpec.reboundDampingNPerMps;
   const damperForce = damperCoeff * compressionVelocity;
-  const bumpStopForce =
-    bumpStopExcess * axleSpec.stiffnessNPerM * BUMP_STOP_STIFFNESS_MULTIPLIER;
+
+  const bumpZone = Math.max(0.01, axleSpec.maxTravelMeters * BUMP_STOP_ENGAGE_FRACTION);
+  const progressiveExcess = Math.max(0, rawCompression - (axleSpec.maxTravelMeters - bumpZone));
+  const normalizedExcess = progressiveExcess / bumpZone;
+  const bumpStopSpring =
+    progressiveExcess *
+    normalizedExcess *
+    axleSpec.stiffnessNPerM *
+    BUMP_STOP_STIFFNESS_MULTIPLIER *
+    0.65;
+  const bumpStopDamp =
+    compressionVelocity > 0 && progressiveExcess > 0
+      ? axleSpec.bumpDampingNPerMps *
+        0.75 *
+        clamp(normalizedExcess, 0, 1.5) *
+        compressionVelocity
+      : 0;
+  const bumpStopForce = bumpStopSpring + bumpStopDamp;
 
   const extensionDist = axleSpec.maxTravelMeters - compression;
   const wheelCenterWorld = vec3Add(mountWorld, vec3Scale(downDir, extensionDist));
