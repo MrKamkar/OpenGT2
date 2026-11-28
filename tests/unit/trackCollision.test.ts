@@ -252,4 +252,80 @@ describe('track CollisionMesh builder & raycaster (M8.5)', () => {
       expect(buildOverlayMesh(0, TRO_SURFACE_ASPHALT).triangleCount).toBe(4);
       expect(buildOverlayMesh(-3, TRO_SURFACE_ASPHALT).triangleCount).toBe(4);
     });
-  });});
+
+    it('filters decals whose base lives in another segment and partially overhanging decal triangles', () => {
+      const crossSegment = buildCollisionMesh(
+        parseTro(
+          buildSyntheticTro({
+            uvEntries: [],
+            segments: [
+              {
+                centerRaw: [0, 0, 0],
+                subMesh0: {
+                  localVertices: [
+                    [0, 0, 0],
+                    [0, 640, 0],
+                    [640, 640, 0],
+                    [640, 0, 0],
+                  ],
+                  polygons: [
+                    { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 90, g: 90, b: 90 }], surfaceCode: TRO_SURFACE_ASPHALT },
+                  ],
+                },
+                subMesh1: { localVertices: [], polygons: [] },
+              },
+              {
+                centerRaw: [0, 0, 0],
+                subMesh0: {
+                  localVertices: [
+                    [128, 128, 3],
+                    [128, 256, 3],
+                    [256, 256, 3],
+                    [256, 128, 3],
+                  ],
+                  polygons: [
+                    { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 250, g: 220, b: 0 }], surfaceCode: TRO_SURFACE_ASPHALT },
+                  ],
+                },
+                subMesh1: { localVertices: [], polygons: [] },
+              },
+            ],
+          }),
+        ),
+      );
+      expect(crossSegment.triangleCount).toBe(2);
+
+      const overhang = buildCollisionMesh(
+        parseTro(
+          buildSyntheticTro({
+            uvEntries: [],
+            segments: [
+              {
+                centerRaw: [0, 0, 0],
+                subMesh0: {
+                  localVertices: [
+                    [0, 0, 0],
+                    [0, 640, 0],
+                    [640, 640, 0],
+                    [640, 0, 0],
+                    [560, 128, 3],
+                    [560, 256, 3],
+                    [720, 256, 3],
+                    [720, 128, 3],
+                  ],
+                  polygons: [
+                    { listIndex: 2, vertices: [0, 1, 2, 3], colors: [{ r: 90, g: 90, b: 90 }], surfaceCode: TRO_SURFACE_ASPHALT },
+                    { listIndex: 2, vertices: [4, 5, 6, 7], colors: [{ r: 250, g: 220, b: 0 }], surfaceCode: TRO_SURFACE_ASPHALT },
+                  ],
+                },
+                subMesh1: { localVertices: [], polygons: [] },
+              },
+            ],
+          }),
+        ),
+      );
+      // The triangle whose centroid lies on the road is dropped; the one mostly beyond the edge stays.
+      expect(overhang.triangleCount).toBe(3);
+    });
+  });
+});

@@ -267,13 +267,23 @@ function triangleHeightAtXZ(tri: CandidateTriangle, px: number, pz: number): num
   return l0 * v[1] + l1 * v[4] + l2 * v[7];
 }
 
+const DECAL_GRID_CELL_METERS = 8;
+
+function decalCellKey(cx: number, cz: number): number {
+  return (cx + 32768) * 65536 + (cz + 32768);
+}
+
 /**
  * Flags thin, flat overlay triangles (painted road markings) that float a few centimeters above
- * a continuous asphalt ground triangle of the same segment. A triangle is flagged only when it is
- * ground-classified and asphalt-coded, and every vertex lies inside an asphalt ground triangle's
- * XZ projection with a vertical gap in `(0.005, maxDecalHeight]` m and near-parallel normals.
- * Kerbs, ramps, bridges/overpasses (large vertical gaps) and adjacent banked seams (no XZ
- * overlap) are never flagged. Heuristic (E2): no binary decal flag is verified in `.tro`.
+ * a continuous asphalt ground triangle (any segment). Only ground-classified, asphalt-coded
+ * triangles can be flagged, and a base must be a different, near-parallel asphalt ground
+ * triangle whose XZ projection contains the sample point with a vertical gap in
+ * `(0.005, maxDecalHeight]` m. A triangle is flagged when either every vertex is supported, or
+ * its centroid and at least one vertex are supported (decal partially overhanging the road
+ * edge or touching the asphalt). Bases are always evaluated against the unfiltered set, so the
+ * lowest layer of any stack is never removed. Kerbs, ramps, bridges/overpasses (large vertical
+ * gaps) and neighbouring seams (no XZ overlap) are never flagged. Heuristic (E2): no binary
+ * decal flag is verified in `.tro`.
  *
  * @returns One byte per input triangle (`1` = excluded from collision).
  */
@@ -282,40 +292,77 @@ function markStackedDecalTriangles(
   maxDecalHeight: number = DEFAULT_MAX_DECAL_HEIGHT_METERS,
 ): Uint8Array {
   const flags = new Uint8Array(tris.length);
+  if (!(maxDecalHeight > DECAL_MIN_HEIGHT_METERS)) {
+    return flags;
+  }
   const bases: number[] = [];
+  const grid = new Map<number, number[]>();
+  const cellOf = (v: number): number => Math.floor(v / DECAL_GRID_CELL_METERS);
   for (let i = 0; i < tris.length; i += 1) {
     const t = tris[i];
-    if (t !== undefined && t.surfaceType === 'ground' && t.surfaceCode === TRO_SURFACE_CODE_ASPHALT) {
-      bases.push(i);
+    if (t === undefined || t.surfaceType !== 'ground' || t.surfaceCode !== TRO_SURFACE_CODE_ASPHALT) {
+      continue;
+    }
+    bases.push(i);
+    const v = t.verts;
+    const minCx = cellOf(Math.min(v[0], v[3], v[6]));
+    const maxCx = cellOf(Math.max(v[0], v[3], v[6]));
+    const minCz = cellOf(Math.min(v[2], v[5], v[8]));
+    const maxCz = cellOf(Math.max(v[2], v[5], v[8]));
+    for (let cx = minCx; cx <= maxCx; cx += 1) {
+      for (let cz = minCz; cz <= maxCz; cz += 1) {
+        const key = decalCellKey(cx, cz);
+        const cell = grid.get(key);
+        if (cell === undefined) {
+          grid.set(key, [i]);
+        } else {
+          cell.push(i);
+        }
+      }
     }
   }
+
+  const isSupported = (cand: CandidateTriangle, selfIndex: number, px: number, py: number, pz: number): boolean => {
+    const cell = grid.get(decalCellKey(cellOf(px), cellOf(pz)));
+    if (cell === undefined) return false;
+    for (const bi of cell) {
+      if (bi === selfIndex) continue;
+      const base = tris[bi];
+      if (base === undefined) continue;
+      if (cand.nx * base.nx + cand.ny * base.ny + cand.nz * base.nz < DECAL_MIN_NORMAL_DOT) {
+        continue;
+      }
+      const h = triangleHeightAtXZ(base, px, pz);
+      if (h === null) continue;
+      const gap = py - h;
+      if (gap > DECAL_MIN_HEIGHT_METERS && gap <= maxDecalHeight) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   for (const ci of bases) {
     const cand = tris[ci];
     if (cand === undefined) continue;
-    let allSupported = true;
-    for (let k = 0; k < 3 && allSupported; k += 1) {
-      const px = cand.verts[k * 3] ?? 0;
-      const py = cand.verts[k * 3 + 1] ?? 0;
-      const pz = cand.verts[k * 3 + 2] ?? 0;
-      let supported = false;
-      for (const bi of bases) {
-        if (bi === ci) continue;
-        const base = tris[bi];
-        if (base === undefined) continue;
-        if (cand.nx * base.nx + cand.ny * base.ny + cand.nz * base.nz < DECAL_MIN_NORMAL_DOT) {
-          continue;
-        }
-        const h = triangleHeightAtXZ(base, px, pz);
-        if (h === null) continue;
-        const gap = py - h;
-        if (gap > DECAL_MIN_HEIGHT_METERS && gap <= maxDecalHeight) {
-          supported = true;
-          break;
-        }
+    const v = cand.verts;
+    let supportedCount = 0;
+    for (let k = 0; k < 3; k += 1) {
+      if (isSupported(cand, ci, v[k * 3] ?? 0, v[k * 3 + 1] ?? 0, v[k * 3 + 2] ?? 0)) {
+        supportedCount += 1;
       }
-      allSupported = supported;
     }
-    if (allSupported) {
+    if (supportedCount === 0) continue;
+    if (
+      supportedCount === 3 ||
+      isSupported(
+        cand,
+        ci,
+        (v[0] + v[3] + v[6]) / 3,
+        (v[1] + v[4] + v[7]) / 3,
+        (v[2] + v[5] + v[8]) / 3,
+      )
+    ) {
       flags[ci] = 1;
     }
   }
@@ -352,29 +399,26 @@ export function buildCollisionMesh(
   const globalBox = createEmptyBox();
   let triangleCount = 0;
 
+  interface PreparedSegment {
+    readonly engVerts: Float32Array;
+    readonly tris: CandidateTriangle[];
+  }
+  const prepared: (PreparedSegment | null)[] = [];
+  const allTris: CandidateTriangle[] = [];
+  const triFlagOffsets: number[] = [];
   for (const seg of tro.segments) {
-    const triStart = triangleCount;
-    const wallStart = wallBarriers.length;
-    const segBox = createEmptyBox();
-
-    const useSubMesh0 = seg.subMesh0.vertexCount > 0;
-    const activeSubMesh = useSubMesh0
-      ? seg.subMesh0
-      : seg.subMesh1.vertexCount > 0
-        ? seg.subMesh1
-        : null;
-
-    const groundEdgeRefs = new Map<string, GroundEdgeRef>();
-    let segGroundSumX = 0;
-    let segGroundSumZ = 0;
-    let segGroundCount = 0;
-
-    if (activeSubMesh !== null && activeSubMesh.polygons.length > 0) {
-      const engVerts = transformSubMeshVertices(activeSubMesh, invScale);
-      const reverseWinding = useSubMesh0;
+    const useSub0 = seg.subMesh0.vertexCount > 0;
+    const sm = useSub0 ? seg.subMesh0 : seg.subMesh1.vertexCount > 0 ? seg.subMesh1 : null;
+    triFlagOffsets.push(allTris.length);
+    if (sm === null || sm.polygons.length === 0) {
+      prepared.push(null);
+      continue;
+    }
+      const engVerts = transformSubMeshVertices(sm, invScale);
+      const reverseWinding = useSub0;
       const segTris: CandidateTriangle[] = [];
 
-      for (const poly of activeSubMesh.polygons) {
+      for (const poly of sm.polygons) {
         const triSets = poly.isQuad
           ? reverseWinding
             ? QUAD_CW_TO_CCW
@@ -431,11 +475,43 @@ export function buildCollisionMesh(
           });
         }
       }
+    prepared.push({ engVerts, tris: segTris });
+    for (const t of segTris) {
+      allTris.push(t);
+    }
+  }
+  const decalFlags = markStackedDecalTriangles(allTris, options.maxDecalHeightMeters);
 
-      const decalFlags = markStackedDecalTriangles(segTris, options.maxDecalHeightMeters);
+  for (let segLoopIndex = 0; segLoopIndex < tro.segments.length; segLoopIndex += 1) {
+    const seg = tro.segments[segLoopIndex]!;
+    const triStart = triangleCount;
+    const wallStart = wallBarriers.length;
+    const segBox = createEmptyBox();
+
+    const useSubMesh0 = seg.subMesh0.vertexCount > 0;
+    const activeSubMesh = useSubMesh0
+      ? seg.subMesh0
+      : seg.subMesh1.vertexCount > 0
+        ? seg.subMesh1
+        : null;
+
+    const groundEdgeRefs = new Map<string, GroundEdgeRef>();
+    let segGroundSumX = 0;
+    let segGroundSumZ = 0;
+    let segGroundCount = 0;
+
+    if (activeSubMesh !== null && activeSubMesh.polygons.length > 0) {
+      const prep = prepared[segLoopIndex];
+      if (prep === undefined || prep === null) {
+        throw new Error('Internal error: missing prepared segment triangles.');
+      }
+      const engVerts = prep.engVerts;
+      const segTris = prep.tris;
+      const flagBase = triFlagOffsets[segLoopIndex] ?? 0;
+
       for (let ti = 0; ti < segTris.length; ti += 1) {
         const tri = segTris[ti];
-        if (tri === undefined || decalFlags[ti] === 1) {
+        if (tri === undefined || decalFlags[flagBase + ti] === 1) {
           continue;
         }
         const [x0, y0, z0, x1, y1, z1, x2, y2, z2] = tri.verts;

@@ -703,3 +703,12 @@ Poniższa procedura porządkuje pracę badawczą nad nieznanymi plikami z `GT2.V
 - **Finding:** no binary decal flag is known in `.tro` (`w1`/`w2`); I did not verify per-track decal heights against `GT2.VOL`. Fixed geometrically in `buildCollisionMesh` (E2): asphalt-coded ground triangles fully stacked 0.5-15 cm above a near-parallel asphalt ground triangle are dropped from collision only (render mesh untouched; `maxDecalHeightMeters` option).
 - **Safety:** kerbs (code 1), steps > 15 cm, overpasses (> 1 m), coplanar and non-overlapping seams are retained; covered by synthetic unit tests in `trackCollision.test.ts`.
 
+
+### M9.33b Real-Archive Verification of the Decal Filter
+
+- **Method:** read-only scan of all `126` `.tro` tracks (`860,849` ground triangles, `642,486` asphalt-coded).
+- **Commit `2f574d9` (same-segment, all-vertices rule):** removed `47,626` triangles on `95/126` tracks (per-track min/median/max `0/138/3256`); vertical gap `0.59-14.33 cm` (median `2.26 cm`, p95 `7.81 cm`); raw-unit histogram `1:24859 2:14196 3:3373 4:1855 5:1803 6:874 7:360 8:87 9:54` (`0`: `165`).
+- **Missed overlays found:** `6,491` triangles fully overlaid only by a base in a neighbouring segment, and `19,277` triangles with the centroid plus at least one vertex over the asphalt (partial overhang or touching vertices; centroid gap median `0.9 cm`). Only `3` non-asphalt-code triangles sat in the band (kerbs correctly excluded); `586` vertices had a base `> 15 cm` below.
+- **Flags:** no clean binary flag (`unkFlags` bits `0..8` near-zero for both groups; `listIndex`/`unk5` only correlate), so the geometric E2 rule stays.
+- **Fix:** global (cross-segment, grid-indexed) base lookup plus the centroid rule; about `73k` triangles (`8.5%` of ground) are now excluded. A real-archive regression test checks that every removed triangle still has asphalt `0-15 cm` directly below it. ~15k partially overlapping triangles (centroid off the road) remain collidable.
+

@@ -22,7 +22,12 @@ import {
 import { gunzip } from '../../src/formats/gzip';
 import { decodeIndexedImageToRgba } from '../../src/formats/ps1';
 import { parseTim, timToIndexedImage } from '../../src/formats/tim';
-import { buildCollisionMesh, parseTro, troRawToEngineVec3 } from '../../src/formats/track';
+import {
+  buildCollisionMesh,
+  parseTro,
+  raycastCollisionMesh,
+  troRawToEngineVec3,
+} from '../../src/formats/track';
 import { VolReader } from '../../src/formats/vol';
 import {
   type ByteSource,
@@ -1512,4 +1517,42 @@ describe.skipIf(!HAS_REAL_VOL)('Real GT2.VOL vehicle physics integration (M9.6)'
     expect(lat1Less2 / cnt12).toBeGreaterThanOrEqual(0.9);
     expect(lat2Less3 / cnt23).toBeGreaterThanOrEqual(0.9);
   }, 60_000);
+  it('removes only thin stacked road-marking overlays from real track collision (decal filter)', async () => {
+    const trackIndex = new TrackAssetIndex(reader.getAllEntries());
+    let totalOff = 0;
+    let totalRemoved = 0;
+    let checked = 0;
+    for (const track of trackIndex.listTracks().slice(0, 4)) {
+      const troEntry = track.troEntry;
+      const tro = parseTro(
+        await gunzip(await cachedSource.read(troEntry.address, troEntry.address + troEntry.size)),
+      );
+      const off = buildCollisionMesh(tro, { maxDecalHeightMeters: 0 });
+      const on = buildCollisionMesh(tro);
+      const keep = new Set<string>();
+      for (let ti = 0; ti < on.triangleCount; ti += 1) {
+        keep.add(Array.from(on.vertices.subarray(ti * 9, ti * 9 + 9)).join(','));
+      }
+      totalOff += off.triangleCount;
+      totalRemoved += off.triangleCount - on.triangleCount;
+      for (let ti = 0; ti < off.triangleCount && checked < 400; ti += 1) {
+        const v = off.vertices.subarray(ti * 9, ti * 9 + 9);
+        if (keep.has(Array.from(v).join(','))) continue;
+        const cx = (v[0]! + v[3]! + v[6]!) / 3;
+        const cy = (v[1]! + v[4]! + v[7]!) / 3;
+        const cz = (v[2]! + v[5]! + v[8]!) / 3;
+        // Every removed triangle must still have continuous asphalt 0.5-15 cm directly below it (centroid gap > 0 and <= 15 cm).
+        const hit = raycastCollisionMesh(on, { x: cx, y: cy + 0.01, z: cz }, { x: 0, y: -1, z: 0 }, 1, {
+          surfaceFilter: ['ground'],
+          doubleSided: true,
+        });
+        expect(hit).not.toBeNull();
+        expect(cy - hit!.point.y).toBeGreaterThan(0);
+        expect(cy - hit!.point.y).toBeLessThanOrEqual(0.151);
+        checked += 1;
+      }
+    }
+    expect(totalRemoved).toBeGreaterThan(0);
+    expect(totalRemoved / totalOff).toBeLessThan(0.15);
+  });
 });
